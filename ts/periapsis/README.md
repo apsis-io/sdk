@@ -58,6 +58,12 @@ import it never called).
   (ADR-0028) - `handle` is a plain sync WIT func, not `async func`, so a
   provider can't do async I/O through this seam (see `exec.ts` for the
   subprocess-shaped alternative).
+- **`fetch.ts`** - `fetch(input, init) -> Response`, a standard outbound
+  `fetch()`. Unlike every other module here, this one needs a build-time
+  compose step, not just an import - see "Outbound HTTP (`fetch.ts`)" below.
+- **`console.ts`** - `consoleP2`/`consoleP3`, typed narrower views onto
+  dwarf's built-in `console` global, split by which world shape can safely
+  use which methods - see the `console` section below for why.
 
 ## Type declarations
 
@@ -71,8 +77,13 @@ declaration - not one grab-bag:
   (the `wit` global's `Stream` helper, `StreamReadableU8`/`StreamWritableU8`)
   - not periapsis-specific, applies to any WASI 0.3/p3 world.
 - **`types/dwarf.d.ts`** - dwarf's own runtime globals that aren't derived
-  from any WIT interface at all (`console` - see dwarf's own README "Console"
-  section).
+  from any WIT interface at all: `console` (see dwarf's own README "Console"
+  section), `TextEncoder`/`TextDecoder` (always on, no `--polyfill`, real
+  UTF-8 - `codec.ts` uses these instead of a hand-rolled ASCII-only codec, a
+  correctness fix as well as a simplification), and `process` (also always
+  on - `env`/`argv`/`cwd()`/`exit()`, no stdout/stderr surface; doesn't
+  overlap with `config.ts` - `process.env` is raw OS env vars, `config.ts`
+  is periapsis's own structured per-pod config).
 
 dwarf does no type-checking of its own (and `jco types`/`--emit-types`
 doesn't actually match dwarf's runtime conventions - see `exec.ts`'s header
@@ -94,6 +105,73 @@ local/interactive debugging (e.g. `trail --component` against a real
 terminal). `log.ts`'s `info`/`warn`/etc go through `periapsis:component/log`
 to the HOST, which routes to journald/`kubectl logs` - use that for anything
 meant to actually be visible once deployed as a pod.
+
+**`console.ts`** splits the single `console` global into two narrower,
+world-shape-specific views - `consoleP2` (`log`/`info`/`debug`/`warn`/`error`)
+and `consoleP3` (`print`/`println`/`eprint`/`eprintln`) - for a real, confirmed
+reason, not just organization: **mixing `wasi:cli/stdout@0.2.x` (which
+`log`/`info`/`debug` need) with `wasi:cli/command@0.3.0` (any p3 world) in the
+same world fails at WIT-resolution time.** Confirmed empirically (not
+inferred): a world with both `include wasi:cli/command@0.3.0;` and
+`import wasi:cli/stdout@0.2.12;` errors `package 'wasi:cli@0.2.12' not found`
+during auto-vendoring, even via a clean full auto-vendor - dwarf's WIT
+tooling can't resolve two different versions of the same package name in one
+world. A p3 component can safely use `consoleP3` (works against the 0.3.x
+stdout/stderr its `wasi:cli/command@0.3.0` include already provides) but
+**cannot** also use `consoleP2` - importing `wasi:cli/stdout@0.2.x` to get it
+won't build alongside that world's own `wasi:cli@0.3.0`. Both are just typed
+views onto the same runtime `console` global (zero extra cost) - import only
+the one matching your world's shape, so calling the wrong family is a type
+error at author time, not a build failure discovered later.
+
+(Flagged to dwarf-main as a real gap/feature request: `log`/`info`/`debug`
+could in principle also prefer `wasi:cli/stdout@0.3.x` first the same way
+`print`/`println` already do, which would sidestep this limitation entirely
+for p3 consumers - not yet implemented as of this writing.)
+
+## Outbound HTTP (`fetch.ts`)
+
+`fetch.ts` wraps `dwarf:fetch/client` (a SEPARATE component,
+`fetch-provider/fetch-provider.wasm`, built from dwarf's own
+`examples/fetch-provider` - not part of dwarf itself, adapted from that
+example's own `fetch.js` DX wrapper). Unlike every other module in this
+package, importing it isn't enough on its own - `dwarf:fetch/client`'s
+implementation needs `wit.Future`/`wit.Stream` type indices that only make
+sense inside `fetch-provider`'s own fixed, minimal world, so it has to be
+composed in as a separate component at build time:
+
+1. Vendor `fetch-provider/package.wit`'s `interface client {...}` block into
+   your own `wit/deps/dwarf-fetch/package.wit`, and
+   `import dwarf:fetch/client;` in your world (auto-vendoring also works -
+   the global wkg config's `dwarf` namespace mapping, alongside `periapsis`,
+   points at the same local registry `wit/.registry/`, which includes a copy
+   of this interface).
+2. Build with `--polyfill fetch-classes` (for `Request`/`Response`/`Headers`),
+   then compose `fetch-provider.wasm` in via `wac plug`:
+   ```bash
+   dwarf --wit wit --js dist/main.js -o my-app.wasm --polyfill fetch-classes
+   wac plug --plug .../sdk/ts/periapsis/fetch-provider/fetch-provider.wasm my-app.wasm -o my-app.composed.wasm
+   ```
+   Run the COMPOSED output, not the plain one - the plain one has an
+   unsatisfied `dwarf:fetch/client` import and fails to instantiate.
+
+`fetch` is `async` end to end - only callable from an async export.
+`fetch-provider/build.sh` rebuilds `fetch-provider.wasm` from dwarf's own
+example (`$DWARF_REPO`, defaults to `~/git/dwarf`) - re-run it when picking
+up a newer dwarf.
+
+Live-validated end to end: a real POST with a body, through `fetch.ts`,
+composed via `wac plug`, run on `trail --p3` against a real local HTTP
+server - correct status/body round-trip. (One real dead end along the way,
+worth recording: an empty response body first looked like a `fetch-provider`
+or trail bug, reproduced identically under raw `wasmtime` too - turned out to
+be the test's OWN throwaway HTTP server not decoding `Transfer-Encoding:
+chunked` request bodies, nothing to do with `fetch-provider`/trail at all.)
+
+Known limits (inherited from `fetch-provider`, not fixed here): response
+bodies are read with a single `read(65536)` call, not a drain loop - bodies
+larger than 64KB are truncated. `request.url` is parsed with a small regex
+(`http(s)://host[:port]/path?query`), not full WHATWG URL parsing.
 
 ## What this doesn't replace
 

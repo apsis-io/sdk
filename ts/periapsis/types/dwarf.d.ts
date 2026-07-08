@@ -1,6 +1,46 @@
 // dwarf's own built-in runtime globals - NOT derived from any WIT interface
 // (contrast periapsis.d.ts/wit.d.ts, which both mirror real WIT-level
-// bindings). Currently just `console`.
+// bindings). console, TextEncoder/TextDecoder, and process.
+
+// dwarf's built-in TextEncoder/TextDecoder (always on, no --polyfill, zero
+// extra cost) - confirmed with dwarf-main: hand-written by dwarf itself and
+// verified byte-for-byte against real TextEncoder/TextDecoder, including
+// WHATWG-spec lone-surrogate replacement. codec.ts uses these instead of a
+// hand-rolled charCodeAt/fromCharCode codec (which was ASCII-only and
+// silently mangled genuine non-ASCII text before dwarf shipped these).
+declare class TextEncoder {
+  readonly encoding: "utf-8";
+  encode(input?: string): Uint8Array;
+}
+declare class TextDecoder {
+  readonly encoding: string;
+  constructor(label?: string);
+  decode(input?: Uint8Array): string;
+}
+
+// dwarf's built-in `process` global (always on, no --polyfill - same
+// always-exists-throws-a-clear-error-if-the-backing-import-is-missing
+// pattern as console). Needs wasi:cli/environment@0.2.x imported for env/
+// argv/cwd, wasi:cli/exit@0.2.x for exit() - both interfaces are IDENTICAL
+// in shape between WASI 0.2 and 0.3 (unlike stdout/stderr), so no version
+// branching needed.
+//
+// Does NOT overlap with periapsis:component/config (config.ts) - process.env
+// is raw OS-level environment variables, config.ts is periapsis's own
+// structured per-pod config (periapsis.io/config.<key> annotations). Safe to
+// use both. Also does not overlap with console - process has no stdout/
+// stderr surface at all, purely env/argv/exit.
+interface Process {
+  /** Always freshly re-fetched from wasi:cli/environment on access, never cached. */
+  readonly env: Record<string, string>;
+  /** Exactly get-arguments()'s raw list - no synthetic node/script-path entries prepended. */
+  readonly argv: string[];
+  /** wasi:cli/environment's initial-cwd() - null (not fabricated) when WASI reports none. */
+  cwd(): string | null;
+  /** Maps to wasi:cli/exit's exit-with-code(u8) - code is coerced to a byte. */
+  exit(code?: number): never;
+}
+declare const process: Process;
 
 // dwarf's built-in `console` global (see dwarf's own README's "Console"
 // section, and confirmed directly with dwarf-main - the README was still
