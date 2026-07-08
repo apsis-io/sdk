@@ -93,41 +93,52 @@ than this package covers (its own `wasi:filesystem`/`wasi:sockets` usage, say)
 still declares those itself, same as before.
 
 **`console` (`types/dwarf.d.ts`) vs `log.ts`**: two different logging paths,
-not redundant. `console.{log,info,debug,warn,error}` are sync (need
-`wasi:cli/stdout`/`stderr@0.2.12` imported) and
-`console.{print,println,eprint,eprintln}` are async, `Promise`-returning
-(prefer `wasi:cli/stdout`/`stderr@0.3.x` if imported, else fall back to the
-0.2.x sync path) - see `types/dwarf.d.ts`'s `Console` interface doc comment
-for the full behavior, including a real safety constraint: the four async variants
-crash if called from a plain SYNC export (no active component-model-async
-task state outside an async export call). Reach for `console` during
-local/interactive debugging (e.g. `trail --component` against a real
-terminal). `log.ts`'s `info`/`warn`/etc go through `periapsis:component/log`
-to the HOST, which routes to journald/`kubectl logs` - use that for anything
-meant to actually be visible once deployed as a pod.
+not redundant. `console.{log,info,debug,warn,error}` now try WASI 0.2 first
+(`wasi:cli/stdout`/`stderr@0.2.12` - sync, returns `void`) and fall back to
+WASI 0.3's async write-via-stream (`Promise<void>`) when only that's
+imported, and `console.{print,println,eprint,eprintln}` are unconditionally
+async, `Promise`-returning, with the same 0.3-preferred/0.2-fallback
+priority - see `types/dwarf.d.ts`'s `Console` interface doc comment for the
+full behavior, including two real safety constraints: (1) the async family
+crashes if called from a plain SYNC export (no active component-model-async
+task state outside an async export call), and (2) in the 0.3-fallback case,
+an *unawaited* call is only safe if something else in the same async export
+subsequently awaits/yields afterward - as the literal last statement before
+the export returns, it silently produces no output at all (confirmed
+empirically). Reach for `console` during local/interactive debugging (e.g.
+`trail --component` against a real terminal). `log.ts`'s `info`/`warn`/etc go
+through `periapsis:component/log` to the HOST, which routes to
+journald/`kubectl logs` - use that for anything meant to actually be visible
+once deployed as a pod.
 
 **`console.ts`** splits the single `console` global into two narrower,
-world-shape-specific views - `consoleP2` (`log`/`info`/`debug`/`warn`/`error`)
-and `consoleP3` (`print`/`println`/`eprint`/`eprintln`) - for a real, confirmed
-reason, not just organization: **mixing `wasi:cli/stdout@0.2.x` (which
-`log`/`info`/`debug` need) with `wasi:cli/command@0.3.0` (any p3 world) in the
-same world fails at WIT-resolution time.** Confirmed empirically (not
+world-shape-specific views - `consoleP2` (`log`/`info`/`debug`/`warn`/`error`,
+guaranteed synchronous) and `consoleP3` (all nine methods, all
+`Promise`-returning) - for a real, confirmed reason, not just organization:
+**mixing `wasi:cli/stdout@0.2.x` with `wasi:cli/command@0.3.0` (any p3 world)
+in the same world fails at WIT-resolution time.** Confirmed empirically (not
 inferred): a world with both `include wasi:cli/command@0.3.0;` and
 `import wasi:cli/stdout@0.2.12;` errors `package 'wasi:cli@0.2.12' not found`
 during auto-vendoring, even via a clean full auto-vendor - dwarf's WIT
 tooling can't resolve two different versions of the same package name in one
-world. A p3 component can safely use `consoleP3` (works against the 0.3.x
-stdout/stderr its `wasi:cli/command@0.3.0` include already provides) but
-**cannot** also use `consoleP2` - importing `wasi:cli/stdout@0.2.x` to get it
-won't build alongside that world's own `wasi:cli@0.3.0`. Both are just typed
-views onto the same runtime `console` global (zero extra cost) - import only
-the one matching your world's shape, so calling the wrong family is a type
-error at author time, not a build failure discovered later.
+world. Because of that, a p3-only world can never get the SYNC backing for
+`log`/`info`/`debug`/`warn`/`error` - dwarf now falls those back to the same
+async WASI-0.3 write-via-stream path `print`/`println` already used, so
+`consoleP3` covers all nine methods rather than just the four
+print-family ones, all typed `Promise<void>` (not the `void | Promise<void>`
+union `console` itself has, since a p3-only world always goes through the
+async backing) - **every call must be awaited** per the safety constraint
+above. `consoleP2` remains guaranteed-sync/fire-and-forget-safe, for p2
+worlds only. Both are just typed views onto the same runtime `console` global
+(zero extra cost) - import only the one matching your world's shape, so an
+accidental fire-and-forget call in a p3-only world is a type error at author
+time instead of silently-missing output at runtime.
 
-(Flagged to dwarf-main as a real gap/feature request: `log`/`info`/`debug`
-could in principle also prefer `wasi:cli/stdout@0.3.x` first the same way
-`print`/`println` already do, which would sidestep this limitation entirely
-for p3 consumers - not yet implemented as of this writing.)
+(The WIT-mixing limitation itself was reported to dwarf-main as a real
+gap/feature request; dwarf-main confirmed it as an upstream wkg/wit-parser
+dependency-resolution constraint, not a dwarf bug it can paper over, and
+shipped the `log`/`info`/`debug`/`warn`/`error` p3-fallback described above in
+response - both independently verified live against a fresh dwarf build.)
 
 ## Outbound HTTP (`fetch.ts`)
 

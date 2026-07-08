@@ -43,42 +43,64 @@ interface Process {
 declare const process: Process;
 
 // dwarf's built-in `console` global (see dwarf's own README's "Console"
-// section, and confirmed directly with dwarf-main - the README was still
-// catching up on print/println/eprint/eprintln when this was written).
-// `console` always EXISTS regardless of what's imported; calling a method
-// whose backing import is missing throws (log/info/debug/warn/error) or
-// rejects (print/println/eprint/eprintln) with a clear error naming what to
-// add, rather than being silently absent.
+// section, and confirmed directly with dwarf-main throughout - the README
+// was still catching up on print/println/eprint/eprintln, and then on
+// log/info/debug/warn/error's p3 fallback, at various points this was
+// written against). `console` always EXISTS regardless of what's imported;
+// calling a method whose backing import is missing throws or rejects with a
+// clear error naming what to add, rather than being silently absent.
 //
-// Two families with DIFFERENT sync/async shapes and DIFFERENT safety rules:
+// log/info/debug (need wasi:cli/stdout) and warn/error (need
+// wasi:cli/stderr) now try WASI 0.2 first (get-stdout/get-stderr - SYNC,
+// returns void) and fall back to WASI 0.3's write-via-stream (ASYNC, returns
+// a Promise) when only that's imported - this directly unblocks a p3-only
+// world, which per the mixing constraint below can never get the 0.2.x
+// import: console.log/error etc. now just work there via the 0.3 fallback
+// instead of throwing. Format non-string args via JSON.stringify (a compact
+// single-line dump, NOT Node's multi-line util.inspect - plain objects/
+// arrays print fine, but console.log(undefined) prints a BLANK line, not
+// "undefined" - JSON.stringify(undefined) is the JS value undefined,
+// coerced to '' by the internal join - and a circular-reference object
+// THROWS SYNCHRONOUSLY at the call site, in EITHER backing).
 //
-// - log/info/debug (need wasi:cli/stdout@0.2.12) and warn/error (need
-//   wasi:cli/stderr@0.2.12) are SYNC, return void, and format non-string args
-//   via JSON.stringify (a compact single-line dump, NOT Node's multi-line
-//   util.inspect - plain objects/arrays print fine, but console.log(undefined)
-//   prints a BLANK line, not "undefined" - JSON.stringify(undefined) is the
-//   JS value undefined, coerced to '' by the internal join - and a circular-
-//   reference object THROWS SYNCHRONOUSLY at the call site). Safe to call
-//   fire-and-forget from anywhere, including a plain sync export.
-// - print/println/eprint/eprintln are ASYNC (always return a Promise, reject
-//   on failure, never throw synchronously) and write raw args with no
-//   JSON.stringify formatting - println adds a trailing newline, print
-//   doesn't; the e-prefixed pair go to stderr instead of stdout. Backing,
-//   in priority order: wasi:cli/stdout@0.3.x/stderr@0.3.x if imported
-//   (genuinely async, real stream<u8> writes) else wasi:cli/stdout@0.2.x/
-//   stderr@0.2.x (a sync write wrapped in an async fn, still Promise-
-//   returning for API uniformity) else the promise rejects naming both
-//   import options.
+//   SAFETY CONSTRAINT (0.3 fallback only - the 0.2 path is unaffected,
+//   always synchronous/complete-on-return): the returned Promise MUST be
+//   awaited. Confirmed empirically, not just documented: two UNAWAITED
+//   log() calls followed by an AWAITED third one all flushed correctly (the
+//   await forces the prior writes through) - but an unawaited call made as
+//   the LAST statement before an async export returns produced NO output at
+//   all, silently. `await console.log(...)` is the safe pattern in a
+//   p3-only world; fire-and-forget (fine under the 0.2 sync path) is not.
+//
+// print/println/eprint/eprintln are ALWAYS async (return a Promise, reject
+// on failure, never throw synchronously) and write raw args with no
+// JSON.stringify formatting - println/eprintln add a trailing newline,
+// print/eprint don't; the e-prefixed pair go to stderr instead of stdout.
+// Same backing priority as log/info/debug/warn/error: wasi:cli/stdout@0.3.x/
+// stderr@0.3.x if imported (genuinely async, real stream<u8> writes) else
+// wasi:cli/stdout@0.2.x/stderr@0.2.x (a sync write wrapped in an async fn,
+// still Promise-returning for API uniformity) else the promise rejects
+// naming both import options.
 //
 //   SAFETY CONSTRAINT: the 0.3-backed path uses component-model-async stream/
 //   future machinery that has NO task state outside an active async export
 //   call - calling print/println/eprint/eprintln (even indirectly) from a
 //   PLAIN SYNC export crashes outright ("no active task state" panic, not a
-//   graceful error/rejection). Only call these four from within an async
+//   graceful error/rejection). Only call these four (or log/info/debug/warn/
+//   error, when only a 0.3 backing is available) from within an async
 //   export (e.g. wasi:cli/run@0.3.0, or an async periapsis:magic/handler -
-//   note the magic seam's own handle is NOT async func, see magic.ts). If
-//   you need console output from a sync export, use log/info/debug/warn/error
-//   instead - they have no such restriction.
+//   note the magic seam's own handle is NOT async func, see magic.ts).
+//
+// MIXING CONSTRAINT (confirmed empirically, a wkg/wit-parser dependency-
+// resolution limit, not a dwarf bug dwarf can paper over): a world can't
+// vendor/resolve BOTH wasi:cli@0.2.x AND wasi:cli@0.3.0 at once - `include
+// wasi:cli/command@0.3.0;` plus `import wasi:cli/stdout@0.2.12;` in the same
+// world fails auto-vendoring ("package 'wasi:cli@0.2.12' not found") even via
+// a clean full auto-vendor. So a p3 world (anything with `include
+// wasi:cli/command@0.3.0`) can NEVER get the SYNC (guaranteed-void,
+// fire-and-forget-safe) behavior for log/info/debug/warn/error - only the
+// async 0.3 fallback, with the must-await constraint above. See
+// console.ts's consoleP2/consoleP3 for typed views reflecting this split.
 //
 // This whole family is a lower-level alternative to log.ts's info/warn/etc
 // (which go through periapsis:component/log -> the host -> journald/kubectl
@@ -87,18 +109,19 @@ declare const process: Process;
 // --component`, no host log plumbing needed), and log.ts for anything meant
 // to actually reach `kubectl logs` in a deployed pod.
 interface Console {
-  log(...args: unknown[]): void;
-  info(...args: unknown[]): void;
-  debug(...args: unknown[]): void;
-  warn(...args: unknown[]): void;
-  error(...args: unknown[]): void;
-  /** No trailing newline, stdout. Async-export only - see the safety constraint above. */
+  /** void when backed by WASI 0.2 (sync, fire-and-forget safe); Promise<void> (must be awaited) when only WASI 0.3 is available - see the safety constraint above. */
+  log(...args: unknown[]): void | Promise<void>;
+  info(...args: unknown[]): void | Promise<void>;
+  debug(...args: unknown[]): void | Promise<void>;
+  warn(...args: unknown[]): void | Promise<void>;
+  error(...args: unknown[]): void | Promise<void>;
+  /** No trailing newline, stdout. Always async - see the safety constraints above. */
   print(...args: unknown[]): Promise<void>;
-  /** Trailing newline, stdout. Async-export only - see the safety constraint above. */
+  /** Trailing newline, stdout. Always async - see the safety constraints above. */
   println(...args: unknown[]): Promise<void>;
-  /** No trailing newline, stderr. Async-export only - see the safety constraint above. */
+  /** No trailing newline, stderr. Always async - see the safety constraints above. */
   eprint(...args: unknown[]): Promise<void>;
-  /** Trailing newline, stderr. Async-export only - see the safety constraint above. */
+  /** Trailing newline, stderr. Always async - see the safety constraints above. */
   eprintln(...args: unknown[]): Promise<void>;
 }
 declare const console: Console;
