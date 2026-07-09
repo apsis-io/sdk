@@ -87,6 +87,14 @@ func Serve(addr string, version string, handler Handler) error {
 		return err
 	}
 
+	// A stale socket file from a prior run would make Listen fail; clear it
+	// (mirrors the pre-wRPC Rust serve_provider this protocol was ported
+	// from - tools/trail/src/remote_simple.rs's own module doc comment -
+	// and sdk/ts/magicseam's equivalent). A no-op, harmlessly, for "tcp".
+	if network == "unix" {
+		_ = os.Remove(address)
+	}
+
 	listener, err := net.Listen(network, address)
 	if err != nil {
 		return fmt.Errorf("magicseam: listen %s: %w", addr, err)
