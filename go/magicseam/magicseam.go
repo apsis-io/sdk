@@ -132,6 +132,16 @@ func parseAddr(addr string) (network, address string, err error) {
 // connection - never fatal to Serve's own accept loop.
 func serveConn(conn net.Conn, version string, handler Handler) {
 	defer conn.Close()
+	// Explicit, not relying on Go's own TCP default: the request/response
+	// pattern below (small write, then wait for a small reply) is exactly
+	// what Nagle's algorithm + delayed ACKs combine to add real per-call
+	// latency to over a genuine network - see remote_simple.rs's matching
+	// set_nodelay call and its comment for the live-confirmed symptom
+	// (a benchmark that ran instantly over a unix socket took minutes over
+	// a real Service ClusterIP before both sides set this).
+	if tc, ok := conn.(*net.TCPConn); ok {
+		tc.SetNoDelay(true)
+	}
 	r := bufio.NewReader(conn)
 
 	pre := make([]byte, 4)
