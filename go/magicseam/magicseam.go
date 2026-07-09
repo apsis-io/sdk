@@ -1,0 +1,218 @@
+// Copyright (C) 2025-2026 Malformed C. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
+
+// Package magicseam lets a genuinely non-WASM Go program expose the magic
+// seam (ADR-0028, periapsis:magic/handler) as a remote provider a trail-run
+// WASM consumer can bind to via --plug-remote-simple <addr>[#tier].
+//
+// This is the provider (server) side of the magic sock's revived MSK1
+// protocol (tools/trail/src/remote_simple.rs) - the ORIGINAL magic-sock wire
+// protocol, before wRPC replaced it for the WASM-to-WASM case (which needs
+// wRPC's generality: arbitrary WIT interfaces, resource handles, stream<T>).
+// The magic seam's own interface is exactly the value-type-only case MSK1
+// already handled (handle: func(request: list<u8>) -> result<list<u8>,
+// error>), so this package implements just that - no WIT-RPC framework, no
+// wasmtime, no dwarf, nothing WASM-shaped at all. A plain Go program calling
+// Serve is a real provider.
+//
+// Version gating happens on the CONSUMER (trail) side, not here: Serve
+// always accepts a connecting consumer's handshake regardless of the
+// version it requires - trail's own --plug-remote-simple gate (the same
+// version_compatible/--plug-min-version logic every other plug tier already
+// goes through) is the enforcement point. This package deliberately does
+// not reimplement that semver logic.
+package magicseam
+
+import (
+	"bufio"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"strings"
+)
+
+// Handler processes one seam call: request in, response out. A returned
+// error maps to the wire's Unavailable tag (the transport-neutral,
+// fail-closed default) UNLESS it is (or wraps) ErrRejected or ErrTooLarge,
+// which map to their own distinct wire tags - use errors.Is against those
+// two sentinels from Handler, same as any other Go error-wrapping
+// convention, don't compare error strings.
+type Handler func(request []byte) ([]byte, error)
+
+// ErrRejected and ErrTooLarge are the two OTHER seam error tags a Handler
+// can return (via errors.Is) beyond the Unavailable default - matching
+// periapsis:magic/handler's error variant exactly (unavailable/rejected/
+// too-large).
+var (
+	ErrRejected = errors.New("magicseam: rejected")
+	ErrTooLarge = errors.New("magicseam: too large")
+)
+
+// Wire constants - see tools/trail/src/remote_simple.rs's module doc
+// comment for the authoritative protocol description this mirrors exactly.
+const (
+	preamble = "MSK1"
+	// maxFrame bounds a single frame so a hostile/garbled peer can't make
+	// this process allocate unbounded - matches remote_simple.rs's own
+	// MAX_FRAME (64 MiB, the seam's own too-large rejection ballpark).
+	maxFrame = 64 << 20
+
+	tagOK          byte = 0
+	tagUnavailable byte = 1
+	tagRejected    byte = 2
+	tagTooLarge    byte = 3
+)
+
+// Serve listens on addr ("unix:<path>" or "tcp:<host:port>", the exact same
+// syntax trail's own --plug-remote/--plug-remote-simple already use) and
+// serves the magic seam via handler, forever - one goroutine per accepted
+// connection (Go's cheap-goroutine model is a direct fit for what was
+// originally a thread-per-connection design in tools/trail's pre-wRPC
+// implementation). version is this provider's own self-declared seam
+// version (e.g. "0.1.0", matching periapsis:magic/handler@0.1.0) reported
+// at every handshake - purely informational from this package's own point
+// of view; the connecting trail consumer's gate is what actually enforces
+// compatibility against it.
+//
+// Blocks forever (like net.Listener.Accept's own typical use), returning
+// only on a listener-level error (bind failure, or the listener being
+// closed by other means - this package exposes no explicit Close/shutdown,
+// matching v1's scope of a long-running provider process).
+func Serve(addr string, version string, handler Handler) error {
+	network, address, err := parseAddr(addr)
+	if err != nil {
+		return err
+	}
+
+	listener, err := net.Listen(network, address)
+	if err != nil {
+		return fmt.Errorf("magicseam: listen %s: %w", addr, err)
+	}
+	defer listener.Close()
+
+	fmt.Fprintf(os.Stderr, "[magicseam] serving handler@%s on %s\n", version, addr)
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			return fmt.Errorf("magicseam: accept on %s: %w", addr, err)
+		}
+		go serveConn(conn, version, handler)
+	}
+}
+
+// parseAddr mirrors tools/trail/src/remote_simple.rs's parse_addr exactly:
+// "unix:<path>" or "tcp:<host:port>", nothing else accepted.
+func parseAddr(addr string) (network, address string, err error) {
+	switch {
+	case strings.HasPrefix(addr, "unix:"):
+		p := strings.TrimPrefix(addr, "unix:")
+		if p == "" {
+			return "", "", fmt.Errorf("magicseam: unix address needs a path: %q", addr)
+		}
+		return "unix", p, nil
+	case strings.HasPrefix(addr, "tcp:"):
+		hp := strings.TrimPrefix(addr, "tcp:")
+		if hp == "" {
+			return "", "", fmt.Errorf("magicseam: tcp address needs host:port: %q", addr)
+		}
+		return "tcp", hp, nil
+	default:
+		return "", "", fmt.Errorf("magicseam: address must be unix:<path> or tcp:<host:port>, got %q", addr)
+	}
+}
+
+// serveConn is the per-connection loop: validate the preamble, handshake
+// (always accepting - see the package doc comment on why version gating is
+// the consumer's job, not this package's), then loop request/response
+// frames until the peer disconnects. Errors here just end this one
+// connection - never fatal to Serve's own accept loop.
+func serveConn(conn net.Conn, version string, handler Handler) {
+	defer conn.Close()
+	r := bufio.NewReader(conn)
+
+	pre := make([]byte, 4)
+	if _, err := io.ReadFull(r, pre); err != nil {
+		return
+	}
+	if string(pre) != preamble {
+		return // not a magic-sock client - silently drop, matching remote_simple.rs's server-side (now Go-side) intent
+	}
+
+	// The client's required version - read and discarded; this package
+	// always accepts (see doc comment). Reading it is still necessary to
+	// stay in sync with the wire protocol's framing.
+	if _, err := readFrame(r); err != nil {
+		return
+	}
+	if _, err := conn.Write([]byte{1}); err != nil { // accept = 1
+		return
+	}
+	if err := writeFrame(conn, []byte(version)); err != nil {
+		return
+	}
+
+	for {
+		request, err := readFrame(r)
+		if err != nil {
+			return // clean EOF or any read error ends the connection
+		}
+		response, err := handler(request)
+		if err != nil {
+			if _, werr := conn.Write([]byte{tagFor(err)}); werr != nil {
+				return
+			}
+			continue
+		}
+		if _, err := conn.Write([]byte{tagOK}); err != nil {
+			return
+		}
+		if err := writeFrame(conn, response); err != nil {
+			return
+		}
+	}
+}
+
+// tagFor maps a Handler-returned error to its wire tag: ErrRejected/
+// ErrTooLarge (via errors.Is, so a wrapped sentinel still matches) to their
+// own distinct tags, anything else to Unavailable - the transport-neutral,
+// fail-closed default.
+func tagFor(err error) byte {
+	switch {
+	case errors.Is(err, ErrRejected):
+		return tagRejected
+	case errors.Is(err, ErrTooLarge):
+		return tagTooLarge
+	default:
+		return tagUnavailable
+	}
+}
+
+func writeFrame(w io.Writer, b []byte) error {
+	var lenBuf [4]byte
+	binary.LittleEndian.PutUint32(lenBuf[:], uint32(len(b)))
+	if _, err := w.Write(lenBuf[:]); err != nil {
+		return err
+	}
+	_, err := w.Write(b)
+	return err
+}
+
+func readFrame(r io.Reader) ([]byte, error) {
+	var lenBuf [4]byte
+	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
+		return nil, err
+	}
+	n := binary.LittleEndian.Uint32(lenBuf[:])
+	if n > maxFrame {
+		return nil, fmt.Errorf("magicseam: frame length %d exceeds max %d", n, maxFrame)
+	}
+	buf := make([]byte, n)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return nil, err
+	}
+	return buf, nil
+}
