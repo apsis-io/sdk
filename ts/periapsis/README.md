@@ -64,6 +64,34 @@ import it never called).
 - **`console.ts`** - `consoleP2`/`consoleP3`, typed narrower views onto
   dwarf's built-in `console` global, split by which world shape can safely
   use which methods - see the `console` section below for why.
+- **`sockets.ts`** - `TcpSender`, a server-side (accepted) `tcp-socket`'s
+  send stream done right: ONE `send()` call and one long-lived writable per
+  *connection*, not per message. Wraps `wasi:sockets@0.3` (not
+  periapsis-specific) - extracted from `examples/wasm/js-dwarf-websocket`
+  after a real usage-pattern bug there (dropping the writable after every
+  message correctly end-of-streams `send()`'s own stream, triggering a
+  genuine TCP half-close of the write side - a well-behaved peer then
+  closes its own write side too, so the next `receive()` read legitimately
+  sees EOF) looked exactly like a platform bug for two separate
+  investigation passes before the actual mechanism was found. Also
+  `readExact(readable, n)`, a small loop-until-full helper. **p3-only**
+  (`wasi:sockets@0.3`'s `bind`/`listen`/accept has no p2 equivalent here).
+- **`websocket.ts`** - a real WebSocket **server**, hand-rolled on
+  `sockets.ts` + `sha1.ts`: `computeAcceptKey`/`parseUpgradeRequest`/
+  `buildUpgradeResponse` (the RFC 6455 handshake), `readHttpHeaders`,
+  `readFrame`/`buildTextFrame`/`buildBinaryFrame`/`buildCloseFrame`/
+  `WS_OPCODE` (RFC 6455 framing). `wasi:http/service` has no socket-hijack/
+  upgrade primitive, so this only works from a command-style component
+  (`wasi:cli/command`, not `http-service`/`trail --serve`) whose own `run()`
+  binds+listens directly - see `examples/wasm/js-dwarf-websocket`'s README
+  for the full story (live-validated: a real `WebSocket` client, multiple
+  messages round-tripped, clean close). **p3-only**, same reason as
+  `sockets.ts`.
+- **`sha1.ts`** - a minimal pure-JS SHA-1 (RFC 3174), no WIT dependency.
+  dwarf has no `crypto`/`crypto.subtle` at all; `websocket.ts`'s handshake
+  needs one for `Sec-WebSocket-Accept` (a checksum over fixed,
+  non-adversarial input - not a place SHA-1's broken collision resistance
+  would matter even if a real `crypto.subtle` were available).
 
 ## Type declarations
 
@@ -186,6 +214,7 @@ larger than 64KB are truncated. `request.url` is parsed with a small regex
 
 ## What this doesn't replace
 
-Filesystem (`writeFile`/`readFile`) and socket (`tcpSendReceive`) helpers
-already exist in some examples' own `periapsis.ts` (e.g. `js-dwarf-p3`) but
-weren't part of this package's requested scope - still per-example for now.
+Filesystem (`writeFile`/`readFile`) helpers already exist in some examples'
+own `periapsis.ts` (e.g. `js-dwarf-p3`) but weren't part of this package's
+scope - still per-example for now. (Socket helpers moved in as `sockets.ts`
+- see "Modules" above.)
