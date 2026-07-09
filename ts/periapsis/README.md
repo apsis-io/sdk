@@ -1,5 +1,8 @@
 # periapsis
 
+See also: [CHEATSHEET.md](CHEATSHEET.md) for a dense, single-page quick
+reference (signatures, gotchas, recipes) without the surrounding prose.
+
 Ergonomic TypeScript wrappers around Periapsis's `periapsis:*` WIT interfaces,
 for components built with [dwarf](https://github.com/apsis-io/dwarf)
 (QuickJS, genuine WASI 0.3/Preview 3 async). Consolidates what used to be a
