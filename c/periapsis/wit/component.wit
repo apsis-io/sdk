@@ -1,0 +1,300 @@
+package periapsis:component@0.1.0;
+
+interface types {
+  /// Shared string key/value attribute.
+  ///
+  /// Hosts must cap key length, value length, item count, and total encoded size
+  /// before accepting guest-provided attributes.
+  record attribute {
+    key: string,
+    value: string,
+  }
+}
+
+/// Host-provided component and workload identity.
+///
+/// Guests must treat this as informational. The host remains authoritative for
+/// Kubernetes object identity and may omit fields that are not available in a
+/// given embedding.
+interface identity {
+  use types.{attribute};
+
+  record identity-info {
+    component: string,
+    instance: string,
+    sdk-version: string,
+    workload: option<string>,
+    namespace: option<string>,
+    pod-name: option<string>,
+    pod-uid: option<string>,
+    pawn-name: option<string>,
+    node-name: option<string>,
+    attributes: list<attribute>,
+  }
+
+  get: func() -> identity-info;
+}
+
+/// Read-only component configuration scoped by the host.
+interface config {
+  variant config-value {
+    text(string),
+    boolean(bool),
+    signed(s64),
+    unsigned(u64),
+    float(f64),
+    bytes(list<u8>),
+    text-list(list<string>),
+  }
+
+  enum config-error {
+    invalid-key,
+    too-large,
+    unavailable,
+  }
+
+  get: func(key: string) -> result<option<config-value>, config-error>;
+}
+
+/// Bounded structured logging through the host.
+interface log {
+  use types.{attribute};
+
+  enum level {
+    trace,
+    debug,
+    info,
+    warn,
+    error,
+  }
+
+  record entry {
+    level: level,
+    target: option<string>,
+    message: string,
+    attributes: list<attribute>,
+  }
+
+  enum log-error {
+    too-large,
+    rate-limited,
+    unavailable,
+  }
+
+  emit: func(entry: entry) -> result<_, log-error>;
+}
+
+/// Low-cardinality metric reporting through the host.
+interface metrics {
+  use types.{attribute};
+
+  record labels {
+    values: list<attribute>,
+  }
+
+  enum metric-error {
+    invalid-name,
+    invalid-value,
+    too-many-labels,
+    rate-limited,
+    unavailable,
+  }
+
+  increment-counter: func(name: string, by: u64, labels: labels) -> result<_, metric-error>;
+  record-gauge: func(name: string, value: f64, labels: labels) -> result<_, metric-error>;
+  record-histogram: func(name: string, value: f64, labels: labels) -> result<_, metric-error>;
+}
+
+/// Best-effort component-local status reporting.
+///
+/// This is not Kubernetes PodStatus and must not be treated as lifecycle truth.
+/// Hosts may render reports in debug output, logs, metrics, events, or future
+/// Periapsis component-status surfaces.
+interface status {
+  use types.{attribute};
+
+  enum state {
+    starting,
+    ready,
+    degraded,
+    failed,
+    stopping,
+  }
+
+  record report {
+    component: string,
+    instance: string,
+    state: state,
+    reason: option<string>,
+    message: option<string>,
+    attributes: list<attribute>,
+    sequence: option<u64>,
+  }
+
+  enum status-error {
+    invalid,
+    too-large,
+    rate-limited,
+    unavailable,
+  }
+
+  notify: func(report: report) -> result<_, status-error>;
+}
+
+/// Deterministic transform ABI for embedded extensions and policy-like calls.
+interface transform {
+  use types.{attribute};
+
+  record context {
+    operation: string,
+    attributes: list<attribute>,
+  }
+
+  record input {
+    context: context,
+    media-type: option<string>,
+    body: list<u8>,
+  }
+
+  record output {
+    media-type: option<string>,
+    body: list<u8>,
+    attributes: list<attribute>,
+  }
+
+  enum transform-error {
+    invalid-input,
+    rejected,
+    too-large,
+    unavailable,
+  }
+
+  transform: func(input: input) -> result<output, transform-error>;
+}
+
+/// Periapsis-specific helper surface for HTTP filters.
+///
+/// The actual HTTP request/response ABI should be the standard
+/// `wasi:http/proxy` world in hosts that support WASI HTTP. This interface is
+/// deliberately limited to host metadata, decisions, and status hooks layered
+/// beside that standard world.
+interface http-filter {
+  use types.{attribute};
+  use status.{status-error};
+
+  enum phase {
+    request,
+    response,
+  }
+
+  record request-context {
+    route: option<string>,
+    authority: option<string>,
+    method: option<string>,
+    path: option<string>,
+    attributes: list<attribute>,
+  }
+
+  enum decision {
+    continue,
+    local-response,
+    reject,
+  }
+
+  record decision-report {
+    phase: phase,
+    decision: decision,
+    reason: option<string>,
+    attributes: list<attribute>,
+  }
+
+  report-decision: func(report: decision-report) -> result<_, status-error>;
+}
+
+/// Cooperative checkpoint/restore (ADR-0028 Phase 7). Transparent live C/R is
+/// infeasible for components (the component model encapsulates linear memory and
+/// wasmtime has no stack C/R), so a component that wants to survive a coordinated
+/// restart (promote/demote, reschedule) serializes its OWN state through this seam
+/// and the host carries the bytes across. The component drives it — the host only
+/// persists/produces the bytes — which keeps it inside the component model and
+/// works for long-running (looping / serving) guests the host can't snapshot
+/// mid-run:
+///
+///   - at startup, call `load`; a `some` result is prior state to restore, `none`
+///     is a cold start;
+///   - in the run/serve loop, poll `requested`; when true, serialize state, call
+///     `save`, then RETURN from the entrypoint (saving must be the guest's last act
+///     so the checkpoint is consistent — no work happens after it).
+interface checkpoint {
+  /// True when the host wants a checkpoint before an imminent coordinated restart.
+  requested: func() -> bool;
+  /// Persist the guest's serialized state across the restart. Should be the guest's
+  /// final act (call, then return) so the snapshot is a consistent quiescent state.
+  save: func(state: list<u8>);
+  /// The state persisted by a prior `save`, consumed once; `none` on a cold start.
+  load: func() -> option<list<u8>>;
+}
+
+/// First WASIp2 transform world.
+world extension-transform {
+  import identity;
+  import config;
+  import log;
+  import metrics;
+  import status;
+
+  export transform;
+}
+
+/// First HTTP filter helper world.
+///
+/// A concrete HTTP filter component is expected to also implement the standard
+/// `wasi:http/proxy` world. The include/import for that world is intentionally
+/// deferred until the first proxy host pins the exact WASI HTTP version.
+world filter-http {
+  import identity;
+  import config;
+  import log;
+  import metrics;
+  import status;
+  import http-filter;
+}
+
+/// Provider world used by local composition tests and future adapter components.
+///
+/// A normal native host implements these interfaces directly. This world lets a
+/// WASM component provide the same host capabilities so `wasm-tools compose` can
+/// validate local WIT linking without a custom runtime.
+world host-capabilities {
+  export types;
+  export identity;
+  export status;
+}
+
+/// The `periapsis:host/*` capabilities the Trail runtime provides to a workload
+/// component (ADR-0026) - named from the host's side, since that is how the Trail
+/// embedder consumes it (`add_to_linker`). It lists ONLY the Periapsis imports;
+/// the standard WASI world (stdio, env, args, clocks, random, sockets,
+/// filesystem) is provided directly by wasmtime-wasi's `wasi:cli/command`
+/// bindings and is deliberately not restated here.
+///
+/// A Periapsis *workload* is the guest counterpart: an ordinary `wasi:cli`
+/// command (it exports `wasi:cli/run`, its entrypoint) that imports these
+/// `trail-host` interfaces. A single convenience world that bundles
+/// `wasi:cli/command` + these imports could be added later for guest authors,
+/// once the `wasi:cli` WIT deps are vendored.
+world trail-host {
+  import identity;
+  import config;
+  import log;
+  import metrics;
+  import status;
+  import checkpoint;
+}
+
+/// Minimal world for a stateful workload that only needs cooperative
+/// checkpoint/restore (ADR-0028 Phase 7) — imports just `checkpoint`, so under a
+/// deny-by-default profile it needs only the `checkpoint` host cap granted.
+world stateful-demo {
+  import checkpoint;
+}

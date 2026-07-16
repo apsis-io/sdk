@@ -1,0 +1,9 @@
+# Build artifacts (source of truth: periapsis.c, generated/*.c/.h/.o, wit/).
+*.o
+libperiapsis.a
+example/*.wasm
+
+# ...but keep the checked-in wit-bindgen outputs so the SDK builds without
+# wit-bindgen. The component-type object is a generated binding artifact, not a
+# transient build object.
+!generated/trail_host_component_type.o
