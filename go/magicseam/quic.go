@@ -38,10 +38,25 @@ import (
 // CA," not which specific peer presents it.
 const TrailQUICSNI = "trail-quic-peer"
 
+// quicALPNProtocol is the ALPN protocol negotiated on every trail QUIC
+// endpoint (client and server) - must match tools/trail/src/remote_quic.rs's
+// own ALPN_PROTOCOL and sdk/ts/magicseam/quic.ts's own ALPN constant
+// exactly. quic-go's own docs (client.go/server.go) say tls.Config "must
+// define an application protocol (using NextProtos)"; leaving it unset
+// worked by coincidence as long as BOTH peers left it unset (quic-go
+// apparently skips ALPN negotiation entirely in that degenerate case), but
+// broke live the moment trail's Rust client started offering
+// "trail-quic" (this same fix, on the Rust side) against this SDK's
+// still-empty NextProtos: quic-go's server had no configured protocol to
+// match the client's offered one against, and closed the connection
+// ("peer doesn't support any known protocol"). Setting the SAME string
+// here resolves it cleanly instead of leaving Go as the one implementation
+// relying on an undocumented, coincidental no-ALPN/no-ALPN pairing.
+const quicALPNProtocol = "trail-quic"
+
 // loadQUICTLSConfig builds a *tls.Config for either a QUIC dial or listen
 // from the three PEM files periapisis.io/tls-quic provisions - mutual TLS,
-// trusting ONLY the given CA bundle (never the system root store), no ALPN
-// (remote_quic.rs's rustls config sets none either, so neither side must).
+// trusting ONLY the given CA bundle (never the system root store).
 func loadQUICTLSConfig(certPath, keyPath, caPath string, isServer bool) (*tls.Config, error) {
 	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
@@ -58,6 +73,7 @@ func loadQUICTLSConfig(certPath, keyPath, caPath string, isServer bool) (*tls.Co
 	cfg := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		ServerName:   TrailQUICSNI,
+		NextProtos:   []string{quicALPNProtocol},
 	}
 	if isServer {
 		cfg.ClientCAs = pool
