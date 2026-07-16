@@ -9,6 +9,10 @@ cd "$(dirname "$0")/.."
 CC="$WASI_SDK/bin/wasm32-wasip3-clang"
 CFLAGS="-O2 -Wall -Wextra -std=c11"
 
+# The component-type object isn't checked in (it's a wit-bindgen artifact);
+# regenerate it (+ the .c/.h) if absent.
+[ -f generated/trail_host_component_type.o ] || ./bindgen.sh
+
 $CC $CFLAGS -c generated/trail_host.c -o generated/trail_host.o
 $CC $CFLAGS -c periapsis.c -o periapsis.o
 $CC $CFLAGS example/main.c periapsis.o generated/trail_host.o \

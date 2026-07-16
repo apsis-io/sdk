@@ -72,8 +72,10 @@ world root {
 ## Layout
 
 - `periapsis.h` / `periapsis.c` — the ergonomic SDK (hand-written).
-- `generated/` — checked-in `wit-bindgen c` output (`DO NOT EDIT`; refresh via
-  `bindgen.sh`).
+- `generated/` — `wit-bindgen c` output (`DO NOT EDIT`). The text bindings
+  (`trail_host.{c,h}`) are checked in; the component-type **object** is not (it's
+  a build artifact) — `make` / `build.sh` regenerate it via `bindgen.sh`, so
+  building needs `wit-bindgen` on PATH.
 - `wit/` — vendored `periapsis:component` WIT, the source of truth for `bindgen.sh`.
 - `example/` — a minimal guest component using the SDK.
 - `Makefile` — builds the archive + example.

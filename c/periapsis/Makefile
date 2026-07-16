@@ -23,10 +23,17 @@ all: libperiapsis.a
 libperiapsis.a: $(OBJS) $(TYPE_OBJ)
 	$(AR) rcs $@ $(OBJS) $(TYPE_OBJ)
 
-periapsis.o: periapsis.c periapsis.h generated/trail_host.h
+# The component-type object is a wit-bindgen artifact (not compiled from source),
+# so it isn't checked in - bindgen.sh emits it alongside the checked-in .c/.h.
+# A missing $(TYPE_OBJ) triggers a regen; the order-only prereq below makes the
+# compiles wait for it without forcing a rebuild once it exists.
+$(TYPE_OBJ):
+	./bindgen.sh
+
+periapsis.o: periapsis.c periapsis.h generated/trail_host.h | $(TYPE_OBJ)
 	$(CC) $(CFLAGS) -c periapsis.c -o $@
 
-generated/trail_host.o: generated/trail_host.c generated/trail_host.h
+generated/trail_host.o: generated/trail_host.c generated/trail_host.h | $(TYPE_OBJ)
 	$(CC) $(CFLAGS) -c generated/trail_host.c -o $@
 
 example: example/c-sdk-example.wasm
@@ -38,4 +45,4 @@ bindgen:
 	./bindgen.sh
 
 clean:
-	rm -f $(OBJS) libperiapsis.a example/c-sdk-example.wasm
+	rm -f $(OBJS) $(TYPE_OBJ) libperiapsis.a example/c-sdk-example.wasm
