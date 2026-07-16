@@ -43,12 +43,12 @@ const PREAMBLE = "MSK1";
 // Matches remote_simple.rs's own MAX_FRAME (64 MiB, the seam's own
 // too-large rejection ballpark) - bounds a single frame so a hostile/
 // garbled peer can't make this process allocate unbounded.
-const MAX_FRAME = 64 << 20;
+export const MAX_FRAME = 64 << 20;
 
-const TAG_OK = 0;
-const TAG_UNAVAILABLE = 1;
-const TAG_REJECTED = 2;
-const TAG_TOO_LARGE = 3;
+export const TAG_OK = 0;
+export const TAG_UNAVAILABLE = 1;
+export const TAG_REJECTED = 2;
+export const TAG_TOO_LARGE = 3;
 
 type ParsedAddr = { path: string } | { host: string; port: number };
 
@@ -84,7 +84,7 @@ function parseAddr(addr: string): ParsedAddr {
 // see that example's README). Encoding as one buffer here avoids the
 // two-small-writes shape entirely, on top of the explicit setNoDelay below
 // - belt and suspenders, not relying on just one fix.
-function encodeFrame(bytes: Uint8Array): Buffer {
+export function encodeFrame(bytes: Uint8Array): Buffer {
   const out = Buffer.allocUnsafe(4 + bytes.length);
   out.writeUInt32LE(bytes.length, 0);
   Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).copy(out, 4);
@@ -113,7 +113,7 @@ class SocketReader {
   }
 }
 
-async function readFrame(reader: SocketReader): Promise<Buffer> {
+export async function readFrameFromSocketReader(reader: SocketReader): Promise<Buffer> {
   const lenBuf = await reader.readExact(4);
   const len = lenBuf.readUInt32LE(0);
   if (len > MAX_FRAME) {
@@ -122,7 +122,7 @@ async function readFrame(reader: SocketReader): Promise<Buffer> {
   return reader.readExact(len);
 }
 
-function tagFor(e: unknown): number {
+export function tagFor(e: unknown): number {
   if (e instanceof SeamRejectedError) return TAG_REJECTED;
   if (e instanceof SeamTooLargeError) return TAG_TOO_LARGE;
   return TAG_UNAVAILABLE;
@@ -145,14 +145,14 @@ async function handleConnection(socket: net.Socket, version: string, handler: Ha
 
     // The client's required version - read and discarded; this package
     // always accepts (see module doc comment).
-    await readFrame(reader);
+    await readFrameFromSocketReader(reader);
     socket.write(Buffer.from([1])); // accept = 1
     socket.write(encodeFrame(Buffer.from(version, "utf8")));
 
     for (;;) {
       let request: Buffer;
       try {
-        request = await readFrame(reader);
+        request = await readFrameFromSocketReader(reader);
       } catch {
         return; // clean EOF or any read error ends the connection
       }
