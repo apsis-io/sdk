@@ -1,0 +1,12 @@
+.{
+    .name = .magicseam,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "magicseam.zig",
+        "magicseam_test.zig",
+    },
+    .fingerprint = 0x906fb2a6e1b61172,
+}
