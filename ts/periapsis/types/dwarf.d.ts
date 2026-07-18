@@ -88,8 +88,8 @@ declare const process: Process;
 //   PLAIN SYNC export crashes outright ("no active task state" panic, not a
 //   graceful error/rejection). Only call these four (or log/info/debug/warn/
 //   error, when only a 0.3 backing is available) from within an async
-//   export (e.g. wasi:cli/run@0.3.0, or an async periapsis:magic/handler -
-//   note the magic seam's own handle is NOT async func, see magic.ts).
+//   export (e.g. wasi:cli/run@0.3.0, or periapsis:magic/handler's handle -
+//   the magic seam's own handle IS async func, see magic.ts).
 //
 // MIXING CONSTRAINT (confirmed empirically, a wkg/wit-parser dependency-
 // resolution limit, not a dwarf bug dwarf can paper over): a world can't

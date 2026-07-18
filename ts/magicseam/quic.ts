@@ -13,7 +13,7 @@
 // it is not present in the currently-installed Bun release) was not
 // available to build against.
 //
-// TLS material: periapisis.io/tls-quic (internal/podlaunch/builder.go)
+// TLS material: periapsis.io/tls-quic (internal/podlaunch/builder.go)
 // bind-mounts a fresh cert/key/CA-bundle triple, signed by the trail CA,
 // into the pod - callers running as a pod should point dialQUIC/serveQUIC
 // at those three files directly.
