@@ -22,6 +22,51 @@ import { exec } from "../../../../sdk/ts/periapsis/exec.js";
 import { definePlugProvider } from "../../../../sdk/ts/periapsis/magic.js";
 ```
 
+**Building outside this monorepo?** The relative-import path above only
+resolves from inside `apsis-io/periapsis` itself - there's no npm package to
+install. Vendor a local snapshot instead, the same way WIT consumers already
+vendor `periapsis:component` (`wit/sync-consumer.sh`):
+
+```sh
+../../../sdk/ts/sync-consumer.sh vendor/periapsis-sdk   # path relative to your project
+```
+
+Copies the whole SDK (every module, `types/`, `fetch-provider/`) into
+`vendor/periapsis-sdk/` in your own tree; re-run it to pick up upstream
+changes (it's a snapshot copy, not a symlink - `--delete`d and replaced each
+run, same model as the WIT sync script). Update your imports to point at
+that directory instead.
+
+**Or install it from npm.** This directory now has a `package.json`
+(`@apsis-io/periapsis-sdk`, Apache-2.0 - deliberately NOT this repo's own
+Business Source License 1.1, the same reasoning `shardkit` was carved out
+under GPL-3.0-or-later: a thin client SDK should be unencumbered even though
+`periapsis` core (the "Licensed Work") isn't - see CLAUDE.md). Ships raw
+`.ts` source, no build step (matches how every in-repo example already
+consumes it - Vite/esbuild transpile on the fly); `exports` maps both
+`./foo.js` and `./foo` specifiers to `./foo.ts`, so `import { identity }
+from "@apsis-io/periapsis-sdk/identity.js"` resolves the same way the
+in-repo relative imports already do. A consumer using plain `tsc` (no
+bundler) needs `allowArbitraryExtensions`/`noEmit` to resolve `.ts` from
+`node_modules` - not the common case for a dwarf-targeting project, but
+worth knowing.
+
+Not yet published - this repo (`malformed-c/periapsis`) is private, so
+`repository`/`homepage` fields are intentionally omitted from
+`package.json` for now (they'd 404 for anyone without access) rather than
+point at a repo the public can't see; add them back if/when the planned
+public showcase repo exists. Publishing itself needs `npm login` with
+publish rights on the `@apsis-io` org - from this directory:
+
+```sh
+npm login                        # your own npm credentials, not something an agent should do
+npm publish --access public      # publishConfig.access is already set, --access is belt-and-suspenders
+```
+
+Bump `version` in `package.json` before each publish (no CI workflow for
+this yet, unlike dwarf's own `.github/workflows/npm-publish.yml` - worth
+adding once this has real external consumers).
+
 **Import each module directly, not the `index.js` barrel** (unless you
 already use every `periapsis:component/*` interface): Vite/Rollup treats an
 `external` import (`periapsis:*`/`wasi:*` are marked external in every
@@ -64,9 +109,9 @@ import it never called).
 - **`fetch.ts`** - `fetch(input, init) -> Response`, a standard outbound
   `fetch()`. Unlike every other module here, this one needs a build-time
   compose step, not just an import - see "Outbound HTTP (`fetch.ts`)" below.
-- **`console.ts`** - `consoleP2`/`consoleP3`, typed narrower views onto
-  dwarf's built-in `console` global, split by which world shape can safely
-  use which methods - see the `console` section below for why.
+- **`console.ts`** - `consoleP3`, a typed, documented binding to dwarf's own
+  pinned `consoleP3` global - see the `console` section below for why it's
+  pinned rather than just re-exporting the plain `console`.
 - **`sockets.ts`** - `TcpSender`, a server-side (accepted) `tcp-socket`'s
   send stream done right: ONE `send()` call and one long-lived writable per
   *connection*, not per message. Wraps `wasi:sockets@0.3` (not
@@ -142,28 +187,28 @@ through `periapsis:component/log` to the HOST, which routes to
 journald/`kubectl logs` - use that for anything meant to actually be visible
 once deployed as a pod.
 
-**`console.ts`** splits the single `console` global into two narrower,
-world-shape-specific views - `consoleP2` (`log`/`info`/`debug`/`warn`/`error`,
-guaranteed synchronous) and `consoleP3` (all nine methods, all
-`Promise`-returning) - for a real, confirmed reason, not just organization:
-**mixing `wasi:cli/stdout@0.2.x` with `wasi:cli/command@0.3.0` (any p3 world)
-in the same world fails at WIT-resolution time.** Confirmed empirically (not
-inferred): a world with both `include wasi:cli/command@0.3.0;` and
-`import wasi:cli/stdout@0.2.12;` errors `package 'wasi:cli@0.2.12' not found`
-during auto-vendoring, even via a clean full auto-vendor - dwarf's WIT
-tooling can't resolve two different versions of the same package name in one
-world. Because of that, a p3-only world can never get the SYNC backing for
-`log`/`info`/`debug`/`warn`/`error` - dwarf now falls those back to the same
-async WASI-0.3 write-via-stream path `print`/`println` already used, so
-`consoleP3` covers all nine methods rather than just the four
-print-family ones, all typed `Promise<void>` (not the `void | Promise<void>`
-union `console` itself has, since a p3-only world always goes through the
-async backing) - **every call must be awaited** per the safety constraint
-above. `consoleP2` remains guaranteed-sync/fire-and-forget-safe, for p2
-worlds only. Both are just typed views onto the same runtime `console` global
-(zero extra cost) - import only the one matching your world's shape, so an
-accidental fire-and-forget call in a p3-only world is a type error at author
-time instead of silently-missing output at runtime.
+**`console.ts`** exports `consoleP3`, a typed binding to dwarf's own pinned
+`consoleP3` global (`types/dwarf.d.ts`) - all nine methods, all
+`Promise`-returning. This used to be a `consoleP2`/`consoleP3` split (a
+guaranteed-sync view for p2 worlds alongside the async p3 one), for a real,
+confirmed reason: **mixing `wasi:cli/stdout@0.2.x` with
+`wasi:cli/command@0.3.0` (any p3 world) in the same world fails at
+WIT-resolution time.** Confirmed empirically (not inferred): a world with
+both `include wasi:cli/command@0.3.0;` and `import wasi:cli/stdout@0.2.12;`
+errors `package 'wasi:cli@0.2.12' not found` during auto-vendoring, even via
+a clean full auto-vendor - dwarf's WIT tooling can't resolve two different
+versions of the same package name in one world. Since trail dropped WASI P2
+support entirely (ADR-0045), no world in this repo can be p2-only anymore, so
+`consoleP2` had no shape left that could use it and was removed - every
+world here is p3-only, so `consoleP3`'s async-only shape (**every call must
+be awaited** per the safety constraint above) is just how logging works now.
+
+dwarf itself now builds `consoleP3` as a real, separately-implemented global
+(not just a type-level view) and aliases the plain `console` FROM it - so
+`console.ts`'s `consoleP3` binds directly to that pinned global via
+`globalThis.consoleP3`, rather than casting the plain `console` (which
+remains free to repoint at a future WASI version without affecting this
+binding).
 
 (The WIT-mixing limitation itself was reported to dwarf-main as a real
 gap/feature request; dwarf-main confirmed it as an upstream wkg/wit-parser

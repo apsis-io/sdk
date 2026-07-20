@@ -41,6 +41,15 @@ interface Process {
   exit(code?: number): never;
 }
 declare const process: Process;
+/**
+ * The same object as `process` - a real, separately-nameable binding dwarf
+ * builds FIRST (process is aliased FROM processP3, never the reverse), so
+ * code depending on "the WASI 0.3 process implementation, specifically"
+ * keeps working even if `process` is ever repointed at a future WASI
+ * version. See `console`'s own `consoleP3` note just below for the same
+ * pattern.
+ */
+declare const processP3: Process;
 
 // dwarf's built-in `console` global (see dwarf's own README's "Console"
 // section, and confirmed directly with dwarf-main throughout - the README
@@ -100,7 +109,7 @@ declare const process: Process;
 // wasi:cli/command@0.3.0`) can NEVER get the SYNC (guaranteed-void,
 // fire-and-forget-safe) behavior for log/info/debug/warn/error - only the
 // async 0.3 fallback, with the must-await constraint above. See
-// console.ts's consoleP2/consoleP3 for typed views reflecting this split.
+// console.ts's consoleP3 export for a typed view reflecting this.
 //
 // This whole family is a lower-level alternative to log.ts's info/warn/etc
 // (which go through periapsis:component/log -> the host -> journald/kubectl
@@ -125,3 +134,12 @@ interface Console {
   eprintln(...args: unknown[]): Promise<void>;
 }
 declare const console: Console;
+/**
+ * The same object as `console` - a real, separately-nameable binding dwarf
+ * builds FIRST (console is aliased FROM consoleP3, never the reverse), for
+ * code that wants "the WASI 0.3 implementation, specifically" and doesn't
+ * want to be affected if `console` is ever repointed at a future WASI
+ * version. This is what `console.ts`'s own `consoleP3` export now binds to
+ * directly, instead of casting the (possibly-sync) plain `console`.
+ */
+declare const consoleP3: Console;

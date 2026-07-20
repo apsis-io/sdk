@@ -27,7 +27,7 @@ import { identity } from "../../../../sdk/ts/periapsis/identity.js";
 | `exec.ts` | `periapsis:host/exec@0.1.0` | **p3-only** (`stream<u8>`, async `wait`) |
 | `magic.ts` | `periapsis:magic/handler@0.1.0` | any (`handle` is sync) |
 | `fetch.ts` | `dwarf:fetch/client` (separate composed component) | any, `async`-only call site |
-| `console.ts` | dwarf's built-in `console` global | `consoleP2` / `consoleP3` split — see below |
+| `console.ts` | dwarf's built-in `consoleP3` global (pinned, not the plain `console`) | **p3-only** |
 | `sockets.ts` | `wasi:sockets/types@0.3.0` (not periapsis-specific) | **p3-only** |
 | `websocket.ts` | built on `sockets.ts` + `sha1.ts` | **p3-only**, command-style component only (no `wasi:http/service`) |
 | `sha1.ts` | none (pure JS) | any |
@@ -83,8 +83,8 @@ callSeam(hostHandle: (req: Uint8Array) => Uint8Array, req: Uint8Array): Uint8Arr
 // fetch.ts (async-export-only; needs wac plug compose, see README)
 fetch(input: string | Request, init?: RequestInit): Promise<Response>
 
-// console.ts — views onto the SAME runtime `console`, zero extra cost
-consoleP2: { log/info/debug/warn/error(...args): void }              // sync, fire-and-forget safe
+// console.ts — a pinned binding to dwarf's own consoleP3 global (real,
+// separately-built by dwarf, not a cast of the plain `console`)
 consoleP3: { log/info/debug/warn/error/print/println/eprint/eprintln(...args): Promise<void> }  // MUST await every call
 
 // sockets.ts (p3-only) — ONE send() stream per connection, not per message
@@ -119,11 +119,10 @@ concatBytes(chunks: Uint8Array[]): Uint8Array
   terminal (local/`trail --component` debugging only). `log.ts` → host →
   journald/`kubectl logs` (what's actually visible once deployed). Not
   redundant — use `log.ts` for anything meant to survive deployment.
-- **`consoleP2` vs `consoleP3`**: pick the one matching your world, don't mix.
-  A p3 world (`include wasi:cli/command@0.3.0`) can **never** also import
-  `wasi:cli/stdout@0.2.x` — fails at WIT-resolution time
-  (`package 'wasi:cli@0.2.12' not found`), confirmed even under full
-  auto-vendor. So p3 worlds only ever get `consoleP3`'s async fallback.
+- **`consoleP3` is the only console export** — trail dropped WASI P2 support
+  entirely (ADR-0045), so a `consoleP2` sync view no longer has any world
+  that could use it; it's been removed. Every world in this repo is p3-only,
+  so `consoleP3`'s async-only shape is simply how logging works now.
   **Await every `consoleP3` call** — an unawaited call as the literal last
   statement before an async export returns produces no output at all,
   silently (confirmed empirically; two unawaited calls followed by an
@@ -160,7 +159,7 @@ concatBytes(chunks: Uint8Array[]): Uint8Array
 ## Common recipes
 
 ```ts
-// Minimal p2 component: identity + structured logging + health
+// Minimal component: identity + structured logging + health
 import { identity } from "../../../../sdk/ts/periapsis/identity.js";
 import { info, warn } from "../../../../sdk/ts/periapsis/log.js";
 import { reportStatus } from "../../../../sdk/ts/periapsis/status.js";
