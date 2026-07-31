@@ -22,6 +22,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -206,6 +207,30 @@ func (c *QUICClient) Close() error {
 	return c.conn.CloseWithError(0, "")
 }
 
+// listenUDPForHost binds a UDP socket in the address family the host half of
+// hostPort names: an IPv4 literal (including the 0.0.0.0 wildcard) gets "udp4",
+// an IPv6 literal or the :: wildcard gets "udp6", and anything else (a DNS name,
+// or an empty host) keeps the previous "udp" behaviour since no family was
+// stated and widening is then a reasonable default rather than a surprise.
+func listenUDPForHost(hostPort string) (net.PacketConn, error) {
+	network := "udp"
+	if host, _, err := net.SplitHostPort(hostPort); err == nil && host != "" {
+		if ip := net.ParseIP(host); ip != nil {
+			if ip.To4() != nil {
+				network = "udp4"
+			} else {
+				network = "udp6"
+			}
+		}
+	}
+	udpAddr, err := net.ResolveUDPAddr(network, hostPort)
+	if err != nil {
+		return nil, err
+	}
+
+	return net.ListenUDP(network, udpAddr)
+}
+
 // ServeQUIC listens for QUIC magic-seam consumers at addr ("tcp:<host:port>",
 // the listen address - e.g. "tcp:0.0.0.0:9400") and serves handler forever,
 // mirroring remote_quic.rs's serve_provider/serve_connection/
@@ -222,7 +247,25 @@ func ServeQUIC(ctx context.Context, addr, certPath, keyPath, caPath, version str
 	if err != nil {
 		return err
 	}
-	listener, err := quic.ListenAddr(hostPort, tlsCfg, nil)
+	// Bind the address FAMILY that was actually asked for, rather than letting
+	// Go widen it. quic.ListenAddr resolves with network "udp", and Go's net
+	// package answers an UNSPECIFIED host with an AF_INET6 dual-stack socket
+	// (IPV6_V6ONLY=0) - so "0.0.0.0:9500" silently becomes [::]:9500, visible
+	// only in /proc/net/udp6 with nothing at all in /proc/net/udp.
+	//
+	// That is surprising on its own terms: an operator who writes 0.0.0.0 has
+	// said IPv4. It is also the one structural difference between this provider
+	// and trail's quinn-based one, which parses a SocketAddr and binds AF_INET -
+	// and those two split exactly along survivor/casualty in the wedge
+	// investigation (done/2026-07-31_quic-provider-wedge.md). Whether the
+	// dual-stack bind is the MECHANISM there is untested at the time of writing;
+	// honouring the requested family is correct regardless.
+	pconn, err := listenUDPForHost(hostPort)
+	if err != nil {
+		return fmt.Errorf("magicseam: QUIC listen %s: %w", addr, err)
+	}
+	defer pconn.Close()
+	listener, err := quic.Listen(pconn, tlsCfg, nil)
 	if err != nil {
 		return fmt.Errorf("magicseam: QUIC listen %s: %w", addr, err)
 	}

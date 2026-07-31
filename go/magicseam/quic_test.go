@@ -12,6 +12,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -259,5 +260,39 @@ func TestDecodeCallerHandlesShortFrames(t *testing.T) {
 	}
 	if got := decodeCaller(nil); got != (Caller{}) {
 		t.Fatalf("empty frame = %+v, want zero Caller", got)
+	}
+}
+
+// TestListenUDPForHostHonoursTheRequestedFamily: "0.0.0.0" means IPv4. Go's
+// net package answers an unspecified host on network "udp" with an AF_INET6
+// dual-stack socket, so a v4 wildcard silently becomes [::] - visible only in
+// /proc/net/udp6, with nothing in /proc/net/udp. That surprised us once
+// already (done/2026-07-31_quic-provider-wedge.md); assert the family rather
+// than merely that a socket was created.
+func TestListenUDPForHostHonoursTheRequestedFamily(t *testing.T) {
+	cases := []struct {
+		hostPort string
+		wantV4   bool
+	}{
+		{"0.0.0.0:0", true},
+		{"127.0.0.1:0", true},
+		{"[::]:0", false},
+		{"[::1]:0", false},
+	}
+	for _, tc := range cases {
+		pc, err := listenUDPForHost(tc.hostPort)
+		if err != nil {
+			t.Fatalf("listenUDPForHost(%q): %v", tc.hostPort, err)
+		}
+		local := pc.LocalAddr().(*net.UDPAddr)
+		gotV4 := local.IP.To4() != nil
+		pc.Close()
+		if gotV4 != tc.wantV4 {
+			fam := "IPv6"
+			if tc.wantV4 {
+				fam = "IPv4"
+			}
+			t.Errorf("listenUDPForHost(%q) bound %v, want an %s socket", tc.hostPort, local.IP, fam)
+		}
 	}
 }
