@@ -40,7 +40,41 @@ import (
 // which map to their own distinct wire tags - use errors.Is against those
 // two sentinels from Handler, same as any other Go error-wrapping
 // convention, don't compare error strings.
-type Handler func(request []byte) ([]byte, error)
+type Handler func(caller Caller, request []byte) ([]byte, error)
+
+// Caller is WHO is calling, as established by the calling trail rather than
+// claimed by the guest: a consumer's imported handle() has no caller parameter,
+// so a component cannot name itself. mTLS (the QUIC transport requires and
+// verifies a client cert against the trail CA) establishes that the peer
+// asserting it is a trail at all.
+//
+// Empty on the MSK1 path (Serve): that wire has no caller frame. Treat an empty
+// Caller as "unattributed" and decide whether to refuse - an unattributed call
+// is the PROVIDER's decision, which is why the transport delivers it rather
+// than dropping it.
+type Caller struct {
+	Namespace string
+	PodName   string
+	PodUID    string
+	Component string
+}
+
+// encodeCaller renders a Caller into the wire frame trail expects. Kept beside
+// decodeCaller so the two cannot drift.
+func encodeCaller(c Caller) []byte {
+	return []byte(strings.Join([]string{c.Namespace, c.PodName, c.PodUID, c.Component}, "\t"))
+}
+
+// decodeCaller parses the tab-separated caller frame trail writes
+// (tools/trail/src/remote_quic.rs encode_caller). A short or garbled frame
+// yields empty fields rather than an error, matching the Rust side.
+func decodeCaller(b []byte) Caller {
+	f := strings.SplitN(string(b), "\t", 4)
+	for len(f) < 4 {
+		f = append(f, "")
+	}
+	return Caller{Namespace: f[0], PodName: f[1], PodUID: f[2], Component: f[3]}
+}
 
 // ErrRejected and ErrTooLarge are the two OTHER seam error tags a Handler
 // can return (via errors.Is) beyond the Unavailable default - matching
@@ -178,7 +212,8 @@ func serveConn(conn net.Conn, version string, handler Handler) {
 		if err != nil {
 			return // clean EOF or any read error ends the connection
 		}
-		response, err := handler(request)
+		// MSK1 has no caller frame, so this path is always unattributed.
+		response, err := handler(Caller{}, request)
 		if err != nil {
 			if _, werr := conn.Write([]byte{tagFor(err)}); werr != nil {
 				return

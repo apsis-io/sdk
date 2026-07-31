@@ -23,6 +23,8 @@ import nodeCrypto from "node:crypto";
 import type { ReadableStream, ReadableStreamDefaultReader } from "node:stream/web";
 import { QUICClient, QUICServer, QUICConnection, QUICStream as QUICStreamT, events as quicEvents } from "@matrixai/quic";
 import {
+  decodeCaller,
+  type Caller,
   type Handler,
   SeamRejectedError,
   SeamTooLargeError,
@@ -274,9 +276,12 @@ async function handleHandshakeStream(stream: QUICStreamT, version: string): Prom
 
 async function handleCallStream(stream: QUICStreamT, handler: Handler): Promise<void> {
   const reader = new QUICStreamReader(stream.readable);
+  // Caller frame FIRST, then the request - matching trail's own client
+  // (remote_quic.rs Client::call), which writes both before finishing.
+  const callerFrame = await readQUICFrame(reader);
   const request = await readQUICFrame(reader);
   try {
-    const response = await handler(request);
+    const response = await handler(decodeCaller(callerFrame), request);
     await writeAndClose(stream, new Uint8Array([TAG_OK]), encodeFrame(response));
   } catch (e) {
     await writeAndClose(stream, new Uint8Array([tagFor(e)]));

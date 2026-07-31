@@ -99,6 +99,10 @@ func parseQUICAddr(addr string) (string, error) {
 // dial once via DialQUIC, then Call as many times as needed; independent
 // calls each open their own stream and never queue behind each other.
 type QUICClient struct {
+	// Caller is announced on every call. Zero means unattributed, which is the
+	// normal case for a plain Go consumer that is not a trail-managed pod.
+	Caller Caller
+
 	conn   *quic.Conn
 	Served string // the provider's self-reported version (may be "")
 }
@@ -164,6 +168,13 @@ func (c *QUICClient) Call(ctx context.Context, request []byte) ([]byte, error) {
 	}
 	defer stream.CancelRead(0)
 
+	// Caller frame first, then the request - the shape trail's own client uses
+	// (remote_quic.rs Client::call). A Go consumer usually has no pod identity
+	// to declare, so Caller is zero unless set; the frame is written either way
+	// because the FRAMING is not optional even when the identity is.
+	if err := writeFrame(stream, encodeCaller(c.Caller)); err != nil {
+		return nil, fmt.Errorf("magicseam: write caller: %w", err)
+	}
 	if err := writeFrame(stream, request); err != nil {
 		return nil, fmt.Errorf("magicseam: write request: %w", err)
 	}
@@ -274,11 +285,18 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 func serveQUICCall(stream *quic.Stream, handler Handler) {
 	defer stream.CancelRead(0)
 
+	// Caller frame FIRST, then the request - matching
+	// tools/trail/src/remote_quic.rs's Client::call, which writes both before
+	// finishing the send side.
+	callerFrame, err := readFrame(stream)
+	if err != nil {
+		return
+	}
 	request, err := readFrame(stream)
 	if err != nil {
 		return
 	}
-	response, err := handler(request)
+	response, err := handler(decodeCaller(callerFrame), request)
 	if err != nil {
 		_, _ = stream.Write([]byte{tagFor(err)})
 		stream.Close()

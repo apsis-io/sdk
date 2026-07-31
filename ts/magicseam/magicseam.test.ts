@@ -59,7 +59,7 @@ function freeUnixSocketPath(): string {
 describe("serve", () => {
   test("echoes a request over a real round trip", async () => {
     const path = freeUnixSocketPath();
-    await serve(`unix:${path}`, "0.1.0", (request) => request);
+    await serve(`unix:${path}`, "0.1.0", (_c, request) => request);
 
     const socket = net.createConnection({ path });
     await new Promise<void>((resolve) => socket.once("connect", resolve));
@@ -74,7 +74,7 @@ describe("serve", () => {
 
   test("maps SeamRejectedError/SeamTooLargeError/other errors to their wire tags", async () => {
     const path = freeUnixSocketPath();
-    await serve(`unix:${path}`, "0.1.0", (request) => {
+    await serve(`unix:${path}`, "0.1.0", (_c, request) => {
       const text = Buffer.from(request).toString("utf8");
       if (text === "reject") throw new SeamRejectedError();
       if (text === "toolarge") throw new SeamTooLargeError();
@@ -107,7 +107,7 @@ describe("serve", () => {
   test("multiple calls reuse one connection", async () => {
     const path = freeUnixSocketPath();
     let calls = 0;
-    await serve(`unix:${path}`, "0.1.0", (request) => {
+    await serve(`unix:${path}`, "0.1.0", (_c, request) => {
       calls++;
       return request;
     });

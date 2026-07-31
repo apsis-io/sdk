@@ -117,7 +117,7 @@ func TestServeEchoRoundTrip(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- Serve(addr, "0.1.0", func(request []byte) ([]byte, error) {
+		errCh <- Serve(addr, "0.1.0", func(_ Caller, request []byte) ([]byte, error) {
 			return request, nil // echo
 		})
 	}()
@@ -160,7 +160,7 @@ func TestServeErrorTags(t *testing.T) {
 	addr := "unix:" + sockPath
 
 	go func() {
-		_ = Serve(addr, "0.1.0", func(request []byte) ([]byte, error) {
+		_ = Serve(addr, "0.1.0", func(_ Caller, request []byte) ([]byte, error) {
 			switch string(request) {
 			case "reject":
 				return nil, ErrRejected

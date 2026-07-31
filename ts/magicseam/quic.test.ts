@@ -42,7 +42,7 @@ function generateTestCerts(): { cert: string; key: string; ca: string } {
 describe("QUIC transport", () => {
   test("real loopback mTLS round trip", async () => {
     const { cert, key, ca } = generateTestCerts();
-    await serveQUIC("tcp:127.0.0.1:19810", cert, key, ca, "0.1.0", (req) => req);
+    await serveQUIC("tcp:127.0.0.1:19810", cert, key, ca, "0.1.0", (_c, req) => req);
     await new Promise((r) => setTimeout(r, 150));
 
     const client = await dialQUIC("tcp:127.0.0.1:19810", cert, key, ca, "0.1.0");
@@ -55,7 +55,7 @@ describe("QUIC transport", () => {
 
   test("concurrent calls do not serialize", async () => {
     const { cert, key, ca } = generateTestCerts();
-    await serveQUIC("tcp:127.0.0.1:19811", cert, key, ca, "", async (req) => {
+    await serveQUIC("tcp:127.0.0.1:19811", cert, key, ca, "", async (_c, req) => {
       await new Promise((r) => setTimeout(r, 200));
       return req;
     });
@@ -73,7 +73,7 @@ describe("QUIC transport", () => {
 
   test("rejected/too-large/other error tags round-trip", async () => {
     const { cert, key, ca } = generateTestCerts();
-    await serveQUIC("tcp:127.0.0.1:19812", cert, key, ca, "", (req) => {
+    await serveQUIC("tcp:127.0.0.1:19812", cert, key, ca, "", (_c, req) => {
       const text = Buffer.from(req).toString("utf8");
       if (text === "reject") throw new SeamRejectedError();
       if (text === "toolarge") throw new SeamTooLargeError();

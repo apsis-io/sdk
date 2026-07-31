@@ -25,7 +25,40 @@ import net from "node:net";
 import fs from "node:fs";
 
 /** A seam call handler: request in, response out (sync or async). */
-export type Handler = (request: Uint8Array) => Uint8Array | Promise<Uint8Array>;
+export type Handler = (caller: Caller, request: Uint8Array) => Uint8Array | Promise<Uint8Array>;
+
+/**
+ * WHO is calling, as established by the calling trail rather than claimed by
+ * the guest: a consumer's imported handle() has no caller parameter, so a
+ * component cannot name itself. mTLS establishes that the peer asserting it is
+ * a trail at all.
+ *
+ * All fields empty means UNATTRIBUTED - the MSK1 path has no caller frame, and
+ * a plain consumer may not be a trail-managed pod. Treat that as a provider
+ * decision to refuse; the transport delivers it rather than dropping the call.
+ */
+export interface Caller {
+  namespace: string;
+  podName: string;
+  podUid: string;
+  component: string;
+}
+
+/** Tab-separated, matching tools/trail/src/remote_quic.rs's encode_caller. */
+export function encodeCaller(c: Caller): Uint8Array {
+  return Buffer.from([c.namespace, c.podName, c.podUid, c.component].join("\t"), "utf8");
+}
+
+/** A short or garbled frame yields empty fields rather than throwing. */
+export function decodeCaller(b: Uint8Array): Caller {
+  const f = Buffer.from(b).toString("utf8").split("\t");
+  return {
+    namespace: f[0] ?? "",
+    podName: f[1] ?? "",
+    podUid: f[2] ?? "",
+    component: f[3] ?? "",
+  };
+}
 
 /**
  * Thrown by a Handler to signal the seam's `rejected` error variant, instead
@@ -157,7 +190,11 @@ async function handleConnection(socket: net.Socket, version: string, handler: Ha
         return; // clean EOF or any read error ends the connection
       }
       try {
-        const response = await handler(request);
+        // MSK1 has no caller frame, so this path is always unattributed.
+        const response = await handler(
+          { namespace: "", podName: "", podUid: "", component: "" },
+          request,
+        );
         socket.write(Buffer.from([TAG_OK]));
         socket.write(encodeFrame(response));
       } catch (e) {

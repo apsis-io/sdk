@@ -114,7 +114,7 @@ func TestQUICRoundTripOverRealLoopbackMTLS(t *testing.T) {
 
 	ctx := t.Context()
 
-	echo := func(request []byte) ([]byte, error) { return request, nil }
+	echo := func(_ Caller, request []byte) ([]byte, error) { return request, nil }
 	go func() {
 		_ = ServeQUIC(ctx, "tcp:127.0.0.1:19700", providerCert, providerKey, providerCA, "0.1.0", echo)
 	}()
@@ -145,7 +145,7 @@ func TestQUICConcurrentCallsDoNotSerialize(t *testing.T) {
 
 	ctx := t.Context()
 
-	slow := func(request []byte) ([]byte, error) {
+	slow := func(_ Caller, request []byte) ([]byte, error) {
 		time.Sleep(200 * time.Millisecond)
 		return request, nil
 	}
@@ -187,7 +187,7 @@ func TestQUICRejectedAndTooLargeTagsRoundtrip(t *testing.T) {
 
 	ctx := t.Context()
 
-	handler := func(request []byte) ([]byte, error) {
+	handler := func(_ Caller, request []byte) ([]byte, error) {
 		switch string(request) {
 		case "reject":
 			return nil, ErrRejected
@@ -216,5 +216,48 @@ func TestQUICRejectedAndTooLargeTagsRoundtrip(t *testing.T) {
 	}
 	if _, err := client.Call(ctx, []byte("other")); err == nil {
 		t.Error("Call(other) expected an Unavailable-shaped error, got nil")
+	}
+}
+
+// TestQUICCarriesTheCaller: the identity must survive the hop. Asserted by
+// echoing the CALLER back rather than the request - a test that only checked
+// the call succeeded would pass just as happily with an empty caller.
+func TestQUICCarriesTheCaller(t *testing.T) {
+	ca := generateTestCA(t)
+	providerCert, providerKey, providerCA := writeTestLeaf(t, ca, t.TempDir())
+	consumerCert, consumerKey, consumerCA := writeTestLeaf(t, ca, t.TempDir())
+	ctx := t.Context()
+
+	addr := "tcp:127.0.0.1:19706"
+	go func() {
+		_ = ServeQUIC(ctx, addr, providerCert, providerKey, providerCA, "0.1.0",
+			func(c Caller, _ []byte) ([]byte, error) { return encodeCaller(c), nil })
+	}()
+	time.Sleep(150 * time.Millisecond)
+
+	client, err := DialQUIC(ctx, addr, consumerCert, consumerKey, consumerCA, "0.1.0")
+	if err != nil {
+		t.Fatalf("DialQUIC: %v", err)
+	}
+	defer client.Close()
+	client.Caller = Caller{Namespace: "team-a", PodName: "w8s-a", PodUID: "uid-123", Component: "cri"}
+
+	got, err := client.Call(ctx, []byte("ignored"))
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if echoed := decodeCaller(got); echoed != client.Caller {
+		t.Fatalf("caller = %+v, want %+v", echoed, client.Caller)
+	}
+}
+
+func TestDecodeCallerHandlesShortFrames(t *testing.T) {
+	// An unattributed or garbled call must yield empty fields rather than an
+	// error: refusing is the PROVIDER's decision, not the transport's.
+	if got := decodeCaller([]byte("only-ns")); got.Namespace != "only-ns" || got.PodUID != "" {
+		t.Fatalf("short frame = %+v", got)
+	}
+	if got := decodeCaller(nil); got != (Caller{}) {
+		t.Fatalf("empty frame = %+v, want zero Caller", got)
 	}
 }
