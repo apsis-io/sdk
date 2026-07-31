@@ -153,7 +153,7 @@ func DialQUIC(ctx context.Context, addr, certPath, keyPath, caPath, requiredVers
 	}
 	if acceptByte[0] == 0 {
 		conn.CloseWithError(0, "incompatible version")
-		return nil, fmt.Errorf("magicseam: provider rejected required version %q (serves %q)", requiredVersion, servedFrame)
+		return nil, fmt.Errorf("%w: required %q, serves %q", ErrVersionRejected, requiredVersion, servedFrame)
 	}
 
 	return &QUICClient{conn: conn, Served: string(servedFrame)}, nil

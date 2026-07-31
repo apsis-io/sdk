@@ -85,6 +85,19 @@ var (
 	ErrTooLarge = errors.New("magicseam: too large")
 )
 
+// ErrVersionRejected reports that a provider COMPLETED the handshake and then
+// refused the required version. It is deliberately distinguishable from every
+// other DialQUIC failure, because those are transport failures and this one is
+// an answer.
+//
+// The distinction is the whole basis of reachability probing
+// (internal/trailop's Prober): "the provider is reachable but serves the wrong
+// version" and "nothing is listening" are the same string to a reader and
+// opposite facts to a health check. Marking a provider unhealthy for a version
+// mismatch would take a working provider out of service for consumers that
+// wanted the version it actually serves.
+var ErrVersionRejected = errors.New("magicseam: provider rejected the required version")
+
 // Wire constants - see tools/trail/src/remote_simple.rs's module doc
 // comment for the authoritative protocol description this mirrors exactly.
 const (
