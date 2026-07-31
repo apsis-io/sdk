@@ -53,10 +53,36 @@ type Handler func(caller Caller, request []byte) ([]byte, error)
 // is the PROVIDER's decision, which is why the transport delivers it rather
 // than dropping it.
 type Caller struct {
+	// The ASSERTED identity: what the peer said about itself, read from the
+	// wire frame. trail fills it in from the pod it is running and a guest
+	// cannot reach it - but nothing in the TRANSPORT verifies it. The QUIC
+	// leaf carries a fixed CommonName/DNS-SAN shared by every trail peer
+	// fleet-wide and the signing side discards the subject entirely
+	// (internal/pki/trailrelay.go), so mTLS proves "signed by the trail CA"
+	// and nothing about WHICH peer is speaking. Any holder of a trail cert can
+	// therefore claim to be any pod, given that pod's UID.
 	Namespace string
 	PodName   string
 	PodUID    string
 	Component string
+
+	// PeerAddr is OBSERVED, not asserted: the transport's view of where the
+	// call actually came from ("ip:port"), set by the server side after
+	// decoding the frame. Empty on transports that cannot observe it (the
+	// local plug-with tier has no peer address at all).
+	//
+	// WHY IT IS SAFE TO TRUST MORE THAN THE FIELDS ABOVE: it never crosses the
+	// wire. encodeCaller does not write it and decodeCaller does not read it -
+	// decodeCaller constructs its result field-by-field, so a peer cannot
+	// inject a PeerAddr however it pads the frame. A provider can compare it
+	// against the claimed pod's real podIP and turn an assertion into
+	// something the datapath attests, because the CNI binds a source address
+	// to an endpoint and a pod cannot forge another pod's.
+	//
+	// It is NOT a complete identity: it says where the packets came from, not
+	// who signed them, and it is only as good as the CNI's source-address
+	// enforcement.
+	PeerAddr string
 }
 
 // encodeCaller renders a Caller into the wire frame trail expects. Kept beside

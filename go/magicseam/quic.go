@@ -287,6 +287,12 @@ func ServeQUIC(ctx context.Context, addr, certPath, keyPath, caPath, version str
 // goroutine so concurrent calls on this connection never queue behind each
 // other.
 func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler Handler) {
+	// Observed once per connection: the transport's view of who is calling,
+	// which no wire frame can influence. See Caller.PeerAddr.
+	peer := ""
+	if a := conn.RemoteAddr(); a != nil {
+		peer = a.String()
+	}
 	handshake, err := conn.AcceptStream(ctx)
 	if err != nil {
 		return
@@ -317,7 +323,7 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 			break // connection closed or ctx done
 		}
 		wg.Go(func() {
-			serveQUICCall(stream, handler)
+			serveQUICCall(stream, peer, handler)
 		})
 	}
 	wg.Wait()
@@ -325,7 +331,7 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 
 // serveQUICCall handles exactly one call stream: read the request frame,
 // invoke handler, write the result tag (+ payload frame on success).
-func serveQUICCall(stream *quic.Stream, handler Handler) {
+func serveQUICCall(stream *quic.Stream, peer string, handler Handler) {
 	defer stream.CancelRead(0)
 
 	// Caller frame FIRST, then the request - matching
@@ -339,7 +345,12 @@ func serveQUICCall(stream *quic.Stream, handler Handler) {
 	if err != nil {
 		return
 	}
-	response, err := handler(decodeCaller(callerFrame), request)
+	// The asserted identity comes off the wire; the observed one is stamped
+	// here, where a peer cannot reach it. decodeCaller builds its result
+	// field-by-field, so no amount of frame padding can set PeerAddr.
+	caller := decodeCaller(callerFrame)
+	caller.PeerAddr = peer
+	response, err := handler(caller, request)
 	if err != nil {
 		_, _ = stream.Write([]byte{tagFor(err)})
 		stream.Close()
