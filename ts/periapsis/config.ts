@@ -3,7 +3,7 @@
 
 import { get as hostConfigGet } from "periapsis:component/config@0.1.0";
 
-/** Read a config key (from periapsis.io/config.<key>); undefined if unset. */
+/** Read a config key (from peri.apsis/config.<key>); undefined if unset. */
 export function config(key: string): string | undefined {
   const v = hostConfigGet(key); // option<config-value> -> T | null; throws on error
   if (v === null) return undefined;

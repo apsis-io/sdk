@@ -28,7 +28,7 @@ server) drives its own dedicated background I/O thread servicing ngtcp2's
 timers continuously (`io.c`'s own doc comment explains why this is required -
 ngtcp2 owns no socket/timer/thread itself).
 
-TLS material: `periapsis.io/tls-quic` (`internal/podlaunch/builder.go`)
+TLS material: `peri.apsis/tls-quic` (`internal/podlaunch/builder.go`)
 bind-mounts a fresh cert/key/CA-bundle triple into the pod at
 `internal/podlaunch.TLSQuicMountDir` - point `magicseam_quic_dial`/`_serve` at
 those three files directly when running as a pod (see

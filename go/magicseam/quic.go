@@ -10,7 +10,7 @@
 // opens its OWN stream (so unrelated calls never queue behind each other -
 // unlike Serve/DialMSK1's single-connection serialization above).
 //
-// TLS material: periapsis.io/tls-quic (internal/podlaunch/builder.go)
+// TLS material: peri.apsis/tls-quic (internal/podlaunch/builder.go)
 // bind-mounts a fresh cert/key/CA-bundle triple, signed by the trail CA,
 // into the pod at internal/podlaunch.TLSQuicMountDir - callers running as
 // a pod should point DialQUIC/ServeQUIC at those three files directly.
@@ -56,7 +56,7 @@ const TrailQUICSNI = "trail-quic-peer"
 const quicALPNProtocol = "trail-quic"
 
 // loadQUICTLSConfig builds a *tls.Config for either a QUIC dial or listen
-// from the three PEM files periapsis.io/tls-quic provisions - mutual TLS,
+// from the three PEM files peri.apsis/tls-quic provisions - mutual TLS,
 // trusting ONLY the given CA bundle (never the system root store).
 func loadQUICTLSConfig(certPath, keyPath, caPath string, isServer bool) (*tls.Config, error) {
 	cert, err := tls.LoadX509KeyPair(certPath, keyPath)

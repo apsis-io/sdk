@@ -27,7 +27,7 @@ declare class TextDecoder {
 //
 // Does NOT overlap with periapsis:component/config (config.ts) - process.env
 // is raw OS-level environment variables, config.ts is periapsis's own
-// structured per-pod config (periapsis.io/config.<key> annotations). Safe to
+// structured per-pod config (peri.apsis/config.<key> annotations). Safe to
 // use both. Also does not overlap with console - process has no stdout/
 // stderr surface at all, purely env/argv/exit.
 interface Process {

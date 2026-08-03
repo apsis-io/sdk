@@ -20,7 +20,7 @@
  * threads never touch ngtcp2 state directly; they hand requests to and
  * collect responses from that thread via a mutex-guarded call table.
  *
- * TLS material: periapsis.io/tls-quic (internal/podlaunch/builder.go)
+ * TLS material: peri.apsis/tls-quic (internal/podlaunch/builder.go)
  * bind-mounts a fresh cert/key/CA-bundle triple, signed by the trail CA,
  * into the pod at internal/podlaunch.TLSQuicMountDir - callers running as
  * a pod should point magicseam_quic_dial/_serve at those three files

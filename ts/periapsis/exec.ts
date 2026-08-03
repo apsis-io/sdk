@@ -1,7 +1,7 @@
 // Ergonomic wrapper around periapsis:host/exec (ADR: the exec seam, trail's
 // tools/trail/src/exec.rs) - allowlisted child-component spawning. A guest may
 // only spawn a NAME declared at pod launch via `--exec-with <name>=<path>`
-// (or the periapsis.io/wasm-exec-with pod annotation); anything else throws a
+// (or the peri.apsis/wasm-exec-with pod annotation); anything else throws a
 // JS Error whose `.payload` is `{ tag: "not-allowed" }`. p3-only: stream<u8>
 // and ChildProcess.wait's async func need trail's --p3 launch path.
 //
