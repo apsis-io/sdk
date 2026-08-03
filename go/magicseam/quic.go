@@ -306,11 +306,26 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 	// job" convention Serve (MSK1) already documents - requiredFrame is
 	// read (to stay in sync with the framing) but not enforced here.
 	_ = requiredFrame
+	// OPTIONAL second frame: the peer's capabilities. A consumer from before
+	// negotiation existed sends none, and must keep working unchanged - so a
+	// read failure here means "classic only", never an error. See stream.go.
+	var peerCaps []string
+	if capsFrame, err := readFrame(handshake); err == nil {
+		peerCaps = parseCaps(capsFrame)
+	}
+	streams := streamsAgreed(peerCaps)
 	if _, err := handshake.Write([]byte{1}); err != nil {
 		handshake.Close()
 		return
 	}
 	if err := writeFrame(handshake, []byte(version)); err != nil {
+		handshake.Close()
+		return
+	}
+	// Our capabilities, AFTER the served version so an older consumer - which
+	// reads exactly the accept byte and one frame - is unaffected: it simply
+	// never reads this one.
+	if err := writeFrame(handshake, []byte(capsOffered())); err != nil {
 		handshake.Close()
 		return
 	}
@@ -323,7 +338,7 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 			break // connection closed or ctx done
 		}
 		wg.Go(func() {
-			serveQUICCall(stream, peer, handler)
+			serveQUICCall(stream, peer, handler, streams)
 		})
 	}
 	wg.Wait()
@@ -331,8 +346,25 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 
 // serveQUICCall handles exactly one call stream: read the request frame,
 // invoke handler, write the result tag (+ payload frame on success).
-func serveQUICCall(stream *quic.Stream, peer string, handler Handler) {
+func serveQUICCall(stream *quic.Stream, peer string, handler Handler, streamsNegotiated bool) {
 	defer stream.CancelRead(0)
+
+	// The opcode is on the wire ONLY when both ends advertised the bulk seam.
+	// Against a peer that did not, nothing is read here and the bytes are
+	// exactly what this SDK has always spoken.
+	op := opCall
+	if streamsNegotiated {
+		var b [1]byte
+		if _, err := io.ReadFull(stream, b[:]); err != nil {
+			return
+		}
+		op = b[0]
+	}
+	if op == opStream {
+		serveQUICStreamCall(stream, peer, handler)
+
+		return
+	}
 
 	// Caller frame FIRST, then the request - matching
 	// tools/trail/src/remote_quic.rs's Client::call, which writes both before
