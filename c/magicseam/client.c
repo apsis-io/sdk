@@ -259,11 +259,24 @@ magicseam_status magicseam_quic_call(magicseam_quic_client *c, const uint8_t *re
   *resp = NULL;
   *resp_len = 0;
 
-  uint8_t *buf = malloc(4 + req_len);
+  /* CALLER FRAME FIRST, then the request - the wire since 2026-07-31
+   * (3532417c). This SDK predated that change and sent the request alone,
+   * which is why a C client talking to a fixed C server (or to trail) had to
+   * be corrected on both sides, not one.
+   *
+   * The caller frame is EMPTY here, deliberately. Trail fills it from what it
+   * knows about the pod it is running; a standalone C client has no such
+   * identity and must not invent one - the seam's whole point is that the
+   * caller is established by the RUNTIME, not claimed by the caller. An empty
+   * frame decodes to empty fields, which every provider already treats as
+   * "unattributed", and refusing an unattributed call is the provider's
+   * decision rather than this transport's. */
+  uint8_t *buf = malloc(4 + 4 + req_len);
   if (buf == NULL) {
     return MAGICSEAM_ERR_ARG;
   }
-  magicseam_frame_encode(buf, req, req_len);
+  magicseam_frame_encode(buf, NULL, 0);
+  magicseam_frame_encode(buf + 4, req, req_len);
 
   magicseam_open_intent *intent = malloc(sizeof(*intent));
   if (intent == NULL) {
@@ -273,7 +286,7 @@ magicseam_status magicseam_quic_call(magicseam_quic_client *c, const uint8_t *re
   magicseam_pending_call pc;
   magicseam_pending_call_init(&pc);
   intent->req = buf;
-  intent->req_len = 4 + req_len;
+  intent->req_len = 4 + 4 + req_len;
   intent->is_handshake = 0;
   intent->pending = &pc;
   intent->next = NULL;

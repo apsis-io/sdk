@@ -255,14 +255,65 @@ static int try_parse_call_client(magicseam_call_slot *s, magicseam_status *out_s
   return 1;
 }
 
-/* magicseam_try_parse_call_server: the SERVER side's inbound call - a
- * plain request frame, no leading tag byte (see remote_quic.rs's wire
- * spec: client writes the request frame directly, unlike the tagged
- * reply). Returns 1 once the full request frame has arrived (server.c
- * then reads the request straight out of s->in_buf + 4 and dispatches to
- * the worker pool). Declared in io_internal.h - server.c is the caller,
- * from its own post-read_pkt pass over slots with newly-arrived data. */
-int magicseam_try_parse_call_server(magicseam_call_slot *s) {
+/* magicseam_try_parse_call_server: the SERVER side's inbound call - the
+ * CALLER frame followed by the REQUEST frame, no leading tag byte (see
+ * remote_quic.rs's wire spec: the client writes both before finishing,
+ * unlike the tagged reply).
+ *
+ * THIS USED TO EXPECT ONE FRAME AND WAS BROKEN FROM 2026-07-31. The caller
+ * frame (3532417c, "the seam can say who is calling") was added to the wire
+ * two weeks after this SDK was last touched (fd63b912, 07-17), and nothing
+ * here was updated. The parser returned 1 as soon as the CALLER frame was
+ * complete, and server.c then dispatched `in_buf + 4` - the caller's BODY
+ * plus the still-framed request - to the handler as if it were the request.
+ *
+ * It went unnoticed because the SDK's own tests use the SDK's own client,
+ * which does not send a caller frame either, so C-to-C was self-consistent
+ * and green while C-against-trail was dead. Confirmed live: trail BINDS to
+ * magic-echo-c and then the first call tears the connection down and
+ * re-dials in a loop, while ./magicseam_quic_test passes.
+ *
+ * Returns 1 once BOTH frames have arrived; req_off/req_len then locate the
+ * request body inside in_buf. Partial arrivals return 0 as before - this is
+ * an incremental parser and either frame can be split across datagrams. */
+int magicseam_try_parse_call_server(magicseam_call_slot *s, size_t *req_off,
+                                     size_t *req_len) {
+  /* Frame 1: the caller. */
+  if (s->in_len < 4) {
+    return 0;
+  }
+  size_t caller_len = magicseam_frame_decode_len(s->in_buf);
+  if (caller_len == (size_t)-1) {
+    return -1;
+  }
+  if (s->in_len < 4 + caller_len) {
+    return 0;
+  }
+  /* Frame 2: the request, immediately after it. */
+  size_t off = 4 + caller_len;
+  if (s->in_len < off + 4) {
+    return 0;
+  }
+  size_t body_len = magicseam_frame_decode_len(s->in_buf + off);
+  if (body_len == (size_t)-1) {
+    return -1;
+  }
+  if (s->in_len < off + 4 + body_len) {
+    return 0;
+  }
+  if (req_off != NULL) {
+    *req_off = off + 4;
+  }
+  if (req_len != NULL) {
+    *req_len = body_len;
+  }
+  return 1;
+}
+
+/* The HANDSHAKE stream carries a single frame (the required version), so it
+ * keeps the original one-frame shape. Split out rather than parameterised so
+ * neither path can accidentally adopt the other's framing. */
+int magicseam_try_parse_handshake_server(magicseam_call_slot *s) {
   if (s->in_len < 4) {
     return 0;
   }
@@ -800,7 +851,9 @@ static int server_scan_requests(magicseam_conn *c) {
     if (s->stream_id == -1 || s->handler_dispatched) {
       continue;
     }
-    int rc = magicseam_try_parse_call_server(s);
+    size_t req_off = 0, req_len = 0;
+    int rc = s->is_handshake ? magicseam_try_parse_handshake_server(s)
+                             : magicseam_try_parse_call_server(s, &req_off, &req_len);
     if (rc < 0) {
       return -1;
     }
@@ -820,7 +873,10 @@ static int server_scan_requests(magicseam_conn *c) {
       s->out_len = 1 + 4 + vlen;
       s->out_fin = 1;
     } else {
-      magicseam_server_dispatch(c, s->stream_id, s->in_buf + 4, s->in_len - 4);
+      /* The REQUEST body only - not the caller frame, and not the request's
+       * own length prefix. Passing `in_buf + 4` handed the handler the
+       * caller's bytes; see magicseam_try_parse_call_server. */
+      magicseam_server_dispatch(c, s->stream_id, s->in_buf + req_off, req_len);
     }
   }
   return 0;

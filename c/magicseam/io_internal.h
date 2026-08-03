@@ -255,7 +255,9 @@ uint64_t magicseam_now_ns(void);
  * request straight out of s->in_buf + 4, then dispatches to its worker
  * pool and sets s->handler_dispatched so it's never dispatched twice), 0
  * if more data is needed, -1 on a protocol violation (oversize frame). */
-int magicseam_try_parse_call_server(magicseam_call_slot *s);
+int magicseam_try_parse_call_server(magicseam_call_slot *s, size_t *req_off,
+                                     size_t *req_len);
+int magicseam_try_parse_handshake_server(magicseam_call_slot *s);
 
 /* magicseam_parse_tcp_addr splits "tcp:<host>:<port>" (the one address
  * scheme every magic-seam SDK uses for this transport - "tcp:" is just
