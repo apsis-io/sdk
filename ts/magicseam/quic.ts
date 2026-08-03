@@ -21,6 +21,7 @@
 import fs from "node:fs";
 import nodeCrypto from "node:crypto";
 import type { ReadableStream, ReadableStreamDefaultReader } from "node:stream/web";
+import { OP_CALL, OP_STREAM, capsOffered, parseCaps, streamsAgreed } from "./stream";
 import { QUICClient, QUICServer, QUICConnection, QUICStream as QUICStreamT, events as quicEvents } from "@matrixai/quic";
 import {
   decodeCaller,
@@ -254,28 +255,69 @@ export async function serveQUIC(
 
 function handleQUICConnection(connection: QUICConnection, version: string, handler: Handler): void {
   let handshakeDone = false;
+  // Resolved by the handshake; call streams wait on it so a call that races
+  // ahead of the handshake still learns whether the opcode is on the wire.
+  let negotiated: Promise<boolean> = Promise.resolve(false);
   connection.addEventListener(quicEvents.EventQUICConnectionStream.name, ((evt: InstanceType<typeof quicEvents.EventQUICConnectionStream>) => {
     const stream = evt.detail;
     if (!handshakeDone) {
       handshakeDone = true;
-      handleHandshakeStream(stream, version).catch(() => {});
+      negotiated = handleHandshakeStream(stream, version).catch(() => false);
       return;
     }
-    handleCallStream(stream, handler).catch(() => {});
+    negotiated
+      .then((streams) => handleCallStream(stream, handler, streams))
+      .catch(() => {});
   }) as EventListener);
 }
 
-async function handleHandshakeStream(stream: QUICStreamT, version: string): Promise<void> {
+async function handleHandshakeStream(
+  stream: QUICStreamT,
+  version: string,
+): Promise<boolean> {
   const reader = new QUICStreamReader(stream.readable);
   // The client's required version - read and discarded; this package always
   // accepts (see magicseam.ts's module doc comment on why gating is the
   // caller's job, not this package's).
   await readQUICFrame(reader);
-  await writeAndClose(stream, new Uint8Array([1]), encodeFrame(Buffer.from(version, "utf8")));
+  // OPTIONAL second frame: the peer's capabilities. A consumer from before
+  // negotiation existed sends none, so a read failure means "classic only",
+  // never an error. See stream.ts.
+  let peerCaps: string[] = [];
+  try {
+    peerCaps = parseCaps(await readQUICFrame(reader));
+  } catch {
+    peerCaps = [];
+  }
+  // Our capabilities go AFTER the served version, so an older consumer - which
+  // reads exactly the accept byte and one frame - never sees them and is
+  // unaffected.
+  await writeAndClose(
+    stream,
+    new Uint8Array([1]),
+    encodeFrame(Buffer.from(version, "utf8")),
+    encodeFrame(Buffer.from(capsOffered(), "utf8")),
+  );
+
+  return streamsAgreed(peerCaps);
 }
 
-async function handleCallStream(stream: QUICStreamT, handler: Handler): Promise<void> {
+async function handleCallStream(
+  stream: QUICStreamT,
+  handler: Handler,
+  streamsNegotiated: boolean,
+): Promise<void> {
   const reader = new QUICStreamReader(stream.readable);
+  // The opcode is on the wire ONLY when both ends advertised the bulk seam.
+  // Against a peer that did not, nothing is read and the bytes are exactly what
+  // this SDK has always spoken.
+  let op = OP_CALL;
+  if (streamsNegotiated) {
+    op = (await reader.readExact(1))[0];
+  }
+  if (op === OP_STREAM) {
+    return handleStreamCallStream(stream, reader, handler);
+  }
   // Caller frame FIRST, then the request - matching trail's own client
   // (remote_quic.rs Client::call), which writes both before finishing.
   const callerFrame = await readQUICFrame(reader);
@@ -287,3 +329,40 @@ async function handleCallStream(stream: QUICStreamT, handler: Handler): Promise<
     await writeAndClose(stream, new Uint8Array([tagFor(e)]));
   }
 }
+
+
+/**
+ * One BULK call: caller frame, then request chunk frames terminated by a
+ * zero-length frame, and the same shape in reply behind the usual tag byte.
+ */
+async function handleStreamCallStream(
+  stream: QUICStreamT,
+  reader: QUICStreamReader,
+  handler: Handler,
+): Promise<void> {
+  const callerFrame = await readQUICFrame(reader);
+  const chunks: Uint8Array[] = [];
+  for (;;) {
+    const chunk = await readQUICFrame(reader);
+    if (chunk.length === 0) break; // zero-length frame ends the request
+    chunks.push(chunk);
+  }
+  const request = Buffer.concat(chunks);
+  try {
+    const response = await handler(decodeCaller(callerFrame), request);
+    const frames: Uint8Array[] = [new Uint8Array([TAG_OK])];
+    for (let off = 0; off < response.length; off += STREAM_CHUNK) {
+      frames.push(encodeFrame(response.subarray(off, off + STREAM_CHUNK)));
+    }
+    // Zero-length frame ends the reply. Written even for an empty response,
+    // where it is the whole reply - without it the consumer blocks waiting for
+    // a terminator that never arrives.
+    frames.push(encodeFrame(new Uint8Array(0)));
+    await writeAndClose(stream, ...frames);
+  } catch (e) {
+    await writeAndClose(stream, new Uint8Array([tagFor(e)]));
+  }
+}
+
+/** Reply framing size, matching trail's STREAM_CHUNK. */
+const STREAM_CHUNK = 64 * 1024;
