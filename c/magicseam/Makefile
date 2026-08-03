@@ -35,8 +35,18 @@ magicseam_quic_test: magicseam_quic_test.c libmagicseam_quic.a $(HDRS)
 test: magicseam_quic_test
 	./magicseam_quic_test
 
+interop_server: interop_server.c libmagicseam_quic.a $(HDRS)
+	$(CC) $(CFLAGS) $< libmagicseam_quic.a -o $@ $(LDLIBS)
+
+# The CROSS-IMPLEMENTATION test: does this SDK speak TRAIL's wire? A separate
+# target from `test` because it needs a built trail + consumer component - and
+# because the whole point is that `test` passing proves nothing about the wire.
+# See interop_test.sh for the two weeks that cost.
+interop: interop_server
+	./interop_test.sh
+
 analyze:
 	$(CC) $(CFLAGS) -fanalyzer -fsyntax-only $(SRCS) magicseam_quic_test.c
 
 clean:
-	rm -f $(OBJS) libmagicseam_quic.a magicseam_quic_test
+	rm -f interop_server  $(OBJS) libmagicseam_quic.a magicseam_quic_test
