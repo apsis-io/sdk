@@ -106,6 +106,10 @@ type QUICClient struct {
 
 	conn   *quic.Conn
 	Served string // the provider's self-reported version (may be "")
+	// PeerCaps is what the provider advertised, or empty for a provider that
+	// predates negotiation. Consult it with StatusServed(c.PeerCaps) BEFORE
+	// calling an optional op, rather than calling and reading a refusal.
+	PeerCaps []string
 }
 
 // DialQUIC connects to a QUIC magic-seam provider at addr ("tcp:<host:port>")
@@ -151,12 +155,22 @@ func DialQUIC(ctx context.Context, addr, certPath, keyPath, caPath, requiredVers
 		conn.CloseWithError(0, "handshake failed")
 		return nil, fmt.Errorf("magicseam: read served version: %w", err)
 	}
+	// OPTIONAL third frame: the provider's capabilities, written after the
+	// served version. Mirror-image of the server's own optional read - a
+	// provider from before negotiation sends none, so a read failure means
+	// "advertised nothing", never an error. Without this the consumer half of
+	// negotiation does not exist: StatusServed had no peer list to consult, so
+	// a consumer could only try an op and be refused.
+	var peerCaps []string
+	if capsFrame, cerr := readFrame(stream); cerr == nil {
+		peerCaps = parseCaps(capsFrame)
+	}
 	if acceptByte[0] == 0 {
 		conn.CloseWithError(0, "incompatible version")
 		return nil, fmt.Errorf("%w: required %q, serves %q", ErrVersionRejected, requiredVersion, servedFrame)
 	}
 
-	return &QUICClient{conn: conn, Served: string(servedFrame)}, nil
+	return &QUICClient{conn: conn, Served: string(servedFrame), PeerCaps: peerCaps}, nil
 }
 
 // Call opens a NEW bidirectional stream for this one request - concurrent
