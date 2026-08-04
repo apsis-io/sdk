@@ -40,11 +40,23 @@ const (
 // CapStream is the capability token for the bulk seam.
 const CapStream = "stream"
 
+// CapStatus is the capability token for the `status` op (ADR-0059 addendum).
+//
+// Advertised so a consumer can know BEFORE calling whether the peer serves it.
+// Without this a consumer can only try and be refused: an old provider answers
+// `status` with ErrRejected "unknown op", which does name the missing thing but
+// gives no way to degrade gracefully - and old-provider-plus-new-consumer is not
+// hypothetical here, the deployed binary drifted from source for days this week.
+const CapStatus = "status"
+
 // capsOffered is what this SDK advertises. A provider that serves bulk calls
 // says so; the negotiation is symmetric, so a consumer that does not advertise
 // gets classic-only regardless.
+//
+// Comma-separated because parseCaps splits on it. Order is not significant and
+// callers must not depend on it.
 func capsOffered() string {
-	return CapStream
+	return strings.Join([]string{CapStream, CapStatus}, ",")
 }
 
 // parseCaps splits a capability frame. Unknown and empty tokens are dropped
@@ -72,6 +84,14 @@ func hasCap(caps []string, token string) bool {
 // this side then expects, and every call on the connection would be misframed.
 func streamsAgreed(peerCaps []string) bool {
 	return hasCap(peerCaps, CapStream)
+}
+
+// StatusServed reports whether the peer advertised the `status` op. Unlike
+// streaming, this is NOT symmetric: status is a plain request/reply, so only the
+// PROVIDER needs to serve it - a consumer asking a provider that advertises it
+// is safe regardless of what the consumer itself offers.
+func StatusServed(peerCaps []string) bool {
+	return hasCap(peerCaps, CapStatus)
 }
 
 // serveQUICStreamCall handles one BULK call: caller frame, then request chunk
