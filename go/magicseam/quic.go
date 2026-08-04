@@ -110,6 +110,12 @@ type QUICClient struct {
 	// predates negotiation. Consult it with StatusServed(c.PeerCaps) BEFORE
 	// calling an optional op, rather than calling and reading a refusal.
 	PeerCaps []string
+	// PeerStatus is the component's self-reported status, valid only when
+	// HasStatus is true. Two fields rather than a pointer so a caller that
+	// ignores HasStatus reads the zero state - which is not Healthy() - instead
+	// of dereferencing nil or, worse, seeing a plausible-looking "ready".
+	PeerStatus ComponentStatus
+	HasStatus  bool
 }
 
 // DialQUIC connects to a QUIC magic-seam provider at addr ("tcp:<host:port>")
@@ -165,12 +171,26 @@ func DialQUIC(ctx context.Context, addr, certPath, keyPath, caPath, requiredVers
 	if capsFrame, cerr := readFrame(stream); cerr == nil {
 		peerCaps = parseCaps(capsFrame)
 	}
+	// OPTIONAL frame three: the component's self-reported status (ADR-0060).
+	// Same treatment as caps for the same reason - absent, empty or unknown all
+	// mean "no opinion", never unhealthy.
+	var peerStatus ComponentStatus
+	var haveStatus bool
+	if statusFrame, serr := readFrame(stream); serr == nil {
+		peerStatus, haveStatus = DecodeComponentStatus(statusFrame)
+	}
 	if acceptByte[0] == 0 {
 		conn.CloseWithError(0, "incompatible version")
 		return nil, fmt.Errorf("%w: required %q, serves %q", ErrVersionRejected, requiredVersion, servedFrame)
 	}
 
-	return &QUICClient{conn: conn, Served: string(servedFrame), PeerCaps: peerCaps}, nil
+	return &QUICClient{
+		conn:       conn,
+		Served:     string(servedFrame),
+		PeerCaps:   peerCaps,
+		PeerStatus: peerStatus,
+		HasStatus:  haveStatus,
+	}, nil
 }
 
 // Call opens a NEW bidirectional stream for this one request - concurrent
