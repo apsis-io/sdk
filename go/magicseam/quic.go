@@ -486,6 +486,13 @@ func serveQUICCall(stream *quic.Stream, peer string, handler Handler, streamsNeg
 // The barrier ID is ECHOED rather than assumed: a consumer that has moved on to
 // a later barrier must be able to discard an ack for an earlier one.
 //
+// EVERY OUTCOME IS LOGGED, because provider-side quiescence was otherwise
+// invisible in production. The ack is the only signal a coordinator gets, and a
+// nil barrier used to produce a byte-identical one - so "did this provider
+// actually stop serving?" had no answer anywhere on the node. It also makes a
+// marker STORM visible: repeated arms for the same barrier ID read as a
+// misbehaving signal source rather than as silence.
+//
 // A NIL BARRIER REFUSES, and the earlier reasoning for acking was wrong. It said
 // a provider with no quiesce state "has nothing to drain", so silence would turn
 // that into a needless barrier timeout. But a provider with no barrier is not a
@@ -515,16 +522,22 @@ func serveQUICMarker(stream *quic.Stream, op byte, barrier *Barrier) {
 	switch op {
 	case opResume:
 		barrier.Resume()
+		fmt.Fprintf(os.Stderr, "[magicseam][barrier] resumed (barrier %q) - admitting calls again\n",
+			barrierID)
 	default:
 		if err := barrier.Arm(DefaultDrainTimeout); err != nil {
 			// Deliberately no ack: see this function's doc comment. The barrier
 			// is left ARMED, and the coordinator's abort path sends the Resume -
 			// un-arming here would silently resume a provider the coordinator
 			// still believes it is negotiating with.
+			fmt.Fprintf(os.Stderr, "[magicseam][barrier] REFUSED barrier %q: %v - staying armed "+
+				"until the coordinator resumes\n", barrierID, err)
 			stream.Close()
 
 			return
 		}
+		fmt.Fprintf(os.Stderr,
+			"[magicseam][barrier] armed for barrier %q - refusing calls until resumed\n", barrierID)
 	}
 	if _, err := stream.Write([]byte{opMarkerAck}); err != nil {
 		return
