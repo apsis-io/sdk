@@ -17,16 +17,63 @@
 // handed to the same handler, so existing providers gain bulk support without
 // touching their code. That matches what trail does today; it collects too.
 
-/** Wire opcodes, present only once both ends advertised CAP_STREAM. */
+/** Wire opcodes. Present once EITHER opcode-using capability is agreed - the
+ *  bulk seam (CAP_STREAM) or the markers (CAP_BARRIER). */
 export const OP_CALL = 0
 export const OP_STREAM = 1
+export const OP_MARKER = 2
+export const OP_MARKER_ACK = 3
+export const OP_RESUME = 4
 
 /** The capability token for the bulk seam. */
 export const CAP_STREAM = "stream"
 
-/** What this SDK advertises. */
-export function capsOffered(): string {
-  return CAP_STREAM
+/** The capability token for the coordinated-checkpoint markers (§8). */
+export const CAP_BARRIER = "barrier"
+
+/**
+ * What this SDK advertises.
+ *
+ * CAP_BARRIER ONLY WHEN THERE IS A BARRIER TO HONOUR IT. Advertising it
+ * unconditionally is the false-quiesce bug the Go SDK shipped and had to fix:
+ * a provider with no barrier acks a marker without draining and without
+ * refusing, so the coordinator reads that ack as "my channel is empty",
+ * snapshots, and takes a torn cut from a provider that never stopped serving.
+ *
+ * It also defeats the guard meant to catch it - trail fails a barrier when a
+ * peer does NOT advertise the capability, which is exactly the case that would
+ * be misreported. Advertising something you do not implement is worse than not
+ * implementing it: the second fails closed, the first fails silently.
+ */
+export function capsOffered(hasBarrier: boolean = false): string {
+  const caps = [CAP_STREAM]
+  if (hasBarrier) caps.push(CAP_BARRIER)
+
+  return caps.join(",")
+}
+
+/**
+ * Whether the marker ops are live on this connection. TWO-SIDED like streams:
+ * the peer must advertise the token AND this provider must actually have a
+ * barrier.
+ */
+export function barrierAgreed(peerCaps: string[], hasBarrier: boolean): boolean {
+  return hasBarrier && peerCaps.includes(CAP_BARRIER)
+}
+
+/**
+ * Whether the peer will prefix a stream with an opcode byte.
+ *
+ * EITHER opcode-using capability puts it there. The spec (§5) defines `barrier`
+ * as two-sided like `stream` but never says one requires the other, so a
+ * conforming consumer may advertise barrier ALONE - it wants markers, not bulk
+ * calls. Gating on streams only means its OP_MARKER is consumed as the first
+ * byte of the caller-frame length and the marker becomes a garbled call, which
+ * is the failure §5 makes barrier two-sided to prevent. (Fixed in the Go SDK
+ * after this was found there; the same trap is live here.)
+ */
+export function opcodeOnWire(peerCaps: string[], hasBarrier: boolean): boolean {
+  return streamsAgreed(peerCaps) || barrierAgreed(peerCaps, hasBarrier)
 }
 
 /**

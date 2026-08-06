@@ -21,7 +21,11 @@
 import fs from "node:fs";
 import nodeCrypto from "node:crypto";
 import type { ReadableStream, ReadableStreamDefaultReader } from "node:stream/web";
-import { OP_CALL, OP_STREAM, capsOffered, parseCaps, streamsAgreed } from "./stream";
+import {
+  OP_CALL, OP_MARKER, OP_MARKER_ACK, OP_RESUME, OP_STREAM,
+  capsOffered, opcodeOnWire, parseCaps, streamsAgreed,
+} from "./stream";
+import { Barrier, DEFAULT_DRAIN_TIMEOUT_MS } from "./barrier";
 import { QUICClient, QUICServer, QUICConnection, QUICStream as QUICStreamT, events as quicEvents } from "@matrixai/quic";
 import {
   decodeCaller,
@@ -31,6 +35,7 @@ import {
   SeamTooLargeError,
   MAX_FRAME,
   TAG_OK,
+  TAG_UNAVAILABLE,
   TAG_REJECTED,
   TAG_TOO_LARGE,
   encodeFrame,
@@ -233,6 +238,7 @@ export async function serveQUIC(
   caPath: string,
   version: string,
   handler: Handler,
+  barrier?: Barrier,
 ): Promise<QUICServer> {
   const { host, port } = parseQUICAddr(addr);
   const cert = fs.readFileSync(certPath, "utf8");
@@ -245,7 +251,7 @@ export async function serveQUIC(
   });
 
   server.addEventListener(quicEvents.EventQUICServerConnection.name, ((evt: InstanceType<typeof quicEvents.EventQUICServerConnection>) => {
-    handleQUICConnection(evt.detail, version, handler);
+    handleQUICConnection(evt.detail, version, handler, barrier);
   }) as EventListener);
 
   await server.start({ host, port });
@@ -253,20 +259,34 @@ export async function serveQUIC(
   return server;
 }
 
-function handleQUICConnection(connection: QUICConnection, version: string, handler: Handler): void {
+interface Negotiated {
+  /** OP_STREAM may arrive (bulk seam agreed by both ends). */
+  streams: boolean
+  /** An opcode byte prefixes every stream - either capability puts it there. */
+  opcodes: boolean
+}
+
+function handleQUICConnection(
+  connection: QUICConnection,
+  version: string,
+  handler: Handler,
+  barrier?: Barrier,
+): void {
   let handshakeDone = false;
   // Resolved by the handshake; call streams wait on it so a call that races
   // ahead of the handshake still learns whether the opcode is on the wire.
-  let negotiated: Promise<boolean> = Promise.resolve(false);
+  let negotiated: Promise<Negotiated> = Promise.resolve({ streams: false, opcodes: false });
   connection.addEventListener(quicEvents.EventQUICConnectionStream.name, ((evt: InstanceType<typeof quicEvents.EventQUICConnectionStream>) => {
     const stream = evt.detail;
     if (!handshakeDone) {
       handshakeDone = true;
-      negotiated = handleHandshakeStream(stream, version).catch(() => false);
+      negotiated = handleHandshakeStream(stream, version, barrier).catch(
+        () => ({ streams: false, opcodes: false }),
+      );
       return;
     }
     negotiated
-      .then((streams) => handleCallStream(stream, handler, streams))
+      .then((n) => handleCallStream(stream, handler, n, barrier))
       .catch(() => {});
   }) as EventListener);
 }
@@ -274,7 +294,8 @@ function handleQUICConnection(connection: QUICConnection, version: string, handl
 async function handleHandshakeStream(
   stream: QUICStreamT,
   version: string,
-): Promise<boolean> {
+  barrier?: Barrier,
+): Promise<Negotiated> {
   const reader = new QUICStreamReader(stream.readable);
   // The client's required version - read and discarded; this package always
   // accepts (see magicseam.ts's module doc comment on why gating is the
@@ -296,25 +317,109 @@ async function handleHandshakeStream(
     stream,
     new Uint8Array([1]),
     encodeFrame(Buffer.from(version, "utf8")),
-    encodeFrame(Buffer.from(capsOffered(), "utf8")),
+    encodeFrame(Buffer.from(capsOffered(barrier !== undefined), "utf8")),
   );
 
-  return streamsAgreed(peerCaps);
+  return {
+    streams: streamsAgreed(peerCaps),
+    opcodes: opcodeOnWire(peerCaps, barrier !== undefined),
+  };
 }
 
 async function handleCallStream(
   stream: QUICStreamT,
   handler: Handler,
-  streamsNegotiated: boolean,
+  negotiated: Negotiated,
+  barrier?: Barrier,
 ): Promise<void> {
   const reader = new QUICStreamReader(stream.readable);
-  // The opcode is on the wire ONLY when both ends advertised the bulk seam.
-  // Against a peer that did not, nothing is read and the bytes are exactly what
+  // The opcode is on the wire when EITHER opcode-using capability is agreed.
+  // Against a peer using neither, nothing is read and the bytes are exactly what
   // this SDK has always spoken.
   let op = OP_CALL;
-  if (streamsNegotiated) {
+  if (negotiated.opcodes) {
     op = (await reader.readExact(1))[0];
   }
+  // MARKERS FIRST: a marker carries no caller frame and no payload, and it has to
+  // be able to observe a channel with zero calls in it. No enter() guard is taken
+  // for one - the marker arrives AS a stream, so counting it would make the drain
+  // wait for itself and always time out.
+  if (op === OP_MARKER || op === OP_RESUME) {
+    return handleMarkerStream(stream, reader, op, barrier);
+  }
+  // REFUSED WHILE ARMED, and the connection stays open (§8 rule 4): OP_RESUME has
+  // no other way to arrive, and a provider that closes on arm destroys the very
+  // stream its ack is written on.
+  if (barrier?.armed === true) {
+    await writeAndClose(stream, new Uint8Array([TAG_UNAVAILABLE]));
+    return;
+  }
+  const done = barrier?.enter();
+  try {
+    return await handleAdmittedCall(stream, reader, handler, op);
+  } finally {
+    done?.();
+  }
+}
+
+/**
+ * One marker: apply it, then ack with the SAME barrier ID.
+ *
+ * The ack is written only after arm() resolves, which means in-flight actually
+ * reached zero - that is the contract the coordinator depends on. A failed drain
+ * must NOT ack: the stream closes without one, the barrier stays ARMED (§8 rule
+ * 3), and the coordinator's abort path sends the Resume.
+ *
+ * A provider with NO barrier REFUSES rather than acking. "No barrier" is not
+ * "nothing to drain" - it is serving handler calls right now with nothing
+ * counting them. Unreachable from a peer that honours capabilities, since
+ * capsOffered omits the token; kept as the fail-closed floor because the
+ * advertisement is a claim and this is what has to be true if something ignores it.
+ */
+async function handleMarkerStream(
+  stream: QUICStreamT,
+  reader: QUICStreamReader,
+  op: number,
+  barrier?: Barrier,
+): Promise<void> {
+  const barrierId = await readQUICFrame(reader);
+  if (barrier === undefined) {
+    await stream.writable.close();
+    return;
+  }
+  if (op === OP_RESUME) {
+    barrier.resume();
+    console.error(`[magicseam][barrier] resumed (barrier ${idText(barrierId)}) - admitting calls again`);
+  } else {
+    try {
+      await barrier.arm(DEFAULT_DRAIN_TIMEOUT_MS);
+    } catch (e) {
+      console.error(
+        `[magicseam][barrier] REFUSED barrier ${idText(barrierId)}: ${String(e)} - staying armed ` +
+          `until the coordinator resumes`,
+      );
+      await stream.writable.close();
+      return;
+    }
+    console.error(
+      `[magicseam][barrier] armed for barrier ${idText(barrierId)} - refusing calls until resumed`,
+    );
+  }
+  // The barrier ID is ECHOED rather than assumed: a consumer that has moved to a
+  // later barrier must be able to discard an ack for an earlier one.
+  await writeAndClose(stream, new Uint8Array([OP_MARKER_ACK]), encodeFrame(barrierId));
+}
+
+function idText(id: Uint8Array): string {
+  return JSON.stringify(Buffer.from(id).toString("utf8"))
+}
+
+async function handleAdmittedCall(
+  stream: QUICStreamT,
+  reader: QUICStreamReader,
+  handler: Handler,
+  op: number,
+): Promise<void> {
   if (op === OP_STREAM) {
     return handleStreamCallStream(stream, reader, handler);
   }
