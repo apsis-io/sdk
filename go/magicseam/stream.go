@@ -35,6 +35,13 @@ import (
 const (
 	opCall   byte = 0
 	opStream byte = 1
+	// Coordinated-checkpoint markers (ADR-0032). Sent only when both ends
+	// advertised CapBarrier, so a peer that does not implement them never sees
+	// one - a marker read as a caller frame would garble a call rather than be
+	// cleanly refused.
+	opMarker    byte = 2
+	opMarkerAck byte = 3
+	opResume    byte = 4
 )
 
 // CapStream is the capability token for the bulk seam.
@@ -49,6 +56,15 @@ const CapStream = "stream"
 // hypothetical here, the deployed binary drifted from source for days this week.
 const CapStatus = "status"
 
+// CapBarrier is the capability token for the coordinated-checkpoint marker
+// protocol (ADR-0032): opMarker / opMarkerAck / opResume.
+//
+// Advertising it is what makes a provider built on this SDK QUIESCIBLE - a
+// first-class member of a barrier rather than the reason one cannot be taken.
+// A coordinator checks for it BEFORE starting, so a provider that lacks it fails
+// the graph closed with an explanation instead of timing out mid-barrier.
+const CapBarrier = "barrier"
+
 // capsOffered is what this SDK advertises. A provider that serves bulk calls
 // says so; the negotiation is symmetric, so a consumer that does not advertise
 // gets classic-only regardless.
@@ -56,7 +72,7 @@ const CapStatus = "status"
 // Comma-separated because parseCaps splits on it. Order is not significant and
 // callers must not depend on it.
 func capsOffered() string {
-	return strings.Join([]string{CapStream, CapStatus}, ",")
+	return strings.Join([]string{CapStream, CapStatus, CapBarrier}, ",")
 }
 
 // parseCaps splits a capability frame. Unknown and empty tokens are dropped

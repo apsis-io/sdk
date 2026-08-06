@@ -273,6 +273,18 @@ func listenUDPForHost(hostPort string) (net.PacketConn, error) {
 // goroutine so independent calls run concurrently (never serialized,
 // unlike Serve/MSK1 above).
 func ServeQUIC(ctx context.Context, addr, certPath, keyPath, caPath, version string, handler Handler) error {
+	return ServeQUICWithBarrier(ctx, addr, certPath, keyPath, caPath, version, handler, nil)
+}
+
+// ServeQUICWithBarrier is ServeQUIC with a caller-owned Barrier, making this
+// provider QUIESCIBLE by a coordinated checkpoint (ADR-0032).
+//
+// A nil barrier keeps the pre-marker behaviour exactly: markers are still
+// answered so a coordinator is never left waiting, but nothing is ever refused
+// and nothing drains. Passing one is what makes this provider a first-class
+// member of a barrier rather than the reason one cannot be taken - the caller
+// owns it so it can also observe Armed()/InFlight() for its own logging.
+func ServeQUICWithBarrier(ctx context.Context, addr, certPath, keyPath, caPath, version string, handler Handler, barrier *Barrier) error {
 	hostPort, err := parseQUICAddr(addr)
 	if err != nil {
 		return err
@@ -312,7 +324,7 @@ func ServeQUIC(ctx context.Context, addr, certPath, keyPath, caPath, version str
 		if err != nil {
 			return fmt.Errorf("magicseam: QUIC accept on %s: %w", addr, err)
 		}
-		go serveQUICConn(ctx, conn, version, handler)
+		go serveQUICConn(ctx, conn, version, handler, barrier)
 	}
 }
 
@@ -320,7 +332,7 @@ func ServeQUIC(ctx context.Context, addr, certPath, keyPath, caPath, version str
 // loops AcceptStream for every subsequent call - each dispatched to its own
 // goroutine so concurrent calls on this connection never queue behind each
 // other.
-func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler Handler) {
+func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler Handler, barrier *Barrier) {
 	// Observed once per connection: the transport's view of who is calling,
 	// which no wire frame can influence. See Caller.PeerAddr.
 	peer := ""
@@ -372,7 +384,7 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 			break // connection closed or ctx done
 		}
 		wg.Go(func() {
-			serveQUICCall(stream, peer, handler, streams)
+			serveQUICCall(stream, peer, handler, streams, barrier)
 		})
 	}
 	wg.Wait()
@@ -380,7 +392,7 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 
 // serveQUICCall handles exactly one call stream: read the request frame,
 // invoke handler, write the result tag (+ payload frame on success).
-func serveQUICCall(stream *quic.Stream, peer string, handler Handler, streamsNegotiated bool) {
+func serveQUICCall(stream *quic.Stream, peer string, handler Handler, streamsNegotiated bool, barrier *Barrier) {
 	defer stream.CancelRead(0)
 
 	// The opcode is on the wire ONLY when both ends advertised the bulk seam.
@@ -394,6 +406,38 @@ func serveQUICCall(stream *quic.Stream, peer string, handler Handler, streamsNeg
 		}
 		op = b[0]
 	}
+	// MARKERS (ADR-0032), handled before the call path: a marker carries no
+	// caller frame and no payload, and it has to be able to observe a channel
+	// with zero calls in it.
+	//
+	// NO Enter() GUARD is taken for a marker. The marker arrives AS a stream, so
+	// counting it would make the drain wait for itself and always time out - the
+	// same coupling tools/trail/src/marker.rs documents on its own drain.
+	if op == opMarker || op == opResume {
+		serveQUICMarker(stream, op, barrier)
+
+		return
+	}
+
+	// ARMED: refuse the CALL, not the connection. The consumer's own guard stops
+	// IT calling while ITS barrier is armed, but this provider was armed
+	// REMOTELY - the consumer is not armed, only this side is. Without a refusal
+	// here an armed provider keeps serving and the "channel is empty" ack it
+	// already sent becomes a lie. And the connection must stay open regardless,
+	// or the Resume that releases this barrier has no way to arrive.
+	if barrier != nil && barrier.Armed() {
+		_, _ = stream.Write([]byte{tagUnavailable})
+		stream.Close()
+
+		return
+	}
+
+	done := func() {}
+	if barrier != nil {
+		done = barrier.Enter()
+	}
+	defer done()
+
 	if op == opStream {
 		serveQUICStreamCall(stream, peer, handler)
 
@@ -426,5 +470,51 @@ func serveQUICCall(stream *quic.Stream, peer string, handler Handler, streamsNeg
 		return
 	}
 	_ = writeFrame(stream, response)
+	stream.Close()
+}
+
+// serveQUICMarker answers one marker: apply it, then ack with the SAME barrier
+// ID.
+//
+// The ack is written only after Arm returns nil, which means in-flight actually
+// reached zero. That is the contract the coordinator depends on - an ack means
+// "this channel is empty", not "I heard you" - so a failed drain must NOT ack.
+// The stream is closed without one, which the consumer reads as a failed marker
+// and aborts the barrier, rather than snapshotting a channel that still has
+// calls in it.
+//
+// The barrier ID is ECHOED rather than assumed: a consumer that has moved on to
+// a later barrier must be able to discard an ack for an earlier one.
+//
+// A nil barrier still acks. A provider that simply has no quiesce state is not a
+// broken peer, and leaving a coordinator waiting on silence would turn "this
+// provider has nothing to drain" into a barrier timeout.
+func serveQUICMarker(stream *quic.Stream, op byte, barrier *Barrier) {
+	barrierID, err := readFrame(stream)
+	if err != nil {
+		return
+	}
+	if barrier != nil {
+		switch op {
+		case opResume:
+			barrier.Resume()
+		default:
+			if err := barrier.Arm(DefaultDrainTimeout); err != nil {
+				// Deliberately no ack: see this function's doc comment. The
+				// barrier is left ARMED, and the coordinator's abort path sends
+				// the Resume - un-arming here would silently resume a provider
+				// the coordinator still believes it is negotiating with.
+				stream.Close()
+
+				return
+			}
+		}
+	}
+	if _, err := stream.Write([]byte{opMarkerAck}); err != nil {
+		return
+	}
+	if err := writeFrame(stream, barrierID); err != nil {
+		return
+	}
 	stream.Close()
 }
