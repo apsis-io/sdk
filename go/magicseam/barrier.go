@@ -43,8 +43,17 @@ import (
 //
 // The zero value is ready to use and means "not armed, nothing in flight".
 type Barrier struct {
+	// Lease bounds how long an arm survives without a Resume. Zero means
+	// DefaultLeaseTimeout. See barrierlease.go for what happens without one -
+	// it is not a hypothetical.
+	Lease time.Duration
+
 	armed    atomic.Bool
 	inFlight atomic.Int64
+	// armedAt is the arm instant in unix nanos, 0 when not armed. Read on every
+	// Armed() call, which is the hot path of a busy provider, so it is an atomic
+	// rather than a mutex-guarded time.Time.
+	armedAt atomic.Int64
 }
 
 // DefaultDrainTimeout bounds how long a provider waits for its own in-flight
@@ -63,7 +72,21 @@ const drainPoll = 5 * time.Millisecond
 var ErrDrainTimeout = errors.New("magicseam: in-flight calls did not drain")
 
 // Armed reports whether new calls should be refused.
-func (b *Barrier) Armed() bool { return b.armed.Load() }
+//
+// Also where the arm LEASE is enforced: an arm that has outlived its lease is
+// released here, by whoever asks. See barrierlease.go - a provider armed by a
+// consumer that then died has no other way back, because the Resume can only
+// arrive on that consumer's own connection.
+func (b *Barrier) Armed() bool {
+	if !b.armed.Load() {
+		return false
+	}
+	if b.leaseExpired() {
+		return false
+	}
+
+	return true
+}
 
 // InFlight reports how many calls are currently executing.
 func (b *Barrier) InFlight() int64 { return b.inFlight.Load() }
@@ -87,6 +110,10 @@ func (b *Barrier) Enter() func() {
 // coordinator still believes it is negotiating with.
 func (b *Barrier) Arm(timeout time.Duration) error {
 	b.armed.Store(true)
+	// Stamped on EVERY arm, including a re-arm of an already-armed barrier: a
+	// coordinator that re-arms is a coordinator that is still alive, and the
+	// lease exists only to catch one that is not.
+	b.armedAt.Store(time.Now().UnixNano())
 	deadline := time.Now().Add(timeout)
 	for {
 		if b.inFlight.Load() == 0 {
@@ -104,4 +131,7 @@ func (b *Barrier) Arm(timeout time.Duration) error {
 // Resume releases the barrier. Never waits to drain: resuming is not a
 // quiescence claim, and a coordinator on its abort path must be able to release
 // a provider that is busy - that is precisely the case it is aborting for.
-func (b *Barrier) Resume() { b.armed.Store(false) }
+func (b *Barrier) Resume() {
+	b.armed.Store(false)
+	b.armedAt.Store(0)
+}
