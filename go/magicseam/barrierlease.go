@@ -48,6 +48,22 @@ import (
 // Raising this trades away self-healing time for tolerance of a slower
 // coordinator. Lowering it risks releasing a provider mid-barrier, which is the
 // torn cut the whole protocol exists to prevent - so err high.
+//
+// # AN UPPER BOUND FOR SOMETHING IN ANOTHER LANGUAGE, so read this before
+// lowering it
+//
+// tools/trail/src/barrierlease.rs holds the CONSUMER's lease (90s) and it must
+// stay under this one. The ordering is a correctness property, not tuning: the
+// consumer has to give up FIRST so it clears its own quiesced claim and sends an
+// explicit Resume to every provider. Between the two expiries, in the other
+// order, this provider is serving again while the consumer still reports
+// quiesced - which is the torn cut both leases exist to prevent, and exactly the
+// state measured on 2026-08-06 when only this side had a lease.
+//
+// Named here rather than only there because this is where someone lowering the
+// number is standing. The relationship is pinned by trail's own
+// the_consumer_lease_is_shorter_than_the_providers, which PARSES this line -
+// changing the value breaks that test rather than silently inverting the order.
 const DefaultLeaseTimeout = 2 * time.Minute
 
 // leaseTimeout resolves the configured lease, defaulting when unset so the zero
