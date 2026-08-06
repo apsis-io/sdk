@@ -371,7 +371,7 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 	// Our capabilities, AFTER the served version so an older consumer - which
 	// reads exactly the accept byte and one frame - is unaffected: it simply
 	// never reads this one.
-	if err := writeFrame(handshake, []byte(capsOffered())); err != nil {
+	if err := writeFrame(handshake, []byte(capsOffered(barrier != nil))); err != nil {
 		handshake.Close()
 		return
 	}
@@ -486,28 +486,44 @@ func serveQUICCall(stream *quic.Stream, peer string, handler Handler, streamsNeg
 // The barrier ID is ECHOED rather than assumed: a consumer that has moved on to
 // a later barrier must be able to discard an ack for an earlier one.
 //
-// A nil barrier still acks. A provider that simply has no quiesce state is not a
-// broken peer, and leaving a coordinator waiting on silence would turn "this
-// provider has nothing to drain" into a barrier timeout.
+// A NIL BARRIER REFUSES, and the earlier reasoning for acking was wrong. It said
+// a provider with no quiesce state "has nothing to drain", so silence would turn
+// that into a needless barrier timeout. But a provider with no barrier is not a
+// provider with no work: it is serving handler calls right now, with nothing
+// counting them and nothing to stop admitting more. "Nothing to drain" describes
+// a provider that serves nothing, which is not this.
+//
+// So this ends where a failed drain ends - closed, unacked - because it is the
+// same fact: the channel is not empty and cannot be made empty. A barrier
+// timeout is the correct outcome for a graph containing a provider that cannot
+// be quiesced.
+//
+// Unreachable from a consumer that honours capabilities, since capsOffered omits
+// "barrier" when there is none. Kept as the fail-closed floor anyway: the
+// advertisement is a claim, and this is the behaviour that has to be true if
+// something ignores the claim.
 func serveQUICMarker(stream *quic.Stream, op byte, barrier *Barrier) {
 	barrierID, err := readFrame(stream)
 	if err != nil {
 		return
 	}
-	if barrier != nil {
-		switch op {
-		case opResume:
-			barrier.Resume()
-		default:
-			if err := barrier.Arm(DefaultDrainTimeout); err != nil {
-				// Deliberately no ack: see this function's doc comment. The
-				// barrier is left ARMED, and the coordinator's abort path sends
-				// the Resume - un-arming here would silently resume a provider
-				// the coordinator still believes it is negotiating with.
-				stream.Close()
+	if barrier == nil {
+		stream.Close()
 
-				return
-			}
+		return
+	}
+	switch op {
+	case opResume:
+		barrier.Resume()
+	default:
+		if err := barrier.Arm(DefaultDrainTimeout); err != nil {
+			// Deliberately no ack: see this function's doc comment. The barrier
+			// is left ARMED, and the coordinator's abort path sends the Resume -
+			// un-arming here would silently resume a provider the coordinator
+			// still believes it is negotiating with.
+			stream.Close()
+
+			return
 		}
 	}
 	if _, err := stream.Write([]byte{opMarkerAck}); err != nil {

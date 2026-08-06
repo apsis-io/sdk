@@ -8,7 +8,7 @@ import "testing"
 // Adding a second capability must not break the first. The frame is now a list,
 // and streaming negotiation has to keep working against a peer that sends both.
 func TestStreamAndStatusCoexistInOneFrame(t *testing.T) {
-	caps := parseCaps([]byte(capsOffered()))
+	caps := parseCaps([]byte(capsOffered(true)))
 
 	if !streamsAgreed(caps) {
 		t.Error("advertising status broke stream negotiation - the two must coexist")

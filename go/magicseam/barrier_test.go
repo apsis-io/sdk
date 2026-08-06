@@ -118,8 +118,28 @@ func TestZeroBarrierIsUsable(t *testing.T) {
 // CAP_BARRIER must be advertised, or a coordinator reads this SDK's providers as
 // unquiesciable and refuses to start a barrier it could actually run.
 func TestBarrierCapabilityIsAdvertised(t *testing.T) {
-	if !strings.Contains(capsOffered(), CapBarrier) {
-		t.Errorf("capsOffered()=%q does not advertise %q - every provider built on this SDK would "+
-			"be treated as unable to join a coordinated checkpoint", capsOffered(), CapBarrier)
+	if !strings.Contains(capsOffered(true), CapBarrier) {
+		t.Errorf("capsOffered(true)=%q does not advertise %q - a provider that HAS a barrier would "+
+			"be treated as unable to join a coordinated checkpoint", capsOffered(true), CapBarrier)
+	}
+}
+
+// THE DANGEROUS DIRECTION, and the one the first version got wrong.
+//
+// A provider with NO barrier must NOT advertise the capability. It acks a marker
+// immediately - no drain, no refusal - so a consumer that believed the
+// advertisement would read that ack as "my channel is empty", snapshot, and take
+// a torn cut from a provider that never stopped serving.
+//
+// It also defeats the guard meant to catch it: markerprop fails a barrier when a
+// peer does not advertise the capability, which is precisely the case being
+// misreported. Advertising something you do not implement is worse than not
+// implementing it - the second fails closed, the first fails silently.
+func TestNoBarrierMeansNoCapability(t *testing.T) {
+	if strings.Contains(capsOffered(false), CapBarrier) {
+		t.Errorf("capsOffered(false)=%q advertises %q with no barrier to honour it - every "+
+			"provider on plain ServeQUIC would claim to be quiescible while acking without "+
+			"draining, which is a torn cut the coordinator cannot detect",
+			capsOffered(false), CapBarrier)
 	}
 }

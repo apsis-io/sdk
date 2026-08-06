@@ -71,8 +71,29 @@ const CapBarrier = "barrier"
 //
 // Comma-separated because parseCaps splits on it. Order is not significant and
 // callers must not depend on it.
-func capsOffered() string {
-	return strings.Join([]string{CapStream, CapStatus, CapBarrier}, ",")
+func capsOffered(hasBarrier bool) string {
+	caps := []string{CapStream, CapStatus}
+	// ADVERTISED ONLY WHEN THERE IS A BARRIER TO HONOUR IT, and the first version
+	// of this got it wrong in the most dangerous available direction.
+	//
+	// CapBarrier was unconditional while ServeQUIC passes a nil barrier - and a
+	// nil barrier ACKS a marker immediately, without draining and without
+	// refusing calls. So every provider built on plain ServeQUIC claimed to be
+	// quiescible and was not: the coordinator reads that ack as "my channel is
+	// empty", snapshots, and takes a torn cut from a provider that never stopped
+	// serving.
+	//
+	// That also defeated the one protection meant to catch it. markerprop fails a
+	// barrier when a peer does NOT advertise the capability - which is exactly the
+	// case that was being misreported, so the guard could never fire.
+	//
+	// Advertising a capability you do not implement is worse than not implementing
+	// it: the second fails closed, the first fails silently.
+	if hasBarrier {
+		caps = append(caps, CapBarrier)
+	}
+
+	return strings.Join(caps, ",")
 }
 
 // parseCaps splits a capability frame. Unknown and empty tokens are dropped

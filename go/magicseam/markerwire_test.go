@@ -232,3 +232,54 @@ func dialRaw(t *testing.T, ctx context.Context, hostPort, cert, key, ca string) 
 
 	return conn
 }
+
+// THE FAIL-CLOSED FLOOR: a provider with NO barrier must not ack a marker.
+//
+// capsOffered already omits "barrier" for a nil barrier, so a consumer that
+// honours capabilities never gets here. This is what happens when one doesn't -
+// and the answer has to be a refusal, because "no barrier" is not "nothing to
+// drain". The provider is serving handler calls right now, with nothing counting
+// them and nothing to stop admitting more. An ack would tell the coordinator its
+// channel was empty, and the snapshot taken on the strength of that is torn.
+func TestABarrierlessProviderRefusesMarkers(t *testing.T) {
+	ca := generateTestCA(t)
+	providerCert, providerKey, providerCA := writeTestLeaf(t, ca, t.TempDir())
+	consumerCert, consumerKey, consumerCA := writeTestLeaf(t, ca, t.TempDir())
+
+	ctx := t.Context()
+	echo := func(_ Caller, request []byte) ([]byte, error) { return request, nil }
+	go func() {
+		// Plain ServeQUIC: no barrier, which is the whole point.
+		_ = ServeQUIC(ctx, "tcp:127.0.0.1:19734",
+			providerCert, providerKey, providerCA, "0.1.0", echo)
+	}()
+	time.Sleep(150 * time.Millisecond)
+
+	conn := dialRaw(t, ctx, "127.0.0.1:19734", consumerCert, consumerKey, consumerCA)
+	defer conn.CloseWithError(0, "")
+
+	caps := handshake(t, conn, "0.1.0")
+	if containsToken(string(caps), "barrier") {
+		t.Fatalf("caps %q advertise \"barrier\" with no barrier behind them - a coordinator would "+
+			"treat this provider as quiescible and snapshot it mid-call", caps)
+	}
+
+	// Send one anyway, as a consumer that ignored the capabilities would.
+	ms, err := conn.OpenStreamSync(ctx)
+	if err != nil {
+		t.Fatalf("open marker stream: %v", err)
+	}
+	if _, err := ms.Write([]byte{2}); err != nil {
+		t.Fatalf("write marker opcode: %v", err)
+	}
+	if err := writeWireFrame(ms, []byte("barrier-1")); err != nil {
+		t.Fatalf("write barrier id: %v", err)
+	}
+	ms.Close()
+
+	var ack [1]byte
+	if _, err := io.ReadFull(ms, ack[:]); err == nil {
+		t.Errorf("a barrierless provider ACKED a marker (opcode %d) - the ack means \"my channel "+
+			"is empty\", and this one never stopped serving", ack[0])
+	}
+}
