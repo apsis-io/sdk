@@ -146,9 +146,18 @@ func TestAPeersBarrierClaimAloneDoesNotOpenTheOpcodeGate(t *testing.T) {
 	_ = writeWireFrame(cs, []byte("hello"))
 	cs.Close()
 
+	// DEADLINE, so the failure is the ASSERTION below rather than a 30s hang.
+	// The bug this guards eats the caller frame's first byte, which desynchronises
+	// the framing and leaves the read blocked forever - so without a deadline the
+	// test still fails, but by timeout, 30s later, saying only "timeout" instead
+	// of naming the gate. Noticed by peri-sonnet-5 while mutation-verifying it.
+	if err := cs.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
 	var tag [1]byte
 	if _, err := io.ReadFull(cs, tag[:]); err != nil {
-		t.Fatalf("read call tag: %v", err)
+		t.Fatalf("no reply to a classic call (%v) - the opcode gate opened on the peer's claim "+
+			"alone and ate the caller frame's first byte, desynchronising the framing", err)
 	}
 	if tag[0] != tagOK {
 		t.Fatalf("classic call answered tag %d, want %d - the opcode gate opened on the peer's "+
