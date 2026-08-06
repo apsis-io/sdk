@@ -360,6 +360,7 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 		peerCaps = parseCaps(capsFrame)
 	}
 	streams := streamsAgreed(peerCaps)
+	opcodes := opcodeOnWire(peerCaps, barrier != nil)
 	if _, err := handshake.Write([]byte{1}); err != nil {
 		handshake.Close()
 		return
@@ -384,7 +385,7 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 			break // connection closed or ctx done
 		}
 		wg.Go(func() {
-			serveQUICCall(stream, peer, handler, streams, barrier)
+			serveQUICCall(stream, peer, handler, streams, opcodes, barrier)
 		})
 	}
 	wg.Wait()
@@ -392,14 +393,14 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 
 // serveQUICCall handles exactly one call stream: read the request frame,
 // invoke handler, write the result tag (+ payload frame on success).
-func serveQUICCall(stream *quic.Stream, peer string, handler Handler, streamsNegotiated bool, barrier *Barrier) {
+func serveQUICCall(stream *quic.Stream, peer string, handler Handler, streamsNegotiated, opcodeExpected bool, barrier *Barrier) {
 	defer stream.CancelRead(0)
 
 	// The opcode is on the wire ONLY when both ends advertised the bulk seam.
 	// Against a peer that did not, nothing is read here and the bytes are
 	// exactly what this SDK has always spoken.
 	op := opCall
-	if streamsNegotiated {
+	if opcodeExpected {
 		var b [1]byte
 		if _, err := io.ReadFull(stream, b[:]); err != nil {
 			return

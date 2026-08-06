@@ -119,6 +119,40 @@ func hasCap(caps []string, token string) bool {
 // streamsAgreed reports whether BOTH ends advertised the bulk seam. One-sided
 // agreement is the dangerous case: the peer would not be writing the opcode
 // this side then expects, and every call on the connection would be misframed.
+// barrierAgreed reports whether the marker ops are live on this connection:
+// TWO-SIDED, like streams (§5). The peer must have advertised the token AND this
+// provider must actually have a barrier - advertising without one is the
+// false-quiesce bug capsOffered's own comment describes.
+func barrierAgreed(peerCaps []string, hasBarrier bool) bool {
+	if !hasBarrier {
+		return false
+	}
+	for _, c := range peerCaps {
+		if c == CapBarrier {
+			return true
+		}
+	}
+
+	return false
+}
+
+// opcodeOnWire reports whether the peer will prefix a stream with an opcode
+// byte.
+//
+// EITHER opcode-using capability puts it there, and reading only the stream one
+// was a real gap: the spec defines `barrier` as two-sided but never says it
+// requires `stream`, so a conforming consumer may advertise barrier ALONE - it
+// wants markers, not bulk calls. Gated on streams only, that consumer's
+// OP_MARKER was consumed as the first byte of the caller-frame length and the
+// marker became a garbled call, which is exactly the failure §5 cites as the
+// reason barrier is two-sided, arriving by the other door.
+//
+// Not reachable from this SDK's own client (capsOffered always includes stream),
+// which is why it went unnoticed - but reachable from any conforming peer.
+func opcodeOnWire(peerCaps []string, hasBarrier bool) bool {
+	return streamsAgreed(peerCaps) || barrierAgreed(peerCaps, hasBarrier)
+}
+
 func streamsAgreed(peerCaps []string) bool {
 	return hasCap(peerCaps, CapStream)
 }
