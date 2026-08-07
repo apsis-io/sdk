@@ -111,6 +111,23 @@ var (
 	ErrTooLarge = errors.New("magicseam: too large")
 )
 
+// ErrUnavailable is the third tag: the provider was REACHED and answered that it
+// cannot serve this call right now - an armed barrier (ADR-0032), a handler
+// returning the fail-closed default, a provider shedding load.
+//
+// It exists to be told apart from a TRANSPORT failure, which arrives from Call
+// as a plain wrapped I/O error. Both are "the call did not succeed" and they
+// demand opposite responses:
+//
+//	transport failure -> the connection is dead; redial (quicheal.go)
+//	ErrUnavailable    -> the provider is UP and said no; redialling it is a
+//	                     retry storm against something working correctly
+//
+// Before this existed the two were the same opaque fmt.Errorf, so no caller
+// could have chosen correctly - which is why the healing client could not have
+// been written without it.
+var ErrUnavailable = errors.New("magicseam: provider unavailable")
+
 // ErrVersionRejected reports that a provider COMPLETED the handshake and then
 // refused the required version. It is deliberately distinguishable from every
 // other DialQUIC failure, because those are transport failures and this one is

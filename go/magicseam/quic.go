@@ -133,11 +133,31 @@ func DialQUIC(ctx context.Context, addr, certPath, keyPath, caPath, requiredVers
 	if err != nil {
 		return nil, err
 	}
-	conn, err := quic.DialAddr(ctx, hostPort, tlsCfg, nil)
+	// COLLECT session tickets even though this dial never sends early data.
+	// Storing a ticket is free and carries no replay exposure - only SENDING
+	// early data does, and that is DialQUICEarly's job. Without this, whether
+	// 0-RTT ever works would depend on which dial function happened to run
+	// first, so a process that dialled once with DialQUIC could never resume
+	// afterwards. It also makes plain redials cheaper on their own: a resumed
+	// 1-RTT handshake skips the certificate exchange.
+	tlsCfg.ClientSessionCache = sessionCacheFor(hostPort)
+
+	conn, err := quic.DialAddr(ctx, hostPort, tlsCfg, seamQUICConfig(false))
 	if err != nil {
 		return nil, fmt.Errorf("magicseam: QUIC dial %s: %w", addr, err)
 	}
 
+	return seamHandshake(ctx, conn, requiredVersion)
+}
+
+// seamHandshake runs the seam's own handshake on a freshly dialled connection:
+// the FIRST stream carries the consumer's required version and the provider's
+// answer.
+//
+// Extracted so DialQUIC and DialQUICEarly cannot drift. They differ ONLY in how
+// the connection was obtained (ordinary vs 0-RTT); everything the seam protocol
+// says about establishing a session is here, once.
+func seamHandshake(ctx context.Context, conn *quic.Conn, requiredVersion string) (*QUICClient, error) {
 	stream, err := conn.OpenStreamSync(ctx)
 	if err != nil {
 		conn.CloseWithError(0, "handshake failed")
@@ -229,7 +249,13 @@ func (c *QUICClient) Call(ctx context.Context, request []byte) ([]byte, error) {
 	case tagTooLarge:
 		return nil, ErrTooLarge
 	default:
-		return nil, fmt.Errorf("magicseam: provider unavailable (tag %d)", tag[0])
+		// WRAPS a sentinel so a caller can tell "the provider ANSWERED, and the
+		// answer was no" from "the connection is dead". They look identical from
+		// here - both are just a failed Call - but they demand opposite
+		// responses, and quicheal.go's HealingClient is the caller that has to
+		// choose: redialling a provider that is up and refusing (an armed
+		// barrier, say) is a retry storm against something working correctly.
+		return nil, fmt.Errorf("%w (tag %d)", ErrUnavailable, tag[0])
 	}
 }
 
@@ -311,7 +337,12 @@ func ServeQUICWithBarrier(ctx context.Context, addr, certPath, keyPath, caPath, 
 		return fmt.Errorf("magicseam: QUIC listen %s: %w", addr, err)
 	}
 	defer pconn.Close()
-	listener, err := quic.Listen(pconn, tlsCfg, nil)
+	// ListenEarly + Allow0RTT: accept a resumed consumer's seam handshake in its
+	// first flight (quic0rtt.go explains why the handshake is the only thing that
+	// may ride early data, and why that is structural rather than a convention).
+	// A consumer that does not resume is unaffected - this listener serves an
+	// ordinary handshake exactly as before.
+	listener, err := quic.ListenEarly(pconn, tlsCfg, seamQUICConfig(true))
 	if err != nil {
 		return fmt.Errorf("magicseam: QUIC listen %s: %w", addr, err)
 	}

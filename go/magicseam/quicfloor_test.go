@@ -79,28 +79,28 @@ func freeLoopbackUDPPort(tb testing.TB) int {
 // too short under load and the dial fails for no reason, too long and every
 // benchmark pays it. Retrying against a bounded deadline waits exactly as long as
 // the server takes.
-func dialQUICWhenUp(b *testing.B, addr, cert, key, ca string) *QUICClient {
-	b.Helper()
+func dialQUICWhenUp(tb testing.TB, addr, cert, key, ca string) *QUICClient {
+	tb.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		client, err := DialQUIC(b.Context(), addr, cert, key, ca, "0.1.0")
+		client, err := DialQUIC(tb.Context(), addr, cert, key, ca, "0.1.0")
 		if err == nil {
 			return client
 		}
 		if time.Now().After(deadline) {
-			b.Fatalf("provider at %s never accepted a connection: %v", addr, err)
+			tb.Fatalf("provider at %s never accepted a connection: %v", addr, err)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 }
 
 // serveQUICEcho starts an echo provider on a fresh port and returns its address.
-func serveQUICEcho(b *testing.B, cert, key, ca string) string {
-	b.Helper()
-	addr := fmt.Sprintf("tcp:127.0.0.1:%d", freeLoopbackUDPPort(b))
+func serveQUICEcho(tb testing.TB, cert, key, ca string) string {
+	tb.Helper()
+	addr := fmt.Sprintf("tcp:127.0.0.1:%d", freeLoopbackUDPPort(tb))
 	echo := func(_ Caller, req []byte) ([]byte, error) { return req, nil }
 	go func() {
-		_ = ServeQUIC(b.Context(), addr, cert, key, ca, "0.1.0", echo)
+		_ = ServeQUIC(tb.Context(), addr, cert, key, ca, "0.1.0", echo)
 	}()
 
 	return addr
