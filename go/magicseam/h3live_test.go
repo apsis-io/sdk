@@ -147,3 +147,59 @@ func BenchmarkQUICCall(b *testing.B) {
 		}
 	}
 }
+
+// RECONNECTION COST, which is what 0-RTT would have addressed and cannot (see
+// h3.go: early data is GET/HEAD only, and every seam op is POST).
+//
+// What IS available is TLS session resumption: a resumed handshake skips the
+// certificate exchange, so it is cheaper than a cold one even without early
+// data. This measures a full dial+call, so the handshake is NOT amortised - the
+// opposite of BenchmarkH3Call, and the number that matters when a provider
+// restarts or a pod migrates.
+// addr is a parameter because both variants otherwise bind the same port: run in
+// sequence, the second fails with address-in-use while the first benchmark's
+// server is still up. That looked like "resumption is broken" and was a flake in
+// the harness.
+func benchmarkH3Dial(b *testing.B, withCache bool, addr string) {
+	ca := generateTestCA(b)
+	providerCert, providerKey, providerCA := writeTestLeaf(b, ca, b.TempDir())
+	consumerCert, consumerKey, consumerCA := writeTestLeaf(b, ca, b.TempDir())
+
+	ctx := b.Context()
+	echo := func(_ Caller, req []byte) ([]byte, error) { return req, nil }
+	go func() {
+		_ = ServeH3(ctx, addr,
+			providerCert, providerKey, providerCA, "0.1.0", echo, nil)
+	}()
+	time.Sleep(300 * time.Millisecond)
+
+	caller := Caller{Namespace: "ns", PodName: "p"}
+	// One warm dial so the cache (when enabled) actually holds a ticket - an
+	// empty cache measures a cold handshake whatever the flag says.
+	warm, err := dialH3WithCache(ctx, addr,
+		consumerCert, consumerKey, consumerCA, "0.1.0", caller, withCache)
+	if err != nil {
+		b.Fatalf("warm dial: %v", err)
+	}
+	if _, err := warm.Call(ctx, []byte("warm")); err != nil {
+		b.Fatalf("warm call: %v", err)
+	}
+
+	b.ResetTimer()
+	for b.Loop() {
+		c, err := dialH3WithCache(ctx, addr,
+			consumerCert, consumerKey, consumerCA, "0.1.0", caller, withCache)
+		if err != nil {
+			b.Fatalf("dial: %v", err)
+		}
+		if _, err := c.Call(ctx, []byte("x")); err != nil {
+			b.Fatalf("call: %v", err)
+		}
+		_ = c.Close()
+	}
+	b.StopTimer()
+	_ = warm.Close()
+}
+
+func BenchmarkH3DialCold(b *testing.B)    { benchmarkH3Dial(b, false, "tcp:127.0.0.1:19754") }
+func BenchmarkH3DialResumed(b *testing.B) { benchmarkH3Dial(b, true, "tcp:127.0.0.1:19755") }

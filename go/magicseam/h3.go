@@ -6,6 +6,7 @@ package magicseam
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -48,6 +49,27 @@ import (
 // not deprecated. The ALPN changes with it - a peer that has not cut over then
 // fails at the handshake, loudly, instead of negotiating and misparsing frames.
 
+// # What the 2.3x IS, measured - and it is not the headers
+//
+// I predicted header overhead and was wrong; the profile said so and an
+// experiment confirmed it. Same CA, loopback, payload, loop:
+//
+//	raw QUIC                          107,598 ns/op
+//	h3, first cut                     248,587
+//	  + req.ContentLength set         231,268   (-7%, kept)
+//	  + stripped to 2 short headers   224,868   (-3% more, NOT kept)
+//
+// A CPU profile shows no header hotspot: httpguts.ValidHeaderFieldName and
+// huffmanDecode are ~3% each, syscalls dominate, and the benchmark is
+// latency-bound rather than CPU-bound. Going from six self-describing headers to
+// two one-letter ones bought 3% - so the cost is structural in the h3 stack
+// (framing layers, per-request synchronisation), not in this mapping, and it is
+// not tunable from here.
+//
+// The six names are therefore KEPT. Three percent does not pay for making the
+// wire unreadable, and self-describing headers are most of what makes this
+// transport cheaper for the C SDK than the handshake it cannot currently build.
+//
 // # 0-RTT: it does not buy what you would reach for it for
 //
 // Measured cost is 2.3x per SMALL CALL on an established connection
@@ -310,6 +332,18 @@ type H3Client struct {
 	caps   []string
 }
 
+// sharedSessionCache lets a redial RESUME rather than handshake from cold.
+//
+// This is the reconnection win that 0-RTT cannot give us: early data is GET/HEAD
+// only and every seam op is POST, but a resumed handshake still skips the
+// certificate exchange. It matters because this seam redials more than it looks -
+// provider restart, pod migration, a healing client after a transport error.
+//
+// Process-wide and bounded: tickets are per server name, the seam talks to a
+// handful of providers, and an unbounded cache would be a slow leak keyed by
+// something a peer influences.
+var sharedSessionCache = tls.NewLRUClientSessionCache(64)
+
 // DialH3 opens an h3 connection to a provider.
 func DialH3(ctx context.Context, addr, certPath, keyPath, caPath, requiredVersion string, caller Caller) (*H3Client, error) {
 	hostPort, err := parseQUICAddr(addr)
@@ -322,6 +356,7 @@ func DialH3(ctx context.Context, addr, certPath, keyPath, caPath, requiredVersio
 	}
 	tlsCfg.NextProtos = []string{H3ALPN}
 	tlsCfg.ServerName = TrailQUICSNI
+	tlsCfg.ClientSessionCache = sharedSessionCache
 
 	tr := &http3.Transport{TLSClientConfig: tlsCfg, QUICConfig: &quic.Config{}}
 
@@ -384,6 +419,11 @@ func (c *H3Client) do(ctx context.Context, path string, body []byte, barrierID s
 	if err != nil {
 		return nil, nil, err
 	}
+	// A KNOWN LENGTH IS WORTH 7%, MEASURED. Without it the body is sent with an
+	// unknown length and the stack cannot pack HEADERS+DATA+FIN as tightly.
+	// 248,587 -> 231,268 ns/op, which is the only tuning of the three tried that
+	// paid for itself.
+	req.ContentLength = int64(len(body))
 	req.Header.Set(H3HeaderVersion, c.version)
 	req.Header.Set(H3HeaderCaps, capsOffered(true))
 	req.Header.Set(H3HeaderCallerNS, c.caller.Namespace)
@@ -421,4 +461,26 @@ func h3Body(b []byte) io.Reader {
 	}
 
 	return bytes.NewReader(b)
+}
+
+// dialH3WithCache is DialH3 with the session cache made explicit, so a benchmark
+// can measure a COLD handshake against a RESUMED one. Production always wants
+// the cache; without a way to turn it off there is no baseline to compare
+// against, and "resumption helps" would be an assertion rather than a number.
+func dialH3WithCache(
+	ctx context.Context,
+	addr, certPath, keyPath, caPath, requiredVersion string,
+	caller Caller,
+	useCache bool,
+) (*H3Client, error) {
+	c, err := DialH3(ctx, addr, certPath, keyPath, caPath, requiredVersion, caller)
+	if err != nil {
+		return nil, err
+	}
+	if !useCache {
+		// A FRESH cache per dial is a cold handshake: nothing to resume from.
+		c.tr.TLSClientConfig.ClientSessionCache = tls.NewLRUClientSessionCache(1)
+	}
+
+	return c, nil
 }
