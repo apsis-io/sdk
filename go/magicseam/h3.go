@@ -92,12 +92,38 @@ import (
 // which is itself an argument for the transport: rolling 0-RTT on raw QUIC would
 // have put that replay analysis on us, with no vocabulary to express the answer.
 //
-// If it is ever wanted, the shape is: the seam would have to let a CONSUMER
-// declare a call idempotent, because the transport cannot know - the ops
-// (launch/stop/logs/status) live in the request BODY, so this layer sees an
-// opaque byte pipe. `status` is the one that would qualify and the one that
-// would benefit (highest frequency, once per pod per 5s), but exposing that
-// needs an API change here, not a config flag.
+// # The API change that would unlock it, scoped - and the answer is DON'T
+//
+// Only the GUEST knows a call is idempotent. The transport sees `handle:
+// async func(request: list<u8>) -> result<list<u8>, error>` (wit/magic/magic.wit)
+// - an opaque byte pipe, with the ops (launch/stop/logs/status) inside the body.
+// So the declaration has to come from the WIT contract down, and that is the
+// whole cost:
+//
+//  1. WIT. It cannot be a parameter added to `handle`: magic.wit's own note on
+//     `handle-stream` settles the precedent - "a world's export is satisfied
+//     only by exporting the WHOLE interface", so extending `handler` breaks every
+//     provider exporting it, which today is the Go, C, TS and Rust echo
+//     providers plus the live w8s-node-provider. It would be a SEPARATE
+//     interface, opt-in, like the bulk seam.
+//  2. Four SDKs (Go, TS, C, Zig) grow a second call shape.
+//  3. trail: plug.rs routes the idempotent shape differently and quicheal.rs
+//     must preserve the distinction across a heal - a retry that silently
+//     downgrades is the replay hazard arriving by the back door.
+//
+// AND THEN IT STILL DOES NOT FIT. quic-go permits early data on GET/HEAD only,
+// and a GET cannot carry a `list<u8>` body - the payload would have to move into
+// the URL or headers, capping its size and forcing this layer to understand the
+// application's ops. That trades the byte-pipe abstraction, which is the seam's
+// central property, for one round trip.
+//
+// What it would buy: a single RTT on RECONNECT, for idempotent calls only, on a
+// path that already got 16% cheaper from session resumption (BenchmarkH3Dial*)
+// at no API cost at all. `status` is the only realistic candidate and it is not
+// worth a WIT change propagating through four SDKs and the healing client.
+//
+// Recorded as a considered NO rather than left as an open idea, so the next
+// person reaches for resumption first and does not re-derive this.
 
 // H3ALPN is the ALPN for the seam over HTTP/3.
 //
