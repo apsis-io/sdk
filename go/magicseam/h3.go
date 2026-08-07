@@ -48,6 +48,35 @@ import (
 // not deprecated. The ALPN changes with it - a peer that has not cut over then
 // fails at the handshake, loudly, instead of negotiating and misparsing frames.
 
+// # 0-RTT: it does not buy what you would reach for it for
+//
+// Measured cost is 2.3x per SMALL CALL on an established connection
+// (BenchmarkH3Call vs BenchmarkQUICCall), and 0-RTT does not touch that. Early
+// data saves a round trip on connection SETUP; the benchmark reuses one
+// connection across every iteration, so the handshake is already amortised to
+// nothing and the delta is per-request framing and QPACK.
+//
+// Where it WOULD help is reconnection - provider restart, migration, a healing
+// client redialling - which this seam does more often than it looks.
+//
+// EXCEPT THAT EARLY DATA IS REPLAYABLE, and this seam's calls are not
+// idempotent: /call carries whatever the application put in the body, and for
+// w8s that includes `launch`, where a replay creates a pod. A replayed `resume`
+// would release a barrier taken later, which is worse.
+//
+// quic-go enforces the safe thing for us: its h3 client permits early data only
+// on GET/HEAD (MethodGet0RTT, MethodHead0RTT), and every seam op here is POST.
+// So 0-RTT is off, correctly, and by construction rather than by our vigilance -
+// which is itself an argument for the transport: rolling 0-RTT on raw QUIC would
+// have put that replay analysis on us, with no vocabulary to express the answer.
+//
+// If it is ever wanted, the shape is: the seam would have to let a CONSUMER
+// declare a call idempotent, because the transport cannot know - the ops
+// (launch/stop/logs/status) live in the request BODY, so this layer sees an
+// opaque byte pipe. `status` is the one that would qualify and the one that
+// would benefit (highest frequency, once per pod per 5s), but exposing that
+// needs an API change here, not a config flag.
+
 // H3ALPN is the ALPN for the seam over HTTP/3.
 //
 // Deliberately h3's own token rather than a bespoke one: the point of the change
