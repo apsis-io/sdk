@@ -5,7 +5,10 @@ package magicseam
 
 import (
 	"bytes"
+	"io"
 	"testing"
+
+	"github.com/quic-go/quic-go"
 	"time"
 )
 
@@ -203,3 +206,132 @@ func benchmarkH3Dial(b *testing.B, withCache bool, addr string) {
 
 func BenchmarkH3DialCold(b *testing.B)    { benchmarkH3Dial(b, false, "tcp:127.0.0.1:19754") }
 func BenchmarkH3DialResumed(b *testing.B) { benchmarkH3Dial(b, true, "tcp:127.0.0.1:19755") }
+
+// THE MISSING BASELINE: a bare QUIC stream with NO protocol on it at all.
+//
+// "h3 is 2.3x slower than QUIC" was the wrong framing and it was mine. Both
+// transports run on the SAME quic-go; what the comparison actually measures is
+// our bespoke framing against a general-purpose HTTP stack. Without a
+// no-protocol floor there is no way to say how much of either number is QUIC
+// itself - and if QUIC dominates, the protocol choice matters far less than the
+// ratio suggests.
+//
+// Open a bidi stream, write a payload, close the write side, read the echo. That
+// is the least any request/response can cost on this stack.
+func BenchmarkBareQUICStream(b *testing.B) {
+	ca := generateTestCA(b)
+	providerCert, providerKey, providerCA := writeTestLeaf(b, ca, b.TempDir())
+	consumerCert, consumerKey, consumerCA := writeTestLeaf(b, ca, b.TempDir())
+
+	ctx := b.Context()
+	srvTLS, err := loadQUICTLSConfig(providerCert, providerKey, providerCA, true)
+	if err != nil {
+		b.Fatal(err)
+	}
+	srvTLS.NextProtos = []string{"bare-bench"}
+	ln, err := quic.ListenAddr("127.0.0.1:19756", srvTLS, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer ln.Close()
+
+	go func() {
+		conn, acceptErr := ln.Accept(ctx)
+		if acceptErr != nil {
+			return
+		}
+		for {
+			st, streamErr := conn.AcceptStream(ctx)
+			if streamErr != nil {
+				return
+			}
+			go func() {
+				buf, _ := io.ReadAll(st)
+				_, _ = st.Write(buf)
+				_ = st.Close()
+			}()
+		}
+	}()
+
+	cliTLS, err := loadQUICTLSConfig(consumerCert, consumerKey, consumerCA, false)
+	if err != nil {
+		b.Fatal(err)
+	}
+	cliTLS.NextProtos = []string{"bare-bench"}
+	cliTLS.ServerName = TrailQUICSNI
+	conn, err := quic.DialAddr(ctx, "127.0.0.1:19756", cliTLS, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer conn.CloseWithError(0, "")
+
+	payload := []byte("a small request, which is what the seam mostly carries")
+	b.ResetTimer()
+	for b.Loop() {
+		st, streamErr := conn.OpenStreamSync(ctx)
+		if streamErr != nil {
+			b.Fatal(streamErr)
+		}
+		if _, err := st.Write(payload); err != nil {
+			b.Fatal(err)
+		}
+		_ = st.Close()
+		if _, err := io.ReadAll(st); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// PAYLOAD SWEEP: is the h3 delta a fixed extra ROUND TRIP, or per-byte work?
+//
+// The two answers demand opposite responses. A constant delta across payload
+// sizes means an extra round trip - a property of the stack, not tunable from
+// here. A growing delta means per-byte processing, which is.
+//
+// This is the experiment that decides whether "optimise h3" is a real avenue.
+func benchSweep(b *testing.B, h3 bool, size int, addr string) {
+	ca := generateTestCA(b)
+	pc, pk, pca := writeTestLeaf(b, ca, b.TempDir())
+	cc, ck, cca := writeTestLeaf(b, ca, b.TempDir())
+
+	ctx := b.Context()
+	echo := func(_ Caller, req []byte) ([]byte, error) { return req, nil }
+	go func() {
+		if h3 {
+			_ = ServeH3(ctx, addr, pc, pk, pca, "0.1.0", echo, nil)
+		} else {
+			_ = ServeQUIC(ctx, addr, pc, pk, pca, "0.1.0", echo)
+		}
+	}()
+	time.Sleep(300 * time.Millisecond)
+
+	payload := make([]byte, size)
+	var call func() error
+	if h3 {
+		cl, err := DialH3(ctx, addr, cc, ck, cca, "0.1.0", Caller{Namespace: "ns", PodName: "p"})
+		if err != nil {
+			b.Fatal(err)
+		}
+		defer cl.Close()
+		call = func() error { _, err := cl.Call(ctx, payload); return err }
+	} else {
+		cl, err := DialQUIC(ctx, addr, cc, ck, cca, "0.1.0")
+		if err != nil {
+			b.Fatal(err)
+		}
+		defer cl.Close()
+		call = func() error { _, err := cl.Call(ctx, payload); return err }
+	}
+
+	b.ResetTimer()
+	for b.Loop() {
+		if err := call(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkSweepQUIC64(b *testing.B)  { benchSweep(b, false, 64, "tcp:127.0.0.1:19760") }
+func BenchmarkSweepH364(b *testing.B)    { benchSweep(b, true, 64, "tcp:127.0.0.1:19761") }
+func BenchmarkSweepQUIC64K(b *testing.B) { benchSweep(b, false, 64<<10, "tcp:127.0.0.1:19762") }
+func BenchmarkSweepH364K(b *testing.B)   { benchSweep(b, true, 64<<10, "tcp:127.0.0.1:19763") }

@@ -70,6 +70,42 @@ import (
 // wire unreadable, and self-describing headers are most of what makes this
 // transport cheaper for the C SDK than the handshake it cannot currently build.
 //
+// # And the comparison itself was framed wrongly - it is not "h3 vs QUIC"
+//
+// Both transports run on the SAME quic-go. Measured against a bare QUIC stream
+// carrying no protocol at all, which is the floor neither can beat:
+//
+//	bare QUIC stream, no protocol      99,038 ns/op     (the floor)
+//	this SDK's custom protocol        103,671           +4.6us   (+4.7%)
+//	HTTP/3                            229,188          +130us   (+131%)
+//
+// QUIC itself dominates. The bespoke protocol is a ~5% veneer on it; h3 costs 28x
+// more than that veneer does. So the trade is not "fast transport vs slow
+// transport" - it is a 5% protocol tax against a 131% one, bought with
+// generality.
+//
+// # Where the h3 cost lives, since "optimise it" is the obvious next thought
+//
+// A payload sweep separates a fixed extra round trip from per-byte work, and it
+// is BOTH - so neither single explanation was right:
+//
+//	           raw QUIC     h3          delta     ratio
+//	  64 B     111,828     252,310     +140us     2.26x
+//	  64 KiB   693,557   1,153,723     +460us     1.66x
+//
+// A constant delta would mean an extra round trip; a constant ratio would mean
+// per-byte processing. The delta grows 3x while the ratio falls, so there is a
+// fixed ~140us AND roughly 7ns/byte on top.
+//
+// What is tunable FROM HERE is the 7% above and nothing else: a CPU profile
+// shows the benchmark latency-bound with no header hotspot, so the fixed cost is
+// structural in the h3 stack and the per-byte cost is copies inside its body
+// path. Both live in quic-go's http3, not in this file.
+//
+// Note the ratio is WORST at small payloads - which is exactly the seam's stated
+// target (wit/magic/magic.wit: "the seam's stated target is small east-west
+// traffic"). The transport is least suited where it is most used.
+//
 // # 0-RTT: it does not buy what you would reach for it for
 //
 // Measured cost is 2.3x per SMALL CALL on an established connection
