@@ -33,7 +33,7 @@ type testCA struct {
 	key  *ecdsa.PrivateKey
 }
 
-func generateTestCA(t *testing.T) *testCA {
+func generateTestCA(t testing.TB) *testCA {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -62,7 +62,7 @@ func generateTestCA(t *testing.T) *testCA {
 // writeTestLeaf mints a leaf signed by ca (CommonName/DNSName ==
 // TrailQUICSNI, same fixed-SAN design as trailtls.go) and writes
 // cert.pem/key.pem/ca.pem into dir, returning their paths.
-func writeTestLeaf(t *testing.T, ca *testCA, dir string) (certPath, keyPath, caPath string) {
+func writeTestLeaf(t testing.TB, ca *testCA, dir string) (certPath, keyPath, caPath string) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -96,7 +96,7 @@ func writeTestLeaf(t *testing.T, ca *testCA, dir string) (certPath, keyPath, caP
 	return
 }
 
-func writePEM(t *testing.T, path, blockType string, der []byte) {
+func writePEM(t testing.TB, path, blockType string, der []byte) {
 	t.Helper()
 	f, err := os.Create(path)
 	if err != nil {
