@@ -235,7 +235,7 @@ interface checkpoint {
   load: func() -> option<list<u8>>;
 }
 
-/// First WASIp2 transform world.
+/// First WASI transform world.
 world extension-transform {
   import identity;
   import config;
