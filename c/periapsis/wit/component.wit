@@ -223,13 +223,35 @@ interface http-filter {
 ///   - at startup, call `load`; a `some` result is prior state to restore, `none`
 ///     is a cold start;
 ///   - in the run/serve loop, poll `requested`; when true, serialize state, call
-///     `save`, then RETURN from the entrypoint (saving must be the guest's last act
-///     so the checkpoint is consistent — no work happens after it).
+///     `save`, CLOSE WHAT YOU OPENED, then RETURN from the entrypoint (saving must
+///     be the guest's last act so the checkpoint is consistent — no work happens
+///     after it).
+///
+/// *** CLOSING IS PART OF THE CONTRACT, NOT TIDINESS. *** Returning from the
+/// entrypoint does NOT release the guest's resources: they belong to the host's
+/// store, which outlives the entrypoint task (that is what makes a persistent
+/// serving instance possible at all). A listening socket left bound therefore
+/// keeps completing TCP handshakes into a backlog nothing will ever accept — which
+/// is not a quiescent state, and reads as healthy to a `tcpSocket` readiness
+/// probe long after the guest has stopped serving.
+///
+/// Measured (2026-08-12, `done/2026-08-12_serve-mode-checkpoint-review.md`): the
+/// same component under the same host, differing only by dropping its listener
+/// before returning — port STILL OPEN without the close, CLOSED with it. The host
+/// will not do it for you, and it is not a host defect that it does not.
+///
+/// GAP, stated rather than implied: a guest that returns for a NON-checkpoint
+/// reason — work finished, an error — hits the identical resource behaviour with
+/// none of this in its path, because it never reads this interface. That is the
+/// background-task lifecycle ADR-0039 deferred on purpose; it is not covered
+/// here.
 interface checkpoint {
   /// True when the host wants a checkpoint before an imminent coordinated restart.
   requested: func() -> bool;
   /// Persist the guest's serialized state across the restart. Should be the guest's
-  /// final act (call, then return) so the snapshot is a consistent quiescent state.
+  /// final act (call, close what you opened, then return) so the snapshot is a
+  /// consistent quiescent state. A still-bound listening socket is NOT quiescent —
+  /// see the interface doc above; returning does not close it for you.
   save: func(state: list<u8>);
   /// The state persisted by a prior `save`, consumed once; `none` on a cold start.
   load: func() -> option<list<u8>>;
