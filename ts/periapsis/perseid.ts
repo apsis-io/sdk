@@ -2,7 +2,7 @@
 //
 // A Perseid is one operator program: a step that observes, emits obligations,
 // and yields. Radiant dispatches them; the name follows from that (a radiant is
-// where a meteor shower originates, and one meteor of a shower is a Perseid).
+// the point a meteor appears to come from, and a Perseid is one such meteor).
 //
 // UNLIKE EVERY OTHER MODULE HERE, this imports no `periapsis:*` interface. A
 // step's effects are DATA it yields; the host supplies the world through the
