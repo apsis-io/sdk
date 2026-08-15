@@ -12,8 +12,10 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "magicseam_quic.h"
+#include "io_internal.h"
 
 #include <pthread.h>
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -100,6 +102,91 @@ static magicseam_status echo_handler(void *user_data, const uint8_t *req, size_t
   }
   *resp_len = req_len;
   return MAGICSEAM_OK;
+}
+
+
+/* THE LEAK THAT BURNED FOUR CORES: a server connection was immortal.
+ *
+ * magicseam_conn_free ran only on accept-time setup failures, so every
+ * connection that ever SUCCEEDED kept its conn_entry and its per-connection
+ * io_thread for the life of the process - and each finished one busy-polled,
+ * because ngtcp2's expiry stays in the past once the peer is gone and the loop
+ * used a 0ms poll timeout for that case. Measured on engix99 2026-08-15:
+ * magic-echo-c, up 27h, 74 dead connections still holding threads, wchan=0 on
+ * every one, ~4 cores. The peer was radiant's reachability prober, dialling
+ * every QUIC SeamProvider every 5s and closing CORRECTLY each time.
+ *
+ * Counts the process's own threads, because that is the resource that was
+ * exhausted and the number an operator sees. Without the reap this rises by one
+ * per connection and never falls; the assertion is that it comes back down. */
+static int thread_count(void) {
+  DIR *d = opendir("/proc/self/task");
+  if (d == NULL) {
+    return -1;
+  }
+  int n = 0;
+  struct dirent *e;
+  while ((e = readdir(d)) != NULL) {
+    if (e->d_name[0] != '.') {
+      n++;
+    }
+  }
+  closedir(d);
+  return n;
+}
+
+static void test_finished_connections_are_reaped(const char *cert, const char *key, const char *ca) {
+  magicseam_quic_server *srv = NULL;
+  magicseam_status st = magicseam_quic_serve("tcp:127.0.0.1:19823", cert, key, ca, "0.1.0",
+                                              echo_handler, NULL, &srv);
+  CHECK(st == MAGICSEAM_OK, "serve");
+  sleep_ms(150);
+
+  int before = thread_count();
+  CHECK(before > 0, "/proc/self/task readable - without it this test proves nothing");
+
+  /* Enough connections that a per-connection leak is unmistakable against
+   * scheduler noise, and cheap enough to stay a unit test. */
+  for (int i = 0; i < 12; i++) {
+    magicseam_quic_client *client = NULL;
+    st = magicseam_quic_dial("tcp:127.0.0.1:19823", cert, key, ca, "0.1.0", &client, NULL, 0);
+    CHECK(st == MAGICSEAM_OK, "dial");
+    magicseam_quic_close(client);
+  }
+
+  /* The sweep runs on the accept thread, which wakes on packets and on the
+   * close request - the CONNECTION_CLOSE from each client above is itself the
+   * wakeup, so this is bounded settling, not a poll for an event that needs
+   * prompting. */
+  int after = before;
+  for (int i = 0; i < 100; i++) {
+    sleep_ms(50);
+    after = thread_count();
+    if (after <= before + 2) {
+      break;
+    }
+  }
+
+  /* THE THREAD COUNT ABOVE CANNOT SEE A REAP FAILURE, so this is the arm that
+   * does. Verified by mutation 2026-08-15: deleting reap_finished_conns's call
+   * leaves the thread-count assertion GREEN, because an exited pthread drops
+   * out of /proc/self/task whether or not anyone joined it. What leaks then is
+   * the conn list itself - one entry, one unjoined thread descriptor and one
+   * conn struct per connection, forever. */
+  size_t live = magicseam_server_live_conns(srv);
+  if (live > 1) {
+    fprintf(stderr, "  server still holds %zu connections\n", live);
+  }
+  CHECK(live <= 1,
+        "the server still holds connections after every client closed - "
+        "reap_finished_conns is not unlinking them, so the list and their thread "
+        "descriptors grow without bound");
+
+  CHECK(after <= before + 2,
+        "finished connections were not reaped - threads never come back down, and each "
+        "dead one busy-polls an expired timer");
+
+  magicseam_quic_server_close(srv);
 }
 
 static void test_loopback_roundtrip(const char *cert, const char *key, const char *ca) {
@@ -248,6 +335,9 @@ int main(void) {
 
   printf("-- rejected/too-large/other error tags round-trip --\n");
   test_error_tags_roundtrip(cert, key, ca);
+
+  printf("-- finished connections are reaped --\n");
+  test_finished_connections_are_reaped(cert, key, ca);
 
   if (g_failures == 0) {
     printf("ALL TESTS PASSED\n");

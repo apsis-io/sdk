@@ -132,12 +132,35 @@ typedef struct magicseam_pkt {
   struct magicseam_pkt *next;
 } magicseam_pkt;
 
+/* Cap for the io_thread's stuck-expiry backoff (io.c). 100ms bounds a
+ * connection whose ngtcp2 timer never advances to ~10 wakeups/sec instead of a
+ * spin, while staying far below the 60s close-request bound so a close is
+ * still serviced promptly. */
+#define MAGICSEAM_STUCK_BACKOFF_MAX_MS 100
+
 /* magicseam_conn: the per-QUIC-connection state the io_thread owns.
  * Shared by client and server (the server keeps one of these per
  * accepted connection, demuxed by CID in server.c). */
 typedef struct magicseam_conn {
   int fd;                       /* connected (client) or bound (server, shared) UDP socket */
   int is_server;
+  /* Set by the io_thread immediately before it returns, so the SERVER can tell
+   * a finished connection from a live one and reap it (server.c's sweep). A
+   * server connection is otherwise immortal: magicseam_conn_free is called
+   * only on accept-time setup failures, so every connection that ever
+   * SUCCEEDED kept its thread and its conn_entry forever. */
+  atomic_int io_done;
+  /* The SERVER's wakeup pipe write end, or -1 on a client. The io_thread pokes
+   * it after setting io_done so the accept thread wakes and sweeps.
+   *
+   * WITHOUT THIS THE SWEEP IS CORRECT MACHINERY THAT NEVER RUNS: it sits at the
+   * top of the accept loop, so it only executes on a wakeup - and the LAST
+   * connection to finish sets io_done after the packet that woke the accept
+   * thread has already been handled. Nothing else arrives, poll blocks, and the
+   * connection is never collected. Caught by
+   * test_finished_connections_are_reaped, which failed with the sweep in
+   * place. */
+  int reap_wakeup_fd;
   ngtcp2_conn *conn;             /* io_thread-only */
   ngtcp2_crypto_ossl_ctx *ossl;   /* io_thread-only */
   SSL *ssl;                       /* io_thread-only */
@@ -221,6 +244,16 @@ void magicseam_conn_request_close(magicseam_conn *c);
 /* magicseam_wakeup pokes c's self-pipe so a blocked poll() in the
  * io_thread returns promptly to notice new work in the intent queues. */
 void magicseam_wakeup(magicseam_conn *c);
+
+/* magicseam_send_connection_close tells the peer the connection is over.
+ * Without it a close is silent on the wire and the far side leaks a thread. */
+void magicseam_send_connection_close(magicseam_conn *c);
+
+/* magicseam_server_live_conns reports how many connections the server still
+ * holds. It exists because a THREAD COUNT cannot see a reap failure: an exited
+ * pthread leaves /proc/self/task whether or not it was ever joined, so the
+ * conn list is the only place an unreaped connection is visible. */
+size_t magicseam_server_live_conns(magicseam_quic_server *s);
 
 /* magicseam_conn_feed_pkt (SERVER only) queues a copy of one just-
  * received datagram (already demuxed to this connection by CID - see

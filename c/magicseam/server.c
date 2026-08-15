@@ -225,6 +225,7 @@ static magicseam_conn *accept_new_conn(magicseam_quic_server *s, const ngtcp2_pk
   }
   c->fd = s->fd;
   c->is_server = 1;
+  c->reap_wakeup_fd = s->wakeup_fds[1]; /* so the io_thread can prompt the sweep */
   c->owner = s;
   memcpy(c->local_version, s->version, sizeof(c->local_version) - 1);
   c->local_version[sizeof(c->local_version) - 1] = '\0';
@@ -332,6 +333,76 @@ static magicseam_conn *accept_new_conn(magicseam_quic_server *s, const ngtcp2_pk
   return c;
 }
 
+/* reap_finished_conns unlinks and frees every connection whose io_thread has
+ * exited, and it is the missing half of this server's connection lifecycle.
+ *
+ * WITHOUT IT A SERVER CONNECTION IS IMMORTAL. magicseam_conn_free is called
+ * only on accept-time setup failures, so every connection that ever SUCCEEDED
+ * kept its conn_entry AND its per-connection io_thread forever - a thread per
+ * connection ever accepted, for the life of the process. Measured on engix99
+ * 2026-08-15: magic-echo-c, up 27h, 74 finished connections still holding
+ * threads, none blocked in the kernel, together burning ~4 cores. The peer in
+ * every case was radiant's reachability prober, which dials each QUIC
+ * SeamProvider every 5s and closes cleanly - the client side was correct
+ * throughout; nothing here ever collected the remains.
+ *
+ * UNLINK UNDER THE LOCK, JOIN AND FREE OUTSIDE IT. pthread_join while holding
+ * conns_mu would stall every packet demux (find_conn_locked takes the same
+ * lock) for as long as a thread takes to wind down, and turns any future lock
+ * taken by an io_thread into a deadlock. Same shape the shutdown path below
+ * already uses, for the same reasons. */
+size_t magicseam_server_live_conns(magicseam_quic_server *s) {
+  pthread_mutex_lock(&s->conns_mu);
+  size_t n = 0;
+  for (conn_entry *e = s->conns; e != NULL; e = e->next) {
+    n++;
+  }
+  pthread_mutex_unlock(&s->conns_mu);
+
+  return n;
+}
+
+static void reap_finished_conns(magicseam_quic_server *s) {
+  conn_entry *dead = NULL;
+
+  pthread_mutex_lock(&s->conns_mu);
+  conn_entry **link = &s->conns;
+  while (*link != NULL) {
+    conn_entry *e = *link;
+    if (e->conn != NULL && atomic_load(&e->conn->io_done)) {
+      *link = e->next;
+      e->next = dead;
+      dead = e;
+      continue;
+    }
+    link = &e->next;
+  }
+  pthread_mutex_unlock(&s->conns_mu);
+
+  while (dead != NULL) {
+    conn_entry *next = dead->next;
+    magicseam_conn *c = dead->conn;
+    if (c->started) {
+      pthread_join(c->io_thread, NULL); /* already returned - io_done says so */
+    }
+    SSL *ssl = c->ssl;
+    ngtcp2_crypto_ossl_ctx *ossl = c->ossl;
+    ngtcp2_conn *ngconn = c->conn;
+    magicseam_conn_free(c); /* never touches c->fd - it is s->fd, owned by the server */
+    if (ngconn != NULL) {
+      ngtcp2_conn_del(ngconn);
+    }
+    if (ossl != NULL) {
+      ngtcp2_crypto_ossl_ctx_del(ossl);
+    }
+    if (ssl != NULL) {
+      SSL_free(ssl);
+    }
+    free(dead);
+    dead = next;
+  }
+}
+
 static void *accept_thread_main(void *arg) {
   magicseam_quic_server *s = (magicseam_quic_server *)arg;
   uint8_t buf[65536];
@@ -340,6 +411,11 @@ static void *accept_thread_main(void *arg) {
     if (atomic_load(&s->closing)) {
       break;
     }
+
+    /* Collect finished connections. Cheap - one list walk of the live set -
+     * and this thread already wakes on every packet and every close request,
+     * so no timer is needed to make it run. */
+    reap_finished_conns(s);
 
     struct pollfd pfds[2];
     pfds[0].fd = s->fd;

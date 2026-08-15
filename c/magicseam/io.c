@@ -512,6 +512,10 @@ magicseam_conn *magicseam_conn_new(void) {
   if (c == NULL) {
     return NULL;
   }
+  /* -1, not calloc's 0: fd 0 is stdin, and a stray wakeup byte written there
+   * would be both wrong and very hard to trace. Servers overwrite it at
+   * accept. */
+  c->reap_wakeup_fd = -1;
   c->fd = -1;
   c->wakeup_fds[0] = c->wakeup_fds[1] = -1;
   if (pipe(c->wakeup_fds) != 0) {
@@ -982,14 +986,68 @@ uint64_t magicseam_io_run_once(magicseam_conn *c) {
   return ngtcp2_conn_get_expiry2(c->conn);
 }
 
+/* magicseam_send_connection_close emits one CONNECTION_CLOSE datagram for a
+ * connection that is shutting down, so the PEER learns the connection is over
+ * instead of holding it until an idle timeout that may never be reached.
+ *
+ * ngtcp2 refuses to write one once the connection is already in its closing or
+ * draining period (it has sent or received a close already), and that is not an
+ * error here - it means the job is done. */
+void magicseam_send_connection_close(magicseam_conn *c) {
+  if (c->conn == NULL) {
+    return;
+  }
+  if (ngtcp2_conn_in_closing_period(c->conn) || ngtcp2_conn_in_draining_period(c->conn)) {
+    return;
+  }
+
+  ngtcp2_path path;
+  build_path(c, &path);
+
+  ngtcp2_ccerr ccerr;
+  ngtcp2_ccerr_default(&ccerr);
+
+  ngtcp2_pkt_info pi;
+  memset(&pi, 0, sizeof(pi));
+
+  uint8_t out[NGTCP2_MAX_UDP_PAYLOAD_SIZE];
+  ngtcp2_ssize n = ngtcp2_conn_write_connection_close(c->conn, &path, &pi, out, sizeof(out),
+                                                      &ccerr, magicseam_now_ns());
+  if (n <= 0) {
+    return;
+  }
+
+  ssize_t sent = sendto(c->fd, out, (size_t)n, 0, (struct sockaddr *)&c->remote_addr,
+                        c->remote_addrlen);
+  (void)sent; /* one shot, deliberately - see the caller */
+}
+
 void *magicseam_io_thread_main(void *arg) {
   magicseam_conn *c = (magicseam_conn *)arg;
+  uint64_t last_expiry = 0;
+  int stuck_ms = 0;
   for (;;) {
     if (atomic_load(&c->state) == MAGICSEAM_CONN_CLOSING) {
-      /* Best-effort: let ngtcp2 emit a CONNECTION_CLOSE if it hasn't
-       * already (write_side will naturally do nothing if the conn is
-       * already past that point). */
-      write_side(c);
+      /* THIS USED TO CALL write_side() AND CLAIM IT EMITTED A CONNECTION_CLOSE.
+       * It does not, and never did: write_side drives
+       * ngtcp2_conn_writev_stream, which writes STREAM frames and has no path
+       * that produces a CONNECTION_CLOSE. Only
+       * ngtcp2_conn_write_connection_close does, and nothing in this SDK
+       * called it.
+       *
+       * So every close was silent on the wire. A closing client dropped its
+       * socket without telling the peer, and the SERVER's connection - which
+       * learns a peer is gone ONLY from a CONNECTION_CLOSE arriving in
+       * read_pkt - kept its io_thread alive with an expiry that no longer
+       * advances. That is the leak behind magic-echo-c's 74 threads and four
+       * cores: the busy-poll was the symptom, an unterminated connection was
+       * the cause, and the sweep in server.c had nothing to sweep because no
+       * thread ever finished.
+       *
+       * Best-effort by design: a single datagram, unretransmitted. QUIC
+       * permits exactly this, and the peer's idle timeout remains the
+       * backstop if it is lost. */
+      magicseam_send_connection_close(c);
       break;
     }
 
@@ -1002,6 +1060,37 @@ void *magicseam_io_thread_main(void *arg) {
     int timeout_ms = expiry <= now ? 0 : (int)((expiry - now) / 1000000ull);
     if (timeout_ms > 60000) {
       timeout_ms = 60000; /* bound the poll so a close request is never starved for long */
+    }
+
+    /* A TIMER THAT STAYS EXPIRED IS A BUSY-WAIT, AND IT COST FOUR CORES.
+     *
+     * timeout_ms is 0 whenever ngtcp2's expiry is already in the past, which
+     * is correct ONCE: poll returns immediately, rc==0 runs
+     * ngtcp2_conn_handle_expiry, and the next expiry moves forward. But if
+     * handling it does NOT move it forward - a connection whose peer is gone
+     * and which is never reaped (see the server's sweep in server.c) - the
+     * loop spins at whatever rate the CPU allows, forever, in userspace.
+     *
+     * Measured on engix99 2026-08-15: magic-echo-c, 74 such threads, wchan=0
+     * on every one, ~4 cores. `ps` showed 13.4% because that is a LIFETIME
+     * average over 27h; sampled it was 391-415%.
+     *
+     * So back off when the expiry does not advance. A connection making
+     * progress is untouched - its expiry moves and last_expiry differs, which
+     * resets the backoff to 0 on the very next pass. Only a stuck one pays,
+     * and it pays 1ms, then 2, 4 ... capped, instead of a spin. */
+    if (expiry == last_expiry) {
+      if (stuck_ms == 0) {
+        stuck_ms = 1;
+      } else if (stuck_ms < MAGICSEAM_STUCK_BACKOFF_MAX_MS) {
+        stuck_ms *= 2;
+      }
+      if (timeout_ms < stuck_ms) {
+        timeout_ms = stuck_ms;
+      }
+    } else {
+      stuck_ms = 0;
+      last_expiry = expiry;
     }
 
     /* CLIENT connections poll their own private fd directly alongside
@@ -1057,6 +1146,18 @@ void *magicseam_io_thread_main(void *arg) {
       c->slots[i].pending = NULL;
       magicseam_pending_call_signal(pc, MAGICSEAM_ERR_IO, NULL, 0);
     }
+  }
+  /* Tell the server this connection is finished. EVERY exit from the loop
+   * above lands here - the CLOSING break, run_once's -1, and the poll error -
+   * so there is no path that leaves a dead connection looking live. */
+  atomic_store(&c->io_done, 1);
+  /* Wake the server so its sweep runs. Ordered AFTER the store, or the accept
+   * thread can sweep, see io_done unset, and go back to sleep having missed the
+   * only notification it was going to get. */
+  if (c->reap_wakeup_fd >= 0) {
+    uint8_t b = 0;
+    ssize_t n = write(c->reap_wakeup_fd, &b, 1);
+    (void)n;
   }
   return NULL;
 }
