@@ -189,6 +189,59 @@ static void test_finished_connections_are_reaped(const char *cert, const char *k
   magicseam_quic_server_close(srv);
 }
 
+/* A PEER THAT VANISHES WITHOUT CLOSING MUST STILL BE REAPED.
+ *
+ * The CONNECTION_CLOSE fix handles the peer that says goodbye. This is the one
+ * that does not: a lost close datagram, a killed process, an abandoned probe.
+ * Before this, ngtcp2_conn_handle_expiry's return value was DISCARDED, so
+ * NGTCP2_ERR_IDLE_CLOSE never terminated anything and such a connection looped
+ * forever. Measured live after the close fix shipped: magic-echo-c's threads
+ * still grew ~70/hour, sleeping rather than spinning only because of the
+ * backoff - cheap, and unbounded.
+ *
+ * The client here is deliberately NEVER closed. That is the whole scenario.
+ */
+static void test_idle_connections_are_reaped(const char *cert, const char *key, const char *ca) {
+  /* 30s is right in production and untestable here. Restored below so the
+   * short timeout cannot leak into another test's connections. */
+  uint64_t saved = magicseam_server_idle_timeout_ns;
+  magicseam_server_idle_timeout_ns = 700ull * 1000ull * 1000ull;
+
+  magicseam_quic_server *srv = NULL;
+  magicseam_status st = magicseam_quic_serve("tcp:127.0.0.1:19823", cert, key, ca, "0.1.0",
+                                              echo_handler, NULL, &srv);
+  CHECK(st == MAGICSEAM_OK, "serve");
+  sleep_ms(150);
+
+  magicseam_quic_client *client = NULL;
+  char served[64] = {0};
+  st = magicseam_quic_dial("tcp:127.0.0.1:19823", cert, key, ca, "0.1.0", &client, served, sizeof(served));
+  CHECK(st == MAGICSEAM_OK, "dial");
+
+  /* Positive control: it must be HERE before we assert it goes away, or a
+   * server that never registered the connection would pass vacuously. */
+  CHECK(magicseam_server_live_conns(srv) >= 1,
+        "the server never registered the connection, so its later absence would "
+        "prove nothing");
+
+  size_t live = 1;
+  for (int i = 0; i < 100; i++) { /* ~5s, against a 700ms idle timeout */
+    sleep_ms(50);
+    live = magicseam_server_live_conns(srv);
+    if (live == 0) {
+      break;
+    }
+  }
+  CHECK(live == 0,
+        "a connection whose peer went away WITHOUT a CONNECTION_CLOSE was never "
+        "reaped - handle_expiry's NGTCP2_ERR_IDLE_CLOSE is being discarded, so the "
+        "thread loops forever");
+
+  magicseam_quic_close(client);
+  magicseam_quic_server_close(srv);
+  magicseam_server_idle_timeout_ns = saved;
+}
+
 static void test_loopback_roundtrip(const char *cert, const char *key, const char *ca) {
   magicseam_quic_server *srv = NULL;
   magicseam_status st = magicseam_quic_serve("tcp:127.0.0.1:19820", cert, key, ca, "0.1.0",
@@ -338,6 +391,8 @@ int main(void) {
 
   printf("-- finished connections are reaped --\n");
   test_finished_connections_are_reaped(cert, key, ca);
+  printf("-- idle connections are reaped --\n");
+  test_idle_connections_are_reaped(cert, key, ca);
 
   if (g_failures == 0) {
     printf("ALL TESTS PASSED\n");

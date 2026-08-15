@@ -284,7 +284,7 @@ static magicseam_conn *accept_new_conn(magicseam_quic_server *s, const ngtcp2_pk
   params.initial_max_stream_data_bidi_remote = 4u << 20;
   params.initial_max_streams_bidi = 1000;
   params.initial_max_streams_uni = 0;
-  params.max_idle_timeout = 30 * NGTCP2_SECONDS;
+  params.max_idle_timeout = magicseam_server_idle_timeout_ns;
   params.original_dcid = hd->dcid;
   params.original_dcid_present = 1;
 
@@ -351,6 +351,8 @@ static magicseam_conn *accept_new_conn(magicseam_quic_server *s, const ngtcp2_pk
  * lock) for as long as a thread takes to wind down, and turns any future lock
  * taken by an io_thread into a deadlock. Same shape the shutdown path below
  * already uses, for the same reasons. */
+uint64_t magicseam_server_idle_timeout_ns = 30 * NGTCP2_SECONDS;
+
 size_t magicseam_server_live_conns(magicseam_quic_server *s) {
   pthread_mutex_lock(&s->conns_mu);
   size_t n = 0;

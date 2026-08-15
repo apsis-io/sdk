@@ -1133,7 +1133,30 @@ void *magicseam_io_thread_main(void *arg) {
        * background-thread design exists for (see io_internal.h's own
        * doc comment): without this, the connection would silently die
        * between application calls. */
-      ngtcp2_conn_handle_expiry(c->conn, magicseam_now_ns());
+      /* ITS RETURN VALUE WAS DISCARDED, AND THAT IS WHY THREADS STILL
+       * ACCUMULATED AFTER THE CONNECTION_CLOSE FIX.
+       *
+       * handle_expiry returns NGTCP2_ERR_IDLE_CLOSE when max_idle_timeout
+       * (30s, set in server.c/client.c) has passed with no traffic, and
+       * NGTCP2_ERR_HANDSHAKE_TIMEOUT for a handshake that never completed.
+       * Both mean the connection is over. Throwing the value away meant a
+       * connection whose peer vanished WITHOUT a CONNECTION_CLOSE - a lost
+       * close datagram, an abandoned probe, a killed peer - looped forever.
+       *
+       * The commit that added the close called the idle timeout "the
+       * backstop if it is lost". There was no backstop: this is the line
+       * that would have been it. Measured after that fix went live -
+       * magic-echo-c's threads still grew ~70/hour, sleeping rather than
+       * spinning only because of the backoff below.
+       *
+       * No CONNECTION_CLOSE on this path, deliberately: RFC 9000 says an
+       * idle-timed-out connection is discarded silently, and the peer we
+       * would be telling is by definition not listening. */
+      int erc = ngtcp2_conn_handle_expiry(c->conn, magicseam_now_ns());
+      if (erc != 0) {
+        atomic_store(&c->state, MAGICSEAM_CONN_CLOSING);
+        break;
+      }
       write_side(c);
     }
   }

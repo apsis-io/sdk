@@ -255,6 +255,12 @@ void magicseam_send_connection_close(magicseam_conn *c);
  * conn list is the only place an unreaped connection is visible. */
 size_t magicseam_server_live_conns(magicseam_quic_server *s);
 
+/* magicseam_server_idle_timeout_ns is the max_idle_timeout a newly-served
+ * connection advertises. It is a variable rather than a constant ONLY so the
+ * idle-reap test can pick a timeout it can wait for - 30s is correct in
+ * production and untestable in a suite. Internal: not in magicseam_quic.h. */
+extern uint64_t magicseam_server_idle_timeout_ns;
+
 /* magicseam_conn_feed_pkt (SERVER only) queues a copy of one just-
  * received datagram (already demuxed to this connection by CID - see
  * server.c's accept thread) for c's own per-connection thread to feed to
