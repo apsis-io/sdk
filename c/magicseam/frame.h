@@ -17,7 +17,7 @@
  * remote_quic.rs/magicseam.go's own MAX_FRAME (64 MiB). */
 #define MAGICSEAM_MAX_FRAME (64u << 20)
 
-/* Wire result tags - see tools/trail/src/remote_quic.rs's module doc
+/* Wire result tags - see cmd/trail/src/remote_quic.rs's module doc
  * comment for the authoritative protocol description. */
 #define MAGICSEAM_TAG_OK 0
 #define MAGICSEAM_TAG_UNAVAILABLE 1

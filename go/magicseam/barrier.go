@@ -58,7 +58,7 @@ type Barrier struct {
 
 // DefaultDrainTimeout bounds how long a provider waits for its own in-flight
 // calls to drain before failing a marker. Matches trail's own bound
-// (tools/trail/src/marker.rs) so both ends of a barrier give up at the same
+// (cmd/trail/src/marker.rs) so both ends of a barrier give up at the same
 // point rather than one waiting on the other's already-abandoned attempt.
 const DefaultDrainTimeout = 10 * time.Second
 

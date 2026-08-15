@@ -52,7 +52,7 @@ import (
 // # AN UPPER BOUND FOR SOMETHING IN ANOTHER LANGUAGE, so read this before
 // lowering it
 //
-// tools/trail/src/barrierlease.rs holds the CONSUMER's lease (90s) and it must
+// cmd/trail/src/barrierlease.rs holds the CONSUMER's lease (90s) and it must
 // stay under this one. The ordering is a correctness property, not tuning: the
 // consumer has to give up FIRST so it clears its own quiesced claim and sends an
 // explicit Resume to every provider. Between the two expiries, in the other

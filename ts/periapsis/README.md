@@ -95,7 +95,7 @@ import it never called).
   All six wrap `periapsis:component/*` - plain sync functions, usable from
   any world (p2 or p3).
 - **`exec.ts`** - `exec(name, args?, input?)` and the lower-level `spawn`/`drainStdout`.
-  Wraps `periapsis:host/exec@0.1.0` (ADR: the exec seam, `tools/trail/src/exec.rs`) -
+  Wraps `periapsis:host/exec@0.1.0` (ADR: the exec seam, `cmd/trail/src/exec.rs`) -
   allowlisted child-component spawning. **p3-only** (`stream<u8>` + an `async
   func` need trail's `--p3` launch path); a guest may only spawn a name
   declared at pod launch via `--exec-with <name>=<path>`.

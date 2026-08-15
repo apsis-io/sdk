@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: BUSL-1.1
  *
  * QUIC transport (ADR-0043) for a genuinely non-WASM C magic-seam
- * provider/consumer - mirrors tools/trail/src/remote_quic.rs's wire
+ * provider/consumer - mirrors cmd/trail/src/remote_quic.rs's wire
  * protocol EXACTLY (see that file's own module doc comment, the
  * authoritative spec this was ported from, also mirrored in
  * sdk/go/magicseam/quic.go and sdk/ts/magicseam/quic.ts): mutual TLS
@@ -54,7 +54,7 @@ typedef enum {
 } magicseam_status;
 
 /* TrailQUICSNI mirrors internal/podlaunch/trailtls.go's TrailQuicSNI and
- * tools/trail/src/remote_quic.rs's SERVER_NAME exactly - every trail-CA-
+ * cmd/trail/src/remote_quic.rs's SERVER_NAME exactly - every trail-CA-
  * signed leaf carries this one fixed CommonName/DNS-SAN. */
 #define MAGICSEAM_QUIC_SNI "trail-quic-peer"
 

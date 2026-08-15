@@ -75,7 +75,7 @@ func TestTagFor(t *testing.T) {
 }
 
 // writeFrameRaw/readFrameRaw are a minimal hand-rolled MSK1 CLIENT (mirroring
-// tools/trail/src/remote_simple.rs's Client exactly) used ONLY by this test -
+// cmd/trail/src/remote_simple.rs's Client exactly) used ONLY by this test -
 // the real client lives in Rust/trail; this proves Serve's server-side wire
 // behavior independently of it.
 func clientHandshakeAndCall(t *testing.T, conn net.Conn, request []byte) (accept bool, served string, response []byte, tag byte) {

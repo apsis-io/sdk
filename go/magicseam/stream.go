@@ -15,7 +15,7 @@ import (
 // A provider written with this SDK is NATIVE - it speaks the wire protocol
 // directly rather than running as a WASM component - so it has to implement
 // the negotiation and framing itself. Everything here mirrors
-// tools/trail/src/streamwire.rs; that file is the specification and this is a
+// cmd/trail/src/streamwire.rs; that file is the specification and this is a
 // second implementation of it, so the two must be read together.
 //
 // WHY A PROVIDER GAINS ANYTHING FROM THIS. Without it a provider is simply an

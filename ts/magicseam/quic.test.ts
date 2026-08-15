@@ -13,7 +13,7 @@ import { SeamRejectedError, SeamTooLargeError } from "./magicseam.js";
 // certs for tests - Node has no built-in X.509 cert *generation*, only
 // parsing) - both sides use the SAME leaf, matching this package's
 // fixed-SAN design (see quic.ts's own doc comment: every leaf shares
-// TRAIL_QUIC_SNI, mirroring tools/trail/src/remote_quic.rs's own test
+// TRAIL_QUIC_SNI, mirroring cmd/trail/src/remote_quic.rs's own test
 // module and sdk/go/magicseam/quic_test.go). Real UDP sockets on
 // 127.0.0.1, real mTLS handshakes, real streams - only the handler is a
 // trivial mock.

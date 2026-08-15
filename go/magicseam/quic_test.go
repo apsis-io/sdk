@@ -24,7 +24,7 @@ import (
 // Generates a throwaway self-signed CA + two leaf certs (one "provider",
 // one "consumer" - genuinely mutual TLS, each side verifies the other),
 // both sharing TrailQUICSNI as their DNS SAN per this package's fixed-SAN
-// design (mirrors tools/trail/src/remote_quic.rs's own test module doc
+// design (mirrors cmd/trail/src/remote_quic.rs's own test module doc
 // comment). Real UDP sockets on 127.0.0.1, real crypto/tls + quic-go
 // handshakes, real streams - only the handler is a trivial mock.
 

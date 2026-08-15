@@ -10,7 +10,7 @@
 // snapshot instant, producing a torn cut that nothing detects.
 //
 // sdk/go/magicseam/barrier.go is the reference implementation and
-// tools/trail/src/marker.rs is the consumer side; all three are implementations
+// cmd/trail/src/marker.rs is the consumer side; all three are implementations
 // of one written protocol and must agree on the wire, not on their internals.
 //
 // # The contract, and the part that is easy to get wrong

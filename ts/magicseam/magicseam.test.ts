@@ -33,7 +33,7 @@ async function readFrame(r: Reader): Promise<Buffer> {
   return r.readExact(len);
 }
 
-// A minimal hand-rolled MSK1 CLIENT (mirroring tools/trail/src/remote_simple.rs's
+// A minimal hand-rolled MSK1 CLIENT (mirroring cmd/trail/src/remote_simple.rs's
 // Client exactly), used ONLY by these tests - the real client lives in
 // Rust/trail; this proves serve()'s server-side wire behavior independently
 // of it, same approach as sdk/go/magicseam's own tests.

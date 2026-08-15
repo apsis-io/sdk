@@ -6,7 +6,7 @@
 // WASM consumer can bind to via --plug-remote-simple <addr>[#tier].
 //
 // This is the provider (server) side of the magic sock's revived MSK1
-// protocol (tools/trail/src/remote_simple.rs) - the ORIGINAL magic-sock wire
+// protocol (cmd/trail/src/remote_simple.rs) - the ORIGINAL magic-sock wire
 // protocol, before wRPC replaced it for the WASM-to-WASM case (which needs
 // wRPC's generality: arbitrary WIT interfaces, resource handles, stream<T>).
 // The magic seam's own interface is exactly the value-type-only case MSK1
@@ -92,7 +92,7 @@ func encodeCaller(c Caller) []byte {
 }
 
 // decodeCaller parses the tab-separated caller frame trail writes
-// (tools/trail/src/remote_quic.rs encode_caller). A short or garbled frame
+// (cmd/trail/src/remote_quic.rs encode_caller). A short or garbled frame
 // yields empty fields rather than an error, matching the Rust side.
 func decodeCaller(b []byte) Caller {
 	f := strings.SplitN(string(b), "\t", 4)
@@ -141,7 +141,7 @@ var ErrUnavailable = errors.New("magicseam: provider unavailable")
 // wanted the version it actually serves.
 var ErrVersionRejected = errors.New("magicseam: provider rejected the required version")
 
-// Wire constants - see tools/trail/src/remote_simple.rs's module doc
+// Wire constants - see cmd/trail/src/remote_simple.rs's module doc
 // comment for the authoritative protocol description this mirrors exactly.
 const (
 	preamble = "MSK1"
@@ -160,7 +160,7 @@ const (
 // syntax trail's own --plug-remote/--plug-remote-simple already use) and
 // serves the magic seam via handler, forever - one goroutine per accepted
 // connection (Go's cheap-goroutine model is a direct fit for what was
-// originally a thread-per-connection design in tools/trail's pre-wRPC
+// originally a thread-per-connection design in cmd/trail's pre-wRPC
 // implementation). version is this provider's own self-declared seam
 // version (e.g. "0.1.0", matching periapsis:magic/handler@0.1.0) reported
 // at every handshake - purely informational from this package's own point
@@ -179,7 +179,7 @@ func Serve(addr string, version string, handler Handler) error {
 
 	// A stale socket file from a prior run would make Listen fail; clear it
 	// (mirrors the pre-wRPC Rust serve_provider this protocol was ported
-	// from - tools/trail/src/remote_simple.rs's own module doc comment -
+	// from - cmd/trail/src/remote_simple.rs's own module doc comment -
 	// and sdk/ts/magicseam's equivalent). A no-op, harmlessly, for "tcp".
 	if network == "unix" {
 		_ = os.Remove(address)
@@ -202,7 +202,7 @@ func Serve(addr string, version string, handler Handler) error {
 	}
 }
 
-// parseAddr mirrors tools/trail/src/remote_simple.rs's parse_addr exactly:
+// parseAddr mirrors cmd/trail/src/remote_simple.rs's parse_addr exactly:
 // "unix:<path>" or "tcp:<host:port>", nothing else accepted.
 func parseAddr(addr string) (network, address string, err error) {
 	switch {

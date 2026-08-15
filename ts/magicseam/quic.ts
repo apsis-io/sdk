@@ -1,5 +1,5 @@
 // QUIC transport (ADR-0043) for a genuinely non-WASM TS/Bun magic-seam
-// provider/consumer - mirrors tools/trail/src/remote_quic.rs's wire
+// provider/consumer - mirrors cmd/trail/src/remote_quic.rs's wire
 // protocol EXACTLY (see that file's own module doc comment, the
 // authoritative spec this was ported from, also mirrored in
 // sdk/go/magicseam/quic.go): mutual TLS against the cluster's self-managed
@@ -45,7 +45,7 @@ import {
 /**
  * The fixed CommonName/DNS-SAN every trail-CA-signed QUIC leaf carries -
  * must match internal/podlaunch/trailtls.go's TrailQuicSNI and
- * tools/trail/src/remote_quic.rs's SERVER_NAME exactly.
+ * cmd/trail/src/remote_quic.rs's SERVER_NAME exactly.
  */
 export const TRAIL_QUIC_SNI = "trail-quic-peer";
 

@@ -5,7 +5,7 @@
 //
 // A provider built on this SDK is NATIVE - it speaks the wire protocol directly
 // rather than running as a WASM component - so it implements the negotiation
-// itself. This mirrors tools/trail/src/streamwire.rs, which is the
+// itself. This mirrors cmd/trail/src/streamwire.rs, which is the
 // specification; the two are implementations of one protocol and must be read
 // together. sdk/go/magicseam/stream.go is the third.
 //

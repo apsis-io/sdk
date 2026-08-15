@@ -23,14 +23,14 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-TRAIL="$ROOT/tools/trail/target/release/trail"
+TRAIL="$ROOT/cmd/trail/target/release/trail"
 CONSUMER="$ROOT/examples/wasm/magic-consumer/target/wasm32-wasip2/release/magic_consumer.wasm"
 PORT="${INTEROP_PORT:-19590}"
 ALLOW_SKIP=0
 [ "${1:-}" = "--allow-skip" ] && ALLOW_SKIP=1
 
 missing=""
-[ -x "$TRAIL" ] || missing="$missing\n  trail binary:  $TRAIL  (cd tools/trail && cargo build --release)"
+[ -x "$TRAIL" ] || missing="$missing\n  trail binary:  $TRAIL  (cd cmd/trail && cargo build --release)"
 [ -f "$CONSUMER" ] || missing="$missing\n  consumer wasm: $CONSUMER  (cd examples/wasm/magic-consumer && cargo build --release --target wasm32-wasip2)"
 command -v openssl >/dev/null 2>&1 || missing="$missing\n  openssl"
 if [ -n "$missing" ]; then

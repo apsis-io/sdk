@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // QUIC transport (ADR-0043) for a genuinely non-WASM Go magic-seam
-// provider/consumer - mirrors tools/trail/src/remote_quic.rs's wire
+// provider/consumer - mirrors cmd/trail/src/remote_quic.rs's wire
 // protocol EXACTLY (see that file's own module doc comment, the
 // authoritative spec this was ported from): mutual TLS against the
 // cluster's self-managed trail CA, one persistent connection, a version
@@ -32,7 +32,7 @@ import (
 
 // TrailQUICSNI is the fixed CommonName/DNS-SAN every trail-CA-signed QUIC
 // leaf carries - must match internal/podlaunch/trailtls.go's TrailQuicSNI
-// and tools/trail/src/remote_quic.rs's SERVER_NAME exactly. Every peer
+// and cmd/trail/src/remote_quic.rs's SERVER_NAME exactly. Every peer
 // shares this one SAN (a pod's own address is neither known at cert-mint
 // time nor stable across a migration), so hostname verification is
 // trivially satisfied; the real trust boundary is "signed by the trail
@@ -40,7 +40,7 @@ import (
 const TrailQUICSNI = "trail-quic-peer"
 
 // quicALPNProtocol is the ALPN protocol negotiated on every trail QUIC
-// endpoint (client and server) - must match tools/trail/src/remote_quic.rs's
+// endpoint (client and server) - must match cmd/trail/src/remote_quic.rs's
 // own ALPN_PROTOCOL and sdk/ts/magicseam/quic.ts's own ALPN constant
 // exactly. quic-go's own docs (client.go/server.go) say tls.Config "must
 // define an application protocol (using NextProtos)"; leaving it unset
@@ -444,7 +444,7 @@ func serveQUICCall(stream *quic.Stream, peer string, handler Handler, streamsNeg
 	//
 	// NO Enter() GUARD is taken for a marker. The marker arrives AS a stream, so
 	// counting it would make the drain wait for itself and always time out - the
-	// same coupling tools/trail/src/marker.rs documents on its own drain.
+	// same coupling cmd/trail/src/marker.rs documents on its own drain.
 	if op == opMarker || op == opResume {
 		serveQUICMarker(stream, op, barrier)
 
@@ -477,7 +477,7 @@ func serveQUICCall(stream *quic.Stream, peer string, handler Handler, streamsNeg
 	}
 
 	// Caller frame FIRST, then the request - matching
-	// tools/trail/src/remote_quic.rs's Client::call, which writes both before
+	// cmd/trail/src/remote_quic.rs's Client::call, which writes both before
 	// finishing the send side.
 	callerFrame, err := readFrame(stream)
 	if err != nil {

@@ -7,7 +7,7 @@ import "strings"
 
 // The component-status handshake frame (ADR-0060 decision 5), Go side.
 //
-// Mirrors tools/trail/src/statusframe.rs. Reimplemented rather than shared
+// Mirrors cmd/trail/src/statusframe.rs. Reimplemented rather than shared
 // because the encoding is deliberately trivial - one split on a tab - and a
 // shared codec across a Rust/Go boundary would cost more than it saves for two
 // fields. The pairing that matters is the TESTS: both sides assert the same

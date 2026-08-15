@@ -8,7 +8,7 @@
 // component running INSIDE dwarf/trail. This package is the OTHER side of
 // ADR-0028's non-WASM-provider gap: for a program that is not a WASM
 // component at all, running the provider (server) side of the magic sock's
-// revived MSK1 protocol (tools/trail/src/remote_simple.rs) directly over a
+// revived MSK1 protocol (cmd/trail/src/remote_simple.rs) directly over a
 // real socket. Same protocol, same wire bytes, as sdk/go/magicseam - see
 // that package's doc comment for the fuller rationale (why MSK1 instead of
 // the wRPC-based --plug-remote: wRPC's generality buys nothing for this
@@ -44,7 +44,7 @@ export interface Caller {
   component: string;
 }
 
-/** Tab-separated, matching tools/trail/src/remote_quic.rs's encode_caller. */
+/** Tab-separated, matching cmd/trail/src/remote_quic.rs's encode_caller. */
 export function encodeCaller(c: Caller): Uint8Array {
   return Buffer.from([c.namespace, c.podName, c.podUid, c.component].join("\t"), "utf8");
 }
@@ -69,7 +69,7 @@ export class SeamRejectedError extends Error {}
 /** Thrown by a Handler to signal the seam's `too-large` error variant. */
 export class SeamTooLargeError extends Error {}
 
-// Wire constants - see tools/trail/src/remote_simple.rs's module doc comment
+// Wire constants - see cmd/trail/src/remote_simple.rs's module doc comment
 // for the authoritative protocol description this mirrors exactly (also
 // mirrored in sdk/go/magicseam).
 const PREAMBLE = "MSK1";
@@ -85,7 +85,7 @@ export const TAG_TOO_LARGE = 3;
 
 type ParsedAddr = { path: string } | { host: string; port: number };
 
-// Mirrors tools/trail/src/remote_simple.rs's parse_addr exactly: "unix:<path>"
+// Mirrors cmd/trail/src/remote_simple.rs's parse_addr exactly: "unix:<path>"
 // or "tcp:<host:port>", nothing else accepted.
 function parseAddr(addr: string): ParsedAddr {
   if (addr.startsWith("unix:")) {
@@ -110,7 +110,7 @@ function parseAddr(addr: string): ParsedAddr {
 
 // One length-prefixed frame as a SINGLE buffer (length + payload together),
 // written with one socket.write() call - not two separate writes. This
-// matters: tools/trail/src/remote_simple.rs originally wrote the length
+// matters: cmd/trail/src/remote_simple.rs originally wrote the length
 // prefix and payload as two separate write_all calls, which combined with
 // Nagle's algorithm + delayed ACKs to add real per-call latency over a
 // genuine network (confirmed live building examples/go/magic-echo-go -
@@ -229,7 +229,7 @@ export function serve(addr: string, version: string, handler: Handler): Promise<
   if ("path" in parsed) {
     // A stale socket file from a prior run would make bind() fail; clear it
     // (mirrors the pre-wRPC Rust serve_provider this protocol was ported
-    // from - tools/trail/src/remote_simple.rs's own module doc comment).
+    // from - cmd/trail/src/remote_simple.rs's own module doc comment).
     fs.rmSync(parsed.path, { force: true });
   }
 
