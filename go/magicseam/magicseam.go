@@ -69,7 +69,7 @@ type Caller struct {
 	// PeerAddr is OBSERVED, not asserted: the transport's view of where the
 	// call actually came from ("ip:port"), set by the server side after
 	// decoding the frame. Empty on transports that cannot observe it (the
-	// local plug-with tier has no peer address at all).
+	// local link tier has no peer address at all).
 	//
 	// WHY IT IS SAFE TO TRUST MORE THAN THE FIELDS ABOVE: it never crosses the
 	// wire. encodeCaller does not write it and decodeCaller does not read it -
