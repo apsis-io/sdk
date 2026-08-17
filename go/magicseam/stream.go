@@ -119,6 +119,7 @@ func hasCap(caps []string, token string) bool {
 // streamsAgreed reports whether BOTH ends advertised the bulk seam. One-sided
 // agreement is the dangerous case: the peer would not be writing the opcode
 // this side then expects, and every call on the connection would be misframed.
+
 // barrierAgreed reports whether the marker ops are live on this connection:
 // TWO-SIDED, like streams (§5). The peer must have advertised the token AND this
 // provider must actually have a barrier - advertising without one is the
