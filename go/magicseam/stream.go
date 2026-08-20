@@ -71,8 +71,14 @@ const CapBarrier = "barrier"
 //
 // Comma-separated because parseCaps splits on it. Order is not significant and
 // callers must not depend on it.
-func capsOffered(hasBarrier bool) string {
+func capsOffered(hasBarrier, hasConverse bool) string {
 	caps := []string{CapStream, CapStatus}
+	// SAME RULE AS CapBarrier BELOW: offered only when a handler exists to
+	// honour it. A provider advertising converse with no handler would have a
+	// caller open a stream that nothing answers - a hang rather than a refusal.
+	if hasConverse {
+		caps = append(caps, CapConverse)
+	}
 	// ADVERTISED ONLY WHEN THERE IS A BARRIER TO HONOUR IT, and the first version
 	// of this got it wrong in the most dangerous available direction.
 	//

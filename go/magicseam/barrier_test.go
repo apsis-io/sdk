@@ -118,9 +118,9 @@ func TestZeroBarrierIsUsable(t *testing.T) {
 // CAP_BARRIER must be advertised, or a coordinator reads this SDK's providers as
 // unquiesciable and refuses to start a barrier it could actually run.
 func TestBarrierCapabilityIsAdvertised(t *testing.T) {
-	if !strings.Contains(capsOffered(true), CapBarrier) {
-		t.Errorf("capsOffered(true)=%q does not advertise %q - a provider that HAS a barrier would "+
-			"be treated as unable to join a coordinated checkpoint", capsOffered(true), CapBarrier)
+	if !strings.Contains(capsOffered(true, false), CapBarrier) {
+		t.Errorf("capsOffered(true, false)=%q does not advertise %q - a provider that HAS a barrier would "+
+			"be treated as unable to join a coordinated checkpoint", capsOffered(true, false), CapBarrier)
 	}
 }
 
@@ -136,10 +136,10 @@ func TestBarrierCapabilityIsAdvertised(t *testing.T) {
 // misreported. Advertising something you do not implement is worse than not
 // implementing it - the second fails closed, the first fails silently.
 func TestNoBarrierMeansNoCapability(t *testing.T) {
-	if strings.Contains(capsOffered(false), CapBarrier) {
-		t.Errorf("capsOffered(false)=%q advertises %q with no barrier to honour it - every "+
+	if strings.Contains(capsOffered(false, false), CapBarrier) {
+		t.Errorf("capsOffered(false, false)=%q advertises %q with no barrier to honour it - every "+
 			"provider on plain ServeQUIC would claim to be quiescible while acking without "+
 			"draining, which is a torn cut the coordinator cannot detect",
-			capsOffered(false), CapBarrier)
+			capsOffered(false, false), CapBarrier)
 	}
 }

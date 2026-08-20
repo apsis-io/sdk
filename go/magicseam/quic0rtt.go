@@ -203,7 +203,8 @@ func DialQUICEarly(ctx context.Context, addr, certPath, keyPath, caPath, require
 		return nil, fmt.Errorf("magicseam: QUIC early dial %s: %w", addr, err)
 	}
 
-	client, err := seamHandshake(ctx, conn, requiredVersion)
+	// NOT ADVERTISING: the 0-RTT path keeps the framing it has always had.
+	client, err := seamHandshake(ctx, conn, requiredVersion, false)
 	if err != nil {
 		return nil, err
 	}

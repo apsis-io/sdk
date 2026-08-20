@@ -52,8 +52,8 @@ func TestCapsParsingTolerateStraySeparators(t *testing.T) {
 // would silently leave every Go provider classic-only; advertising something
 // it cannot serve would misframe calls.
 func TestThisSDKAdvertisesTheBulkSeam(t *testing.T) {
-	if !streamsAgreed(parseCaps([]byte(capsOffered(true)))) {
-		t.Errorf("capsOffered(true) = %q, which does not advertise %q", capsOffered(true), CapStream)
+	if !streamsAgreed(parseCaps([]byte(capsOffered(true, false)))) {
+		t.Errorf("capsOffered(true, false) = %q, which does not advertise %q", capsOffered(true, false), CapStream)
 	}
 }
 

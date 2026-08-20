@@ -106,6 +106,19 @@ type QUICClient struct {
 
 	conn   *quic.Conn
 	Served string // the provider's self-reported version (may be "")
+
+	// opcodes is true when THIS client advertised capabilities during the
+	// handshake, which is what makes the peer expect an opcode byte before every
+	// call - serveQUICConn decides that from the CLIENT's caps alone
+	// (opcodeOnWire), not from a mutual agreement.
+	//
+	// SO ADVERTISING IS A PROMISE TO WRITE OPCODES, and breaking it corrupts
+	// every subsequent call rather than failing one. Measured: advertising
+	// unconditionally while Call wrote no opcode made the peer read the caller
+	// frame's length prefix as an opcode and wait forever - the tests HUNG rather
+	// than failed. cmd/trail/src/remote_quic.rs:444 carries the same warning from
+	// the other side.
+	opcodes bool
 	// PeerCaps is what the provider advertised, or empty for a provider that
 	// predates negotiation. Consult it with StatusServed(c.PeerCaps) BEFORE
 	// calling an optional op, rather than calling and reading a refusal.
@@ -124,7 +137,29 @@ type QUICClient struct {
 // own served version is returned via QUICClient.Served for the caller to
 // gate on (this package does not itself enforce semver compatibility -
 // same "gating is the caller's job" convention DialMSK1/Serve already use).
+//
+// DOES NOT ADVERTISE CAPABILITIES, and that is what keeps it byte-identical on
+// the wire to every version of this function before the converse seam existed.
+// See DialQUICForConverse for what advertising changes and why it is opt-in.
 func DialQUIC(ctx context.Context, addr, certPath, keyPath, caPath, requiredVersion string) (*QUICClient, error) {
+	return dialQUIC(ctx, addr, certPath, keyPath, caPath, requiredVersion, false)
+}
+
+// DialQUICForConverse dials a peer and ADVERTISES capabilities, which is what
+// makes that peer expect an opcode before every call and therefore what makes
+// the converse seam reachable at all.
+//
+// A SEPARATE ENTRY POINT, AND THE SEPARATION IS THE SAFETY. Advertising changes
+// the FRAMING of every subsequent call on the connection: serveQUICConn decides
+// from the client's caps alone whether an opcode precedes each call. So a client
+// that advertises and then writes a call without one corrupts the stream
+// silently - both ends keep reading, nothing errors, and it presents as a hang.
+// Making this opt-in leaves every existing consumer byte-identical on the wire.
+func DialQUICForConverse(ctx context.Context, addr, certPath, keyPath, caPath, requiredVersion string) (*QUICClient, error) {
+	return dialQUIC(ctx, addr, certPath, keyPath, caPath, requiredVersion, true)
+}
+
+func dialQUIC(ctx context.Context, addr, certPath, keyPath, caPath, requiredVersion string, advertise bool) (*QUICClient, error) {
 	hostPort, err := parseQUICAddr(addr)
 	if err != nil {
 		return nil, err
@@ -147,7 +182,7 @@ func DialQUIC(ctx context.Context, addr, certPath, keyPath, caPath, requiredVers
 		return nil, fmt.Errorf("magicseam: QUIC dial %s: %w", addr, err)
 	}
 
-	return seamHandshake(ctx, conn, requiredVersion)
+	return seamHandshake(ctx, conn, requiredVersion, advertise)
 }
 
 // seamHandshake runs the seam's own handshake on a freshly dialled connection:
@@ -157,7 +192,7 @@ func DialQUIC(ctx context.Context, addr, certPath, keyPath, caPath, requiredVers
 // Extracted so DialQUIC and DialQUICEarly cannot drift. They differ ONLY in how
 // the connection was obtained (ordinary vs 0-RTT); everything the seam protocol
 // says about establishing a session is here, once.
-func seamHandshake(ctx context.Context, conn *quic.Conn, requiredVersion string) (*QUICClient, error) {
+func seamHandshake(ctx context.Context, conn *quic.Conn, requiredVersion string, advertise bool) (*QUICClient, error) {
 	stream, err := conn.OpenStreamSync(ctx)
 	if err != nil {
 		conn.CloseWithError(0, "handshake failed")
@@ -167,6 +202,15 @@ func seamHandshake(ctx context.Context, conn *quic.Conn, requiredVersion string)
 		conn.CloseWithError(0, "handshake failed")
 		return nil, fmt.Errorf("magicseam: write required version: %w", err)
 	}
+	// ADVERTISED ONLY WHEN ASKED FOR. The peer reads this frame optionally and
+	// decides from it whether an opcode precedes every call, so sending it is a
+	// promise Call and Converse both keep (see QUICClient.opcodes).
+	if advertise {
+		if err := writeFrame(stream, []byte(capsOffered(false, true))); err != nil {
+			return nil, fmt.Errorf("magicseam: quic handshake caps: %w", err)
+		}
+	}
+
 	if err := stream.Close(); err != nil { // finish our send side
 		conn.CloseWithError(0, "handshake failed")
 		return nil, fmt.Errorf("magicseam: finish handshake stream: %w", err)
@@ -205,6 +249,7 @@ func seamHandshake(ctx context.Context, conn *quic.Conn, requiredVersion string)
 	}
 
 	return &QUICClient{
+		opcodes:    advertise,
 		conn:       conn,
 		Served:     string(servedFrame),
 		PeerCaps:   peerCaps,
@@ -227,6 +272,13 @@ func (c *QUICClient) Call(ctx context.Context, request []byte) ([]byte, error) {
 	// (remote_quic.rs Client::call). A Go consumer usually has no pod identity
 	// to declare, so Caller is zero unless set; the frame is written either way
 	// because the FRAMING is not optional even when the identity is.
+	// THE OPCODE, WHEN WE ADVERTISED. Omitting it against a peer expecting one
+	// desynchronises the stream silently - see QUICClient.opcodes.
+	if c.opcodes {
+		if _, err := stream.Write([]byte{opCall}); err != nil {
+			return nil, fmt.Errorf("magicseam: quic call write opcode: %w", err)
+		}
+	}
 	if err := writeFrame(stream, encodeCaller(c.Caller)); err != nil {
 		return nil, fmt.Errorf("magicseam: write caller: %w", err)
 	}
@@ -311,6 +363,22 @@ func ServeQUIC(ctx context.Context, addr, certPath, keyPath, caPath, version str
 // member of a barrier rather than the reason one cannot be taken - the caller
 // owns it so it can also observe Armed()/InFlight() for its own logging.
 func ServeQUICWithBarrier(ctx context.Context, addr, certPath, keyPath, caPath, version string, handler Handler, barrier *Barrier) error {
+	return serveQUIC(ctx, addr, certPath, keyPath, caPath, version, handler, barrier, nil)
+}
+
+// ServeQUICWithConverse is ServeQUICWithBarrier plus a handler for the converse
+// seam (converse.go).
+//
+// A SEPARATE ENTRY POINT RATHER THAN A WIDENED ONE so every existing provider
+// keeps compiling and keeps advertising exactly what it did before. CapConverse
+// is offered ONLY when converse is non-nil - the CapBarrier lesson six lines
+// into capsOffered: "advertising a capability you do not implement is worse than
+// not implementing it, the second fails closed and the first fails silently".
+func ServeQUICWithConverse(ctx context.Context, addr, certPath, keyPath, caPath, version string, handler Handler, barrier *Barrier, converse ConverseHandler) error {
+	return serveQUIC(ctx, addr, certPath, keyPath, caPath, version, handler, barrier, converse)
+}
+
+func serveQUIC(ctx context.Context, addr, certPath, keyPath, caPath, version string, handler Handler, barrier *Barrier, converse ConverseHandler) error {
 	hostPort, err := parseQUICAddr(addr)
 	if err != nil {
 		return err
@@ -355,7 +423,7 @@ func ServeQUICWithBarrier(ctx context.Context, addr, certPath, keyPath, caPath, 
 		if err != nil {
 			return fmt.Errorf("magicseam: QUIC accept on %s: %w", addr, err)
 		}
-		go serveQUICConn(ctx, conn, version, handler, barrier)
+		go serveQUICConn(ctx, conn, version, handler, barrier, converse)
 	}
 }
 
@@ -363,7 +431,7 @@ func ServeQUICWithBarrier(ctx context.Context, addr, certPath, keyPath, caPath, 
 // loops AcceptStream for every subsequent call - each dispatched to its own
 // goroutine so concurrent calls on this connection never queue behind each
 // other.
-func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler Handler, barrier *Barrier) {
+func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler Handler, barrier *Barrier, converse ConverseHandler) {
 	// Observed once per connection: the transport's view of who is calling,
 	// which no wire frame can influence. See Caller.PeerAddr.
 	peer := ""
@@ -403,7 +471,7 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 	// Our capabilities, AFTER the served version so an older consumer - which
 	// reads exactly the accept byte and one frame - is unaffected: it simply
 	// never reads this one.
-	if err := writeFrame(handshake, []byte(capsOffered(barrier != nil))); err != nil {
+	if err := writeFrame(handshake, []byte(capsOffered(barrier != nil, converse != nil))); err != nil {
 		handshake.Close()
 		return
 	}
@@ -416,7 +484,7 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 			break // connection closed or ctx done
 		}
 		wg.Go(func() {
-			serveQUICCall(stream, peer, handler, streams, opcodes, barrier)
+			serveQUICCall(ctx, stream, peer, handler, streams, opcodes, barrier, converse)
 		})
 	}
 	wg.Wait()
@@ -424,7 +492,7 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 
 // serveQUICCall handles exactly one call stream: read the request frame,
 // invoke handler, write the result tag (+ payload frame on success).
-func serveQUICCall(stream *quic.Stream, peer string, handler Handler, streamsNegotiated, opcodeExpected bool, barrier *Barrier) {
+func serveQUICCall(ctx context.Context, stream *quic.Stream, peer string, handler Handler, streamsNegotiated, opcodeExpected bool, barrier *Barrier, converse ConverseHandler) {
 	defer stream.CancelRead(0)
 
 	// The opcode is on the wire ONLY when both ends advertised the bulk seam.
@@ -472,6 +540,11 @@ func serveQUICCall(stream *quic.Stream, peer string, handler Handler, streamsNeg
 
 	if op == opStream {
 		serveQUICStreamCall(stream, peer, handler)
+
+		return
+	}
+	if op == opConverse {
+		serveQUICConverse(ctx, stream, peer, converse)
 
 		return
 	}
