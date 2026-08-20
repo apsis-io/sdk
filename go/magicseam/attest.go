@@ -36,6 +36,23 @@ import (
 // 10.0.51.33:50720 -> 10.0.63.53:9500), so pod-to-pod traffic there is not
 // SNATed and the observed address is the caller's real one.
 //
+// AND THROUGH A ClusterIP SERVICE, ACROSS NODES - measured 2026-08-20, because
+// the case above is pod-to-POD and every remote-tier seam dials a SERVICE
+// (resolver.go binds the Service DNS name, not an endpoint IP). That is the hop
+// where a SNAT would silently reduce this control to nothing:
+//
+//	client 10.0.79.196 (engix99-trail-2) -> ClusterIP 10.107.243.254
+//	server 10.0.50.13  (engix99-trail-1) OBSERVED [::ffff:10.0.79.196]
+//	three consecutive connections, all carrying the client's real podIP
+//
+// ***THE OBSERVED FORM WAS IPv4-MAPPED IPv6, WHICH IS WHY sameIP PARSES RATHER
+// THAN COMPARES.*** That listener was dual-stack ([::]), so the mapping is the
+// LISTENER's doing rather than the CNI's and a v4-only listener would see a
+// plain v4 address - but it means the mapped form is a real wire condition here,
+// not a defensive hypothetical. A string compare against Status.PodIP
+// ("10.0.79.196") would have refused every legitimate call while reading in the
+// logs exactly like an impersonation attempt.
+//
 // WHAT IT DOES NOT DO, stated because a partial control described as a complete
 // one is worse than none:
 //   - it is only as good as the CNI's source-address enforcement;
