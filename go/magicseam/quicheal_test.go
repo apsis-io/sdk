@@ -148,11 +148,9 @@ func TestConcurrentFailuresProduceExactlyOneRedial(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make([]error, callers)
 	for i := range callers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, errs[i] = f.client.Call(t.Context(), []byte("concurrent"))
-		}()
+		})
 	}
 	wg.Wait()
 

@@ -128,13 +128,7 @@ func barrierAgreed(peerCaps []string, hasBarrier bool) bool {
 	if !hasBarrier {
 		return false
 	}
-	for _, c := range peerCaps {
-		if c == CapBarrier {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(peerCaps, CapBarrier)
 }
 
 // opcodeOnWire reports whether the peer will prefix a stream with an opcode

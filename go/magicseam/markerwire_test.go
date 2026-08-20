@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/binary"
 	"io"
+	"slices"
 	"testing"
 	"time"
 
@@ -190,13 +191,7 @@ func TestGoProviderAnswersSpecWrittenMarkers(t *testing.T) {
 }
 
 func containsToken(caps, token string) bool {
-	for _, t := range splitComma(caps) {
-		if t == token {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(splitComma(caps), token)
 }
 
 func splitComma(s string) []string {
