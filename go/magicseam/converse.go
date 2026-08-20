@@ -65,9 +65,24 @@ const (
 // frame and a callback asking about the empty string are otherwise the same
 // bytes, and "the conversation ended" must never be inferrable from a payload
 // the callee controls.
+// ***NOT NAMED tag*, AND THE COLLISION IS WHY.*** magicseam.go already has
+// tagOK=0, tagUnavailable=1, tagRejected=2 - also single bytes, also the FIRST
+// BYTE OF A FRAME, in this same package. And the polarity is OPPOSITE where it
+// overlaps: on the reply path 1 means UNAVAILABLE (a failure), here it would
+// mean the conversation finished normally.
+//
+// Not a wire collision - these frames are only ever read by the handler opcode 5
+// dispatches to, so nothing mis-routes. It is a READING hazard, and this path
+// has no error branch to catch a misreading: a wrong first byte HANGS rather
+// than fails, which is exactly what cost an hour building this. Found by
+// trail-main reviewing from the Rust side, where the same overlap exists against
+// remote_quic.rs's ok/error tags.
+//
+// Renamed rather than commented, because a comment does not reach somebody
+// autocompleting `tag` and picking the wrong one of five.
 const (
-	tagAsk  byte = 0 // the rest of this frame is a question; answer it
-	tagDone byte = 1 // the rest of this frame is the final reply; stop
+	convAsk  byte = 0 // the rest of this frame is a question; answer it
+	convDone byte = 1 // the rest of this frame is the final reply; stop
 )
 
 // ErrConverseUnsupported is returned when the peer never advertised CapConverse.
@@ -146,7 +161,7 @@ func (c *QUICClient) Converse(ctx context.Context, request []byte, serve Answere
 		frame, err := readFrame(stream)
 		if err != nil {
 			// EOF HERE IS A FAILURE, NOT A CLEAN END. The conversation ends with
-			// tagDone and nothing else; a stream that simply stopped means the
+			// convDone and nothing else; a stream that simply stopped means the
 			// callee died or the connection broke, and returning a nil error
 			// with an empty reply is precisely the swallowed failure this
 			// function's doc refuses to produce.
@@ -162,9 +177,9 @@ func (c *QUICClient) Converse(ctx context.Context, request []byte, serve Answere
 		}
 
 		switch frame[0] {
-		case tagDone:
+		case convDone:
 			return frame[1:], nil
-		case tagAsk:
+		case convAsk:
 			answer, err := serve(ctx, frame[1:])
 			if err != nil {
 				return nil, fmt.Errorf("magicseam: converse: answering callback: %w", err)
@@ -199,7 +214,7 @@ type Conversation struct {
 // AN ERROR HERE IS TERMINAL for the conversation: the stream is misaligned or
 // the peer is gone, and a callee that continued would be talking to nothing.
 func (c *Conversation) Ask(ask []byte) ([]byte, error) {
-	if err := writeFrame(c.stream, append([]byte{tagAsk}, ask...)); err != nil {
+	if err := writeFrame(c.stream, append([]byte{convAsk}, ask...)); err != nil {
 		return nil, fmt.Errorf("magicseam: conversation ask: %w", err)
 	}
 	answer, err := readFrame(c.stream)
@@ -225,7 +240,7 @@ func serveQUICConverse(ctx context.Context, stream io.ReadWriter, peer string, h
 	// advertised capability would leave the caller waiting on a stream nobody
 	// reads. Refuse it as a call-level failure instead.
 	if handler == nil {
-		_ = writeFrame(stream, append([]byte{tagDone}, []byte(`{"err":"converse not served"}`)...))
+		_ = writeFrame(stream, append([]byte{convDone}, []byte(`{"err":"converse not served"}`)...))
 
 		return
 	}
@@ -251,9 +266,9 @@ func serveQUICConverse(ctx context.Context, stream io.ReadWriter, peer string, h
 		// wrong for a handler that ran and refused. The caller must be able to
 		// tell "you are talking to nothing" from "I heard you and the answer is
 		// no".
-		_ = writeFrame(stream, append([]byte{tagDone}, []byte(err.Error())...))
+		_ = writeFrame(stream, append([]byte{convDone}, []byte(err.Error())...))
 
 		return
 	}
-	_ = writeFrame(stream, append([]byte{tagDone}, reply...))
+	_ = writeFrame(stream, append([]byte{convDone}, reply...))
 }

@@ -150,6 +150,19 @@ const (
 	// MAX_FRAME (64 MiB, the seam's own too-large rejection ballpark).
 	maxFrame = 64 << 20
 
+	// THE REPLY TAGS: the FIRST BYTE of a reply frame, where 0 is success and
+	// NONZERO is a failure code.
+	//
+	// ***THE CONVERSE SEAM USES THE SAME POSITION WITH THE OPPOSITE POLARITY***
+	// (converse.go: convAsk=0, convDone=1). There 1 means the conversation
+	// FINISHED NORMALLY; here 1 means UNAVAILABLE. They cannot mis-route - the
+	// converse frames are read only by the handler opcode 5 dispatches to - but a
+	// reader holding both files has two meanings for one byte, and the converse
+	// path has no error branch, so a misreading HANGS rather than fails.
+	//
+	// Named apart deliberately (conv* versus tag*) so autocomplete does not offer
+	// five candidates for one position. Pointer kept in BOTH directions because
+	// whoever finds the hazard may arrive from either file.
 	tagOK          byte = 0
 	tagUnavailable byte = 1
 	tagRejected    byte = 2
