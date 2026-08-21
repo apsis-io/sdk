@@ -22,7 +22,8 @@ import fs from "node:fs";
 import nodeCrypto from "node:crypto";
 import type { ReadableStream, ReadableStreamDefaultReader } from "node:stream/web";
 import {
-  OP_CALL, OP_MARKER, OP_MARKER_ACK, OP_RESUME, OP_STREAM,
+  CONV_ASK, CONV_DONE,
+  OP_CALL, OP_CONVERSE, OP_MARKER, OP_MARKER_ACK, OP_RESUME, OP_STREAM,
   capsOffered, opcodeOnWire, parseCaps, streamsAgreed,
 } from "./stream";
 import { Barrier, DEFAULT_DRAIN_TIMEOUT_MS } from "./barrier";
@@ -134,6 +135,22 @@ async function readQUICFrame(reader: QUICStreamReader): Promise<Buffer> {
   return reader.readExact(len);
 }
 
+/**
+ * Ask the caller one question and wait for its answer. Handed to a
+ * {@link ConverseHandler} so a provider can reach back mid-call.
+ */
+export type Ask = (question: Uint8Array) => Promise<Uint8Array>
+
+/**
+ * Serve one conversation: answer `request`, using `ask` as many times as needed.
+ *
+ * THE RETURNED BYTES BECOME THE FINAL CONV_DONE PAYLOAD. Throwing is also a
+ * complete conversation - the error text is sent as CONV_DONE rather than by
+ * closing the stream, so the caller can tell "I heard you, and no" from "you are
+ * talking to nothing". Matching cmd/trail's serve_conversation exactly.
+ */
+export type ConverseHandler = (request: Uint8Array, ask: Ask) => Promise<Uint8Array>
+
 async function writeAndClose(stream: QUICStreamT, ...chunks: Uint8Array[]): Promise<void> {
   const writer = stream.writable.getWriter();
   try {
@@ -239,6 +256,11 @@ export async function serveQUIC(
   version: string,
   handler: Handler,
   barrier?: Barrier,
+  /**
+   * Optional. Supplying one is what makes this provider ADVERTISE `converse`;
+   * omitting it means a caller is refused up front rather than mid-stream.
+   */
+  converse?: ConverseHandler,
 ): Promise<QUICServer> {
   const { host, port } = parseQUICAddr(addr);
   const cert = fs.readFileSync(certPath, "utf8");
@@ -251,7 +273,7 @@ export async function serveQUIC(
   });
 
   server.addEventListener(quicEvents.EventQUICServerConnection.name, ((evt: InstanceType<typeof quicEvents.EventQUICServerConnection>) => {
-    handleQUICConnection(evt.detail, version, handler, barrier);
+    handleQUICConnection(evt.detail, version, handler, barrier, converse);
   }) as EventListener);
 
   await server.start({ host, port });
@@ -271,6 +293,7 @@ function handleQUICConnection(
   version: string,
   handler: Handler,
   barrier?: Barrier,
+  converse?: ConverseHandler,
 ): void {
   let handshakeDone = false;
   // Resolved by the handshake; call streams wait on it so a call that races
@@ -280,13 +303,13 @@ function handleQUICConnection(
     const stream = evt.detail;
     if (!handshakeDone) {
       handshakeDone = true;
-      negotiated = handleHandshakeStream(stream, version, barrier).catch(
+      negotiated = handleHandshakeStream(stream, version, barrier, converse !== undefined).catch(
         () => ({ streams: false, opcodes: false }),
       );
       return;
     }
     negotiated
-      .then((n) => handleCallStream(stream, handler, n, barrier))
+      .then((n) => handleCallStream(stream, handler, n, barrier, converse))
       .catch(() => {});
   }) as EventListener);
 }
@@ -295,6 +318,7 @@ async function handleHandshakeStream(
   stream: QUICStreamT,
   version: string,
   barrier?: Barrier,
+  hasConverse: boolean = false,
 ): Promise<Negotiated> {
   const reader = new QUICStreamReader(stream.readable);
   // The client's required version - read and discarded; this package always
@@ -317,7 +341,7 @@ async function handleHandshakeStream(
     stream,
     new Uint8Array([1]),
     encodeFrame(Buffer.from(version, "utf8")),
-    encodeFrame(Buffer.from(capsOffered(barrier !== undefined), "utf8")),
+    encodeFrame(Buffer.from(capsOffered(barrier !== undefined, hasConverse), "utf8")),
   );
 
   return {
@@ -331,6 +355,7 @@ async function handleCallStream(
   handler: Handler,
   negotiated: Negotiated,
   barrier?: Barrier,
+  converse?: ConverseHandler,
 ): Promise<void> {
   const reader = new QUICStreamReader(stream.readable);
   // The opcode is on the wire when EITHER opcode-using capability is agreed.
@@ -356,7 +381,7 @@ async function handleCallStream(
   }
   const done = barrier?.enter();
   try {
-    return await handleAdmittedCall(stream, reader, handler, op);
+    return await handleAdmittedCall(stream, reader, handler, op, converse);
   } finally {
     done?.();
   }
@@ -414,12 +439,78 @@ function idText(id: Uint8Array): string {
   return JSON.stringify(Buffer.from(id).toString("utf8"))
 }
 
+/**
+ * Serve ONE conversation on a stream whose OP_CONVERSE has already been read.
+ *
+ * ONE WRITER FOR THE WHOLE EXCHANGE, which is why writeAndClose is not used:
+ * that helper closes, and a conversation interleaves many writes with reads on
+ * the same stream. Closing after the first question would end the call before
+ * the answer could arrive.
+ */
+async function handleConverseStream(
+  stream: QUICStreamT,
+  reader: QUICStreamReader,
+  converse: ConverseHandler | undefined,
+): Promise<void> {
+  const writer = stream.writable.getWriter();
+  const tagged = (tag: number, body: Uint8Array): Uint8Array => {
+    const out = new Uint8Array(body.length + 1);
+    out[0] = tag;
+    out.set(body, 1);
+    return out;
+  };
+  try {
+    // CALLER FRAME FIRST, THEN THE REQUEST - the order the caller writes them.
+    // Reading these in the wrong order does not produce an error: both ends are
+    // still reading, so a frame-count mismatch presents as a HANG. The caller
+    // frame is read and discarded here for the same reason the handshake
+    // discards the required version - gating is the caller's job, not this
+    // package's.
+    await readQUICFrame(reader);
+    const request = await readQUICFrame(reader);
+
+    const ask: Ask = async (question) => {
+      await writer.write(encodeFrame(tagged(CONV_ASK, question)));
+      // THE ANSWER CARRIES NO TAG. Only the callee can end the conversation, so
+      // only callee frames need to say which kind they are.
+      return await readQUICFrame(reader);
+    };
+
+    let payload: Uint8Array;
+    try {
+      // A HANDLER THAT WAS NEVER SUPPLIED IS A PROTOCOL ERROR, NOT A CRASH.
+      // Unreachable from a peer that honours capabilities, since converse is
+      // advertised only when one exists - but a caller can send any opcode, and
+      // the far side is waiting on frames rather than on a connection error.
+      if (converse === undefined) {
+        throw new Error("this provider advertises no converse handler");
+      }
+      payload = await converse(request, ask);
+    } catch (e) {
+      // REFUSAL TRAVELS AS CONV_DONE, NOT AS A CLOSED STREAM. EOF means the
+      // callee died; an error frame means it ran and said no, and the caller
+      // must be able to tell those apart.
+      payload = Buffer.from(
+        `converse refused: ${e instanceof Error ? e.message : String(e)}`,
+        "utf8",
+      );
+    }
+    await writer.write(encodeFrame(tagged(CONV_DONE, payload)));
+  } finally {
+    await writer.close();
+  }
+}
+
 async function handleAdmittedCall(
   stream: QUICStreamT,
   reader: QUICStreamReader,
   handler: Handler,
   op: number,
+  converse?: ConverseHandler,
 ): Promise<void> {
+  if (op === OP_CONVERSE) {
+    return handleConverseStream(stream, reader, converse);
+  }
   if (op === OP_STREAM) {
     return handleStreamCallStream(stream, reader, handler);
   }

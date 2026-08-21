@@ -25,11 +25,61 @@ export const OP_MARKER = 2
 export const OP_MARKER_ACK = 3
 export const OP_RESUME = 4
 
+/**
+ * A CONVERSATION: one stream carrying a call whose CALLEE may ask the CALLER
+ * questions before answering (ADR-0082). Every other op is one-shot in one
+ * direction - OP_CALL and OP_STREAM are both request-then-reply - so what this
+ * adds is not bidirectionality (QUIC streams were always bidirectional) but
+ * INTERLEAVING.
+ *
+ *     opcode 5
+ *     caller frame, then request frame     caller -> callee
+ *     [CONV_ASK ..question..]              callee -> caller
+ *     ..answer..                           caller -> callee, NO tag byte
+ *     [CONV_DONE ..final reply..]          ends the conversation
+ */
+export const OP_CONVERSE = 5
+
+/**
+ * First byte of a callee frame that is a QUESTION. The caller replies with ONE
+ * plain frame carrying no tag.
+ *
+ * THE ANSWER FRAME CARRIES NO TAG AND THAT ASYMMETRY IS DELIBERATE - only the
+ * callee can end the conversation, so only the callee's frames need to say
+ * which kind they are.
+ */
+export const CONV_ASK = 0
+
+/**
+ * First byte of the FINAL callee frame: the rest is the reply and the
+ * conversation ends.
+ *
+ * A CALLEE THAT RAN AND REFUSED SENDS CONV_DONE CARRYING ITS ERROR TEXT rather
+ * than closing the stream, and EOF is a FAILURE rather than a clean end. That
+ * asymmetry is load-bearing on the far side: a vanished callee producing an
+ * empty reply reads as "the work finished", and for this seam's first caller
+ * finished is TERMINAL - it retires the program and tears down its live
+ * obligations rather than parking it.
+ */
+export const CONV_DONE = 1
+
 /** The capability token for the bulk seam. */
 export const CAP_STREAM = "stream"
 
 /** The capability token for the coordinated-checkpoint markers (§8). */
 export const CAP_BARRIER = "barrier"
+
+/**
+ * The capability token for a conversation. ADVERTISED ONLY BY A CALLEE THAT HAS
+ * A HANDLER FOR IT - see capsOffered's `hasConverse`.
+ *
+ * ADVERTISING IS A PROMISE ABOUT EVERY SUBSEQUENT CALL, NOT ABOUT THIS ONE. A
+ * caller decides from this advertisement alone whether to send OP_CONVERSE, so
+ * a provider that advertises and then has nothing to dispatch to leaves the
+ * caller waiting on a question that never comes - and the failure is silence,
+ * not an error, because both ends are still reading.
+ */
+export const CAP_CONVERSE = "converse"
 
 /**
  * What this SDK advertises.
@@ -45,9 +95,15 @@ export const CAP_BARRIER = "barrier"
  * be misreported. Advertising something you do not implement is worse than not
  * implementing it: the second fails closed, the first fails silently.
  */
-export function capsOffered(hasBarrier: boolean = false): string {
+export function capsOffered(hasBarrier: boolean = false, hasConverse: boolean = false): string {
   const caps = [CAP_STREAM]
   if (hasBarrier) caps.push(CAP_BARRIER)
+  // ADVERTISED IFF SERVED, and the parameter exists to make the other spelling
+  // unavailable. A provider that advertised `converse` with nothing to dispatch
+  // to would convert a readable up-front refusal on the caller's side - "peer
+  // does not support the converse seam" - into a call that hangs mid-stream.
+  // Mirrors sdk/go/magicseam's capsOffered(hasBarrier, hasConverse).
+  if (hasConverse) caps.push(CAP_CONVERSE)
 
   return caps.join(",")
 }
