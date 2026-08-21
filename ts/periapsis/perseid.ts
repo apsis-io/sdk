@@ -103,7 +103,12 @@ export type Step<E extends AnyEffect, A = Outcome> = Generator<E, A, any>
  * argument type is inferred:
  *
  *     const observe = defineEffect<string, Obs<number>>()('periapsis:reconcile/observe@0.1.0', 'get')
- *     const emit    = defineEffect<string, void>()('periapsis:reconcile/emit@0.1.0', 'emit')
+ *     const scale   = defineEffect<{path: string, n: number}, void>()('periapsis:reconcile/workloads@0.1.0', 'scale')
+ *
+ * `scale` rather than a generic `emit`: actions are TYPED WIT imports as of
+ * 2026-08-21, so the effect names the function it calls. The old form passed an
+ * op STRING to one `act(op, args)`, which meant importing the interface told you
+ * a program could emit SOMETHING and nothing in its types said what.
  *
  * Both type arguments are explicit (<Args, Result>) on purpose: there is no
  * call-site value for TypeScript to infer Args from, and leaving it to be
