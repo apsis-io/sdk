@@ -44,22 +44,165 @@ export const unknown: Obs<never> = { t: 'unknown' }
 // predicate: it is stored beside the parked program and evaluated WITHOUT
 // running it, which is what lets the runtime index parked programs by wake
 // condition and lets an operator see why one is asleep.
-export type Resume =
-  | { readonly r: 'changed'; readonly ref: string }
-  | { readonly r: 'exists'; readonly query: string }
-  | { readonly r: 'missing'; readonly query: string }
-  | { readonly r: 'countNe'; readonly query: string; readonly n: number }
-  | { readonly r: 'after'; readonly ms: number }
-  | { readonly r: 'any'; readonly of: readonly Resume[] }
-  | { readonly r: 'all'; readonly of: readonly Resume[] }
+// *** IT IS AN aperture EXPRESSION, NOT A TAGGED UNION. engi decided it
+// 2026-08-21: "should be expression". ***
+//
+// A tagged union needs a DISCRIMINANT, and a discriminant must be spelled
+// identically in every language on the wire. There were four spellings — this
+// file, a Go enum, a Rust decoder, a TS host switch — and they did not agree.
+// Measured before the change:
+//
+//     {"r":"countNe","query":"app=demo","n":3}
+//       -> Go: err=nil, Kind=0, Query="app=demo", N=3
+//
+// The PAYLOAD decoded. `"r"` matched no Go field, so the discriminant silently
+// stayed at its zero value and the host refused the park as "an EMPTY resume
+// expression" with the fields populated beside it. *** Every well-formed park
+// this SDK produced was rejected by the Go host, for the whole life of the
+// feature. *** An expression is one string: there is no discriminant to lose.
+//
+// It is STILL DATA - a string rather than a closure - which is what the four
+// lines at the top of this section are about, and the reason is unchanged.
+export type Resume = string
 
-export const changed = (ref: string): Resume => ({ r: 'changed', ref })
-export const exists = (query: string): Resume => ({ r: 'exists', query })
-export const missing = (query: string): Resume => ({ r: 'missing', query })
-export const countNe = (query: string, n: number): Resume => ({ r: 'countNe', query, n })
-export const after = (ms: number): Resume => ({ r: 'after', ms })
-export const anyOf = (...of: Resume[]): Resume => ({ r: 'any', of })
-export const allOf = (...of: Resume[]): Resume => ({ r: 'all', of })
+/**
+ * Quote a literal for the aperture grammar.
+ *
+ * *** THE GRAMMAR'S STRING TOKEN IS `"[^"]*"` — THERE ARE NO ESCAPES. *** A
+ * value containing a double quote cannot be represented at all, so this REFUSES
+ * rather than emitting something that will not parse. A silently-mangled
+ * selector would park a program on a condition nobody can satisfy, which is the
+ * exact state the whole design exists to make inspectable.
+ */
+const lit = (s: string): string => {
+  if (s.includes('"')) {
+    throw new Error(
+      `perseid: a resume literal cannot contain a double quote (got ${JSON.stringify(s)}). ` +
+        'The aperture grammar has no string escapes, so this would produce an expression ' +
+        'that does not parse and a program parked on a condition nobody can satisfy.'
+    )
+  }
+  return `"${s}"`
+}
+
+/** Wake when a named pod is readable. */
+export const exists = (name: string): Resume => `GetPod(${lit(name)}).exists`
+
+/**
+ * Wake when a named pod is ABSENT.
+ *
+ * *** A NEGATION, NOT A COMPARISON — AND FOR TWO REASONS. *** The grammar has no
+ * boolean literals, so `== false` does not parse. And it is the correct form:
+ * `exists` maps Known->true, Absent->false, Unknown->Unknown, and `!` propagates
+ * a non-Known observation rather than flipping it. *** A pod that cannot be read
+ * is not "missing" *** — treating it as missing would wake a program to tear
+ * something down because the apiserver blipped.
+ */
+export const missing = (name: string): Resume => `!GetPod(${lit(name)}).exists`
+
+/** Wake when the pods matching a LABEL SELECTOR stop numbering n. */
+export const countNe = (selector: string, n: number): Resume =>
+  `ListPods(${lit(selector)}).length != ${n}`
+
+/**
+ * Wake at an ABSOLUTE deadline, in epoch millis.
+ *
+ * *** TAKES THE INSTANT, NOT A DELAY, AND THAT IS THE POINT. *** A delay is
+ * relative to a park that happens elsewhere, so evaluating it needs a `parkedAt`
+ * travelling alongside — two facts that must stay correct, only one of which is
+ * the "data" this design promises. An absolute deadline means the same thing in
+ * the driver, in a status renderer and in an operator's terminal a week later.
+ *
+ * Use `deadlineIn` when you have the guest's own clock.
+ */
+export const deadline = (atEpochMillis: number): Resume =>
+  `Now() >= ${Math.trunc(atEpochMillis)}`
+
+/**
+ * `deadline`, computed from the guest's clock: wake `ms` from `nowEpochMillis`.
+ *
+ * *** BOTH ARGUMENTS ARE REQUIRED so there is no hidden second time source. ***
+ * `now` is a capability (reconcile.wit's `observe.now`), not a syscall — a
+ * replay supplies a recorded one and a step stays a pure function of its
+ * observations. Reading a clock inside this helper would defeat that.
+ */
+export const deadlineIn = (ms: number, nowEpochMillis: number): Resume =>
+  deadline(nowEpochMillis + ms)
+
+/**
+ * *** REPLACED BY `deadlineIn(ms, now)`, AND THIS THROWS RATHER THAN INVENTING A
+ * CLOCK. ***
+ *
+ * `after(ms)` was a delay with no instant attached, which only worked because
+ * something downstream supplied the park time — the `parkedAt` side-car this
+ * change exists to delete. Restoring it here would mean either reading a clock
+ * inside the SDK (destroying replayability: `now` is a CAPABILITY, so a replay
+ * supplies a recorded one and a step stays a pure function of its observations)
+ * or re-introducing the second value that has to stay correct.
+ *
+ * Kept as a throwing export rather than deleted so the four call sites still
+ * RESOLVE their import and fail with this sentence instead of a module-level
+ * "no such export", which says nothing about what to do.
+ */
+export const after = (ms: number): Resume => {
+  throw new Error(
+    `perseid: after(${ms}) is gone — a resume carries an ABSOLUTE deadline now. ` +
+      'Use deadlineIn(ms, Number(now())) with the guest\'s own clock, or deadline(atEpochMillis). ' +
+      'A bare delay needed a parkedAt travelling beside the expression, and that side-car is ' +
+      'exactly what the expression form removes.'
+  )
+}
+
+/**
+ * *** NOT EXPRESSIBLE, AND THIS THROWS RATHER THAN GUESSING. ***
+ *
+ * `changed(ref)` has no aperture equivalent and never had one:
+ *
+ *   - aperture has no notion of CHANGE. There is no resourceVersion,
+ *     generation, or previous-value in the language — every symbol answers
+ *     "what is true now", so "it moved" cannot be written.
+ *   - it has no DEPLOYMENT symbol either. `GetDeployment` exists on the facade
+ *     (aperture/getdeployment.go) but is absent from `provides`/`dispatch`, so a
+ *     resume expression cannot name a workload at all.
+ *
+ * *** IT ALSO NEVER WORKED. *** The Go host's typed Resume had no `changed` arm,
+ * so a park using it decoded to the zero discriminant and was refused. The four
+ * call sites are dev-host scripts and one example; nothing in production
+ * depended on it, because nothing could.
+ *
+ * Throwing keeps every caller COMPILING while making it impossible to emit an
+ * expression the host cannot evaluate — a silent substitution here would park a
+ * program on a condition that looks right and never fires. Closing it properly
+ * is a capability decision (a `workloads:read` conferring `GetDeployment`, plus
+ * whatever "changed" should mean in a language with no history) and belongs to
+ * engi.
+ */
+export const changed = (ref: string): Resume => {
+  throw new Error(
+    `perseid: changed(${JSON.stringify(ref)}) is not expressible as an aperture resume. ` +
+      'aperture has no notion of change (no resourceVersion/generation) and no deployment ' +
+      'symbol, and the Go host never had a `changed` arm — a park using it was always ' +
+      'refused. Use countNe/exists/missing on what you can observe, or deadlineIn for a ' +
+      'poll. Closing this needs a capability decision, not a workaround.'
+  )
+}
+
+// `paren`, not `group`: this file already EXPORTS a `group` Step combinator
+// (see below), and a second declaration merges with it rather than shadowing.
+const paren = (r: Resume): string => `(${r})`
+
+/** Wake when ANY sub-condition holds. */
+export const anyOf = (...of: Resume[]): Resume => of.map(paren).join(' || ')
+
+/**
+ * Wake when EVERY sub-condition holds.
+ *
+ * *** A TIME BOUND INSIDE THIS IS NOT A BACKSTOP. *** It is gated by its
+ * siblings and cannot fire alone, so the host will add its own — see
+ * `reconcilehost.hasTimeBound`. If you want a guaranteed wake, put the deadline
+ * in an `anyOf`.
+ */
+export const allOf = (...of: Resume[]): Resume => of.map(paren).join(' && ')
 
 // ---------------------------------------------------------------------------
 // Outcome. `quiesce` REQUIRES a resume expression — there is no way to say "I am
