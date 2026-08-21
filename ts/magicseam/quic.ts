@@ -30,6 +30,7 @@ import { Barrier, DEFAULT_DRAIN_TIMEOUT_MS } from "./barrier";
 import { QUICClient, QUICServer, QUICConnection, QUICStream as QUICStreamT, events as quicEvents } from "@matrixai/quic";
 import {
   decodeCaller,
+  encodeCaller,
   type Caller,
   type Handler,
   SeamRejectedError,
@@ -168,6 +169,14 @@ export class QUICSeamClient {
     private readonly client: QUICClient,
     /** The provider's self-reported version (may be ""). */
     public readonly served: string,
+    /**
+     * Announced on every call. The all-empty value means UNATTRIBUTED and is the
+     * honest default for a consumer with nothing to declare - the frame is
+     * written either way, mirroring sdk/go/magicseam's `Caller` field. A
+     * provider decodes a short or absent frame to empty fields rather than
+     * throwing, so an unattributed caller is a value and not a special case.
+     */
+    public caller: Caller = { namespace: "", podName: "", podUid: "", component: "" },
   ) {}
 
   /**
@@ -177,7 +186,22 @@ export class QUICSeamClient {
    */
   async call(request: Uint8Array): Promise<Uint8Array> {
     const stream = this.client.connection.newStream("bidi");
-    await writeAndClose(stream, encodeFrame(request));
+    // ***CALLER FRAME FIRST, THEN THE REQUEST.*** This SDK's own server has read
+    // two frames here since 3d68f4882 ("Go/TS providers receive the caller") and
+    // this client kept writing one, so every call it made hung: the provider
+    // read the REQUEST as the caller frame and then waited for a request that
+    // had already been sent and whose stream was closed.
+    //
+    // A FRAME-COUNT MISMATCH HAS NO ERROR PATH - both ends are still reading, so
+    // it presents as SILENCE rather than as a protocol error, and the provider's
+    // per-stream failure is swallowed by handleQUICConnection's `.catch(() => {})`.
+    // That is why this survived: the whole quic.test.ts suite timed out at 15s
+    // per test with no diagnostic, and a suite that hangs reads as an
+    // environment problem rather than a wire bug.
+    //
+    // The unused `type Caller` import that sat in this file was the fossil of
+    // the half that was never written.
+    await writeAndClose(stream, encodeFrame(encodeCaller(this.caller)), encodeFrame(request));
 
     const reader = new QUICStreamReader(stream.readable);
     const tag = (await reader.readExact(1))[0];
