@@ -147,7 +147,14 @@ export const deadlineIn = (ms: number, nowEpochMillis: number): Resume =>
 export const after = (ms: number): Resume => {
   throw new Error(
     `perseid: after(${ms}) is gone — a resume carries an ABSOLUTE deadline now. ` +
-      'Use deadlineIn(ms, Number(now())) with the guest\'s own clock, or deadline(atEpochMillis). ' +
+      'Use deadlineIn(ms, Number(now())), or deadline(atEpochMillis). ' +
+      // ***NAMES WHERE `now` COMES FROM, BECAUSE IT IS NOT AN SDK EXPORT.*** A
+      // reader following this advice greps this file for `now`, finds nothing,
+      // and concludes the remedy is broken — the inert-advertised-remedy defect,
+      // in the one message that only ever fires at somebody already stuck. It is
+      // a WIT import, deliberately: the clock is a capability, not a syscall.
+      "`now` is imported from the world, not from this SDK: " +
+      "import { now } from 'periapsis:reconcile/observe@0.1.0'. " +
       'A bare delay needed a parkedAt travelling beside the expression, and that side-car is ' +
       'exactly what the expression form removes.'
   )
