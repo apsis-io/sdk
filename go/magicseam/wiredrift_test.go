@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -112,4 +113,113 @@ func rustByteConst(t *testing.T, src []byte, name string) byte {
 	}
 
 	return byte(v)
+}
+
+// ***ADVERTISED IF AND ONLY IF SERVED. THE PAIR IS THE INVARIANT; NEITHER HALF
+// ALONE IS.***
+//
+// TestWireDrift above compares Go's CapConverse against Rust's CAP_CONVERSE and
+// passes when the SPELLINGS match. Its own failure text says what is at stake -
+// "the peer never advertises and every Converse is refused before it starts" -
+// and on 2026-08-21 that is exactly what production did while this file was
+// green:
+//
+//	radiant dialled the pod, the pod served, and the handshake refused:
+//	"peer does not support the converse seam (peer advertised [stream status barrier])"
+//
+// CAP_CONVERSE has ONE occurrence in the Rust tree: its own definition. It is in
+// no advertised set, so dead-code elimination drops the string from the binary -
+// `strings /usr/local/bin/trail | grep converse` returns 0 while `barrier`
+// returns 18.
+//
+// # THE FIRST VERSION OF THIS TEST DEMANDED THE WRONG THING
+//
+// It asserted CAP_CONVERSE must be USED, and went red. That would have pushed
+// somebody to add it to Caps::ours() - ***advertising a capability trail cannot
+// serve.*** reconcile.rs:384 marks the serve side as unwritten ("*** HERE ***
+// OP_CONVERSE -> serve_conversation"), so the current refusal is CORRECT and
+// readable: Converse is declined at the handshake instead of hanging mid-stream.
+//
+// That is the same "linked is not served" defect trail's own HOST_PACKAGES
+// refusal is about, and I nearly encoded the inverse of it in a guard.
+//
+// ***SO THE INVARIANT IS THE PAIR.*** Both absent is today and is correct. Both
+// present is the finished state. ***One without the other is the bug, in either
+// direction*** - advertising without serving hangs a caller, serving without
+// advertising means nobody ever calls it.
+func TestWireDrift_ConverseIsAdvertisedIfAndOnlyIfServed(t *testing.T) {
+	dir := filepath.Join("..", "..", "..", "cmd", "trail", "src")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("cannot read %s, so this is UNCHECKED rather than clean: %v", dir, err)
+	}
+
+	// SERVED means "some file other than the wire-constant module refers to this
+	// op". streamwire.rs DEFINES all six and lists them again in a duplicate-value
+	// test table, so a mention there is worth nothing; a mention anywhere else is
+	// the dispatch reaching for it.
+	//
+	// ***THE FIRST SERVED-DETECTOR RETURNED FALSE FOR EVERY OP INCLUDING THE FIVE
+	// THAT PLAINLY WORK***, and the test passed anyway because false==false. It
+	// required a `=>` match arm on the same line as a bare token; the dispatch is
+	// an if-chain over a qualified path (`if op == crate::streamwire::OP_STREAM`),
+	// so it could not have fired for anything. ***That is why servedOps below is
+	// asserted against a positive control rather than only read.***
+	served := map[string]bool{}
+	advertised := false
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".rs") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatalf("cannot read %s: %v", e.Name(), err)
+		}
+		src := string(raw)
+		// ADVERTISED: inside the Caps constructor body, not merely mentioned. A
+		// doc comment naming CAP_CONVERSE must not read as an advertisement.
+		if i := strings.Index(src, "pub fn ours()"); i >= 0 {
+			if end := strings.Index(src[i:], "}"); end > 0 && strings.Contains(src[i:i+end], "CAP_CONVERSE") {
+				advertised = true
+			}
+		}
+		if e.Name() == "streamwire.rs" {
+			continue
+		}
+		for _, line := range strings.Split(src, "\n") {
+			ln := strings.TrimSpace(line)
+			if strings.HasPrefix(ln, "//") || strings.HasPrefix(ln, "*") {
+				continue
+			}
+			for _, op := range []string{"OP_CALL", "OP_STREAM", "OP_MARKER_ACK", "OP_MARKER", "OP_RESUME", "OP_CONVERSE"} {
+				if strings.Contains(ln, op) {
+					served[op] = true
+				}
+			}
+		}
+	}
+
+	// ***POSITIVE CONTROL, IN THE TEST.*** OP_STREAM and OP_MARKER are dispatched
+	// in remote_quic.rs today. If the detector stops finding THEM, its verdict on
+	// OP_CONVERSE is an instrument zero and the assertion below is meaningless -
+	// which is exactly the state this test shipped in for one revision.
+	for _, ctrl := range []string{"OP_STREAM", "OP_MARKER"} {
+		if !served[ctrl] {
+			t.Fatalf("CONTROL FAILED: %s is dispatched in remote_quic.rs and the detector "+
+				"cannot see it, so this test cannot tell 'converse is unserved' from "+
+				"'the detector is broken'. Fix the detector before reading any verdict "+
+				"from it - a green here would be false==false, not a measurement.", ctrl)
+		}
+	}
+
+	if advertised != served["OP_CONVERSE"] {
+		t.Errorf("converse is advertised=%v but served=%v - THE PAIR IS THE INVARIANT.\n"+
+			"  advertised && !served: a caller is told the peer speaks it, opens a "+
+			"conversation, and hangs or fails mid-stream instead of being declined at "+
+			"the handshake.\n"+
+			"  served && !advertised: the handler exists and NOBODY EVER REACHES IT - "+
+			"every Converse is refused up front, which is what production did on "+
+			"2026-08-21 with the pod answering [stream status barrier].",
+			advertised, served["OP_CONVERSE"])
+	}
 }
