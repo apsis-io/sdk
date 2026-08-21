@@ -105,6 +105,33 @@ export const countNe = (selector: string, n: number): Resume =>
   `ListPods(${lit(selector)}).length != ${n}`
 
 /**
+ * Wake when a DEPLOYMENT's desired replica count stops being n.
+ *
+ * *** PREFER THIS TO countNe FOR A SCALER, AND THE DIFFERENCE IS NOT
+ * COSMETIC. *** countNe observes PODS, which is a lagging, flapping proxy for
+ * the field a scaler actually reconciles toward:
+ *
+ *     during a rollout the pod count passes through values nobody set
+ *     a crashlooping pod changes the count without the spec changing
+ *     a spec change to the SAME count is invisible to a pod census
+ *
+ * `Replicas` reads `spec.replicas` — the desired count, the thing the program
+ * writes with setReplicas. Parking on the field you maintain is what makes a
+ * level-triggered program level-triggered.
+ *
+ * Requires the `workloads:read` capability, which every resume expression is
+ * evaluated with (internal/reconcilehost/resume.go states the extent). The
+ * grant's namespace and labels still apply: a deployment outside them reads
+ * ABSENT, so this wakes on "not there" rather than on a permission error.
+ */
+export const replicasNe = (name: string, n: number): Resume =>
+  `Replicas(${lit(name)}) != ${n}`
+
+/** Wake when a DEPLOYMENT is gone — or, until it exists, when it appears. */
+export const workloadMissing = (name: string): Resume =>
+  `!Replicas(${lit(name)}).exists`
+
+/**
  * Wake at an ABSOLUTE deadline, in epoch millis.
  *
  * *** TAKES THE INSTANT, NOT A DELAY, AND THAT IS THE POINT. *** A delay is
