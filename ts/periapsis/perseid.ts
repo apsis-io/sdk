@@ -241,9 +241,22 @@ export const after = (ms: number): Resume => {
  *   - aperture has no notion of CHANGE. There is no resourceVersion,
  *     generation, or previous-value in the language — every symbol answers
  *     "what is true now", so "it moved" cannot be written.
- *   - it has no DEPLOYMENT symbol either. `GetDeployment` exists on the facade
- *     (aperture/getdeployment.go) but is absent from `provides`/`dispatch`, so a
- *     resume expression cannot name a workload at all.
+ *   - ~~it has no DEPLOYMENT symbol either.~~ *** THAT HALF WAS CLOSED
+ *     2026-08-22 — SEE `replicasNe` ABOVE. *** `workloads:read` now confers
+ *     `Replicas`, so a resume expression CAN name a workload. Only the CHANGE
+ *     half remains, and it is the half that was never going to be a wiring job.
+ *
+ * *** SO THE DECISION IS: `changed` STAYS RETIRED, AND IT IS NOT WAITING ON
+ * ANYTHING. *** Every call site that reached for it wanted "wake when the thing
+ * I maintain moves", and that is `replicasNe(name, n)` — parked on the DESIRED
+ * count, which is the field the program actually writes. `changed` was the
+ * question you ask when you cannot read the field; you can now read the field.
+ *
+ * What "changed" would additionally buy is waking on a spec edit to the SAME
+ * value, and paying for it means the host remembering each parked program's
+ * previous observation — per-program state behind an interface whose whole
+ * invariant is that a resume is DATA the host evaluates without running the
+ * step. That is an ADR, not a symbol, and nothing is currently asking for it.
  *
  * *** IT ALSO NEVER WORKED. *** The Go host's typed Resume had no `changed` arm,
  * so a park using it decoded to the zero discriminant and was refused. The four
@@ -260,10 +273,11 @@ export const after = (ms: number): Resume => {
 export const changed = (ref: string): Resume => {
   throw new Error(
     `perseid: changed(${JSON.stringify(ref)}) is not expressible as an aperture resume. ` +
-      'aperture has no notion of change (no resourceVersion/generation) and no deployment ' +
-      'symbol, and the Go host never had a `changed` arm — a park using it was always ' +
-      'refused. Use countNe/exists/missing on what you can observe, or deadlineIn for a ' +
-      'poll. Closing this needs a capability decision, not a workaround.'
+      'aperture has no notion of change (no resourceVersion/generation), and the Go host ' +
+      'never had a `changed` arm - a park using it was always refused. USE replicasNe(name, n) ' +
+      'if you meant "wake when the workload I maintain moves": that reads spec.replicas ' +
+      'directly and is what every call site here wanted. Otherwise countNe/exists/missing on ' +
+      'what you can observe, or deadlineIn for a poll.'
   )
 }
 
