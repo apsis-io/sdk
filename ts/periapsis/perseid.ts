@@ -140,11 +140,28 @@ export const deadline = (atEpochMillis: number | bigint): Resume =>
 export const deadlineIn = (ms: number, nowEpochMillis: number | bigint): Resume =>
   deadline(Number(nowEpochMillis) + ms)
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ***A CONVENTION FOR THE TWO RETIRED SYMBOLS BELOW, SO THE NEXT CENSUS IS NOT
+// LIED TO.*** A retirement notice written with call parens makes every future
+// `grep 'changed('` hit the one place the symbol is most thoroughly dead — the
+// better the documentation, the more false positives in exactly the search
+// somebody runs to check whether it is gone. It already cost this: a census
+// reported comet as a live caller when its code calls were zero, and the number
+// travelled into two peers' conclusions.
+//
+//     text ABOUT the symbol   -> write it BARE      `changed`
+//     text QUOTING the caller -> KEEP the parens    `changed(${ref})`
+//
+// The throw strings below are the second kind ON PURPOSE. They echo what the
+// user typed, and that is the one thing an error message exists to be
+// recognisable as. Do not "fix" them (seam-vision drew this boundary).
+// ═══════════════════════════════════════════════════════════════════════════
+
 /**
  * *** REPLACED BY `deadlineIn(ms, now)`, AND THIS THROWS RATHER THAN INVENTING A
  * CLOCK. ***
  *
- * `after(ms)` was a delay with no instant attached, which only worked because
+ * `after` was a delay with no instant attached, which only worked because
  * something downstream supplied the park time — the `parkedAt` side-car this
  * change exists to delete. Restoring it here would mean either reading a clock
  * inside the SDK (destroying replayability: `now` is a CAPABILITY, so a replay
@@ -174,7 +191,7 @@ export const after = (ms: number): Resume => {
 /**
  * *** NOT EXPRESSIBLE, AND THIS THROWS RATHER THAN GUESSING. ***
  *
- * `changed(ref)` has no aperture equivalent and never had one:
+ * `changed` has no aperture equivalent and never had one:
  *
  *   - aperture has no notion of CHANGE. There is no resourceVersion,
  *     generation, or previous-value in the language — every symbol answers
