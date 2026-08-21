@@ -4,10 +4,12 @@
 package magicseam
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -99,17 +101,85 @@ func rustStreamWire(t *testing.T) []byte {
 	return src
 }
 
+// rustFnBody returns the brace-matched body of the function whose signature
+// starts at `sig`, and whether it was found.
+//
+// Brace counting is enough for THIS input and would not be for arbitrary Rust: a
+// `{` inside a string or char literal would miscount. streamwire.rs's Caps
+// constructor is a vec! of identifiers, so the limitation is stated rather than
+// papered over - if that body ever grows a brace-bearing literal, the CAP_STREAM
+// control above fails loudly instead of this silently returning the wrong span.
+func rustFnBody(src, sig string) (string, bool) {
+	i := strings.Index(src, sig)
+	if i < 0 {
+		return "", false
+	}
+	open := strings.Index(src[i:], "{")
+	if open < 0 {
+		return "", false
+	}
+	start := i + open
+	depth := 0
+	for j := start; j < len(src); j++ {
+		switch src[j] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return src[start : j+1], true
+			}
+		}
+	}
+
+	return "", false
+}
+
+// rustByteConst reads a `NAME: u8 = <n>;` constant out of Rust source.
+//
+// ***IT READS DECLARATIONS ONLY, AND THAT IS A FIX RATHER THAN A REFINEMENT.***
+// The first version regexed the WHOLE FILE with no comment filter, while the
+// served-detector below deliberately skips `//` lines. Measured against
+// synthetic input before this change:
+//
+//	"/// historically OP_CONVERSE: u8 = 9" above "pub const OP_CONVERSE: u8 = 5;"
+//	  -> returned ***9***, the comment's value, because FindSubmatch takes the
+//	     FIRST match in the file
+//
+// A doc comment recording an old opcode is exactly the thing somebody writes
+// when they renumber one, so the failure arrives attached to the change it is
+// supposed to catch. Comment lines are dropped before matching.
+//
+// ***AND A HEX LITERAL RETURNED 0.*** `(\d+)` matches the leading `0` of
+// `0x05` and stops, so `Sscanf` yields 0 and the test reports "Rust has 0"
+// against Go's 5 - a DIVERGENCE with a fabricated number in the message, which
+// sends the reader to compare two values one of which was never in the file.
+// Rust accepts `0x05` here and nothing stops somebody writing it.
+//
+// Both are loud rather than silent, which is why they survived: a wrong number
+// in a failure message still fails.
 func rustByteConst(t *testing.T, src []byte, name string) byte {
 	t.Helper()
-	re := regexp.MustCompile(fmt.Sprintf(`%s:\s*u8\s*=\s*(\d+)`, regexp.QuoteMeta(name)))
-	m := re.FindSubmatch(src)
-	if m == nil {
-		t.Fatalf("%s not found in streamwire.rs - renamed or removed, which this "+
-			"test cannot distinguish from agreement", name)
+	// DECLARATIONS ONLY: drop comment lines before matching, so a doc comment
+	// quoting an old value cannot be read as the current one.
+	var code [][]byte
+	for _, line := range bytes.Split(src, []byte("\n")) {
+		if bytes.HasPrefix(bytes.TrimSpace(line), []byte("//")) {
+			continue
+		}
+		code = append(code, line)
 	}
-	var v int
-	if _, err := fmt.Sscanf(string(m[1]), "%d", &v); err != nil || v < 0 || v > 255 {
-		t.Fatalf("%s = %q, not a byte", name, m[1])
+	re := regexp.MustCompile(fmt.Sprintf(`%s:\s*u8\s*=\s*(0[xX][0-9a-fA-F]+|\d+)`,
+		regexp.QuoteMeta(name)))
+	m := re.FindSubmatch(bytes.Join(code, []byte("\n")))
+	if m == nil {
+		t.Fatalf("%s not found in streamwire.rs OUTSIDE COMMENTS - renamed, removed, "+
+			"or now only mentioned in prose, none of which this test can distinguish "+
+			"from agreement", name)
+	}
+	v, err := strconv.ParseUint(string(m[1]), 0, 8) // base 0: accepts 0x and decimal
+	if err != nil {
+		t.Fatalf("%s = %q, not a byte: %v", name, m[1], err)
 	}
 
 	return byte(v)
@@ -178,8 +248,30 @@ func TestWireDrift_ConverseIsAdvertisedIfAndOnlyIfServed(t *testing.T) {
 		src := string(raw)
 		// ADVERTISED: inside the Caps constructor body, not merely mentioned. A
 		// doc comment naming CAP_CONVERSE must not read as an advertisement.
-		if i := strings.Index(src, "pub fn ours()"); i >= 0 {
-			if end := strings.Index(src[i:], "}"); end > 0 && strings.Contains(src[i:i+end], "CAP_CONVERSE") {
+		//
+		// ***THE WINDOW IS BRACE-MATCHED, NOT FIRST-`}`.*** It used to end at
+		// `strings.Index(src[i:], "}")` - the first closing brace after the
+		// signature - which works only because `ours()`'s body happens to contain
+		// no brace before the token list. Measured against synthetic input: adding
+		// one `if cfg!(...) { }` ahead of the vec! flips advertised to FALSE while
+		// CAP_CONVERSE is still plainly listed.
+		//
+		// That direction is a SPURIOUS RED, and this repo has measured what a
+		// guard that refuses wrongly produces: the remedy people reach for is
+		// removal. A cry-wolf invariant is worse than a missing one.
+		if body, ok := rustFnBody(src, "pub fn ours()"); ok {
+			// POSITIVE CONTROL ON THIS DETECTOR, which it did not have while its
+			// sibling below did. CAP_STREAM has been advertised since negotiation
+			// existed, so if the window cannot see IT, the window is broken and
+			// the verdict on CAP_CONVERSE is an instrument zero rather than a
+			// measurement.
+			if !strings.Contains(body, "CAP_STREAM") {
+				t.Fatalf("CONTROL FAILED: the Caps::ours() window does not contain "+
+					"CAP_STREAM, which is advertised. The window is broken, so its "+
+					"verdict on CAP_CONVERSE means nothing - fix the extraction "+
+					"before reading any result from it. Window was:\n%s", body)
+			}
+			if strings.Contains(body, "CAP_CONVERSE") {
 				advertised = true
 			}
 		}
