@@ -101,13 +101,16 @@ func TestGoProviderAnswersSpecWrittenMarkers(t *testing.T) {
 	ctx := t.Context()
 	var barrier Barrier
 	echo := func(_ Caller, request []byte) ([]byte, error) { return request, nil }
+	// EPHEMERAL, NOT 19733 — a fixed port collides with any concurrent `go test`
+	// on this machine. See converse_test.go's `freeAddr`.
+	addr := freeAddr(t)
 	go func() {
-		_ = ServeQUICWithBarrier(ctx, "tcp:127.0.0.1:19733",
+		_ = ServeQUICWithBarrier(ctx, "tcp:"+addr,
 			providerCert, providerKey, providerCA, "0.1.0", echo, &barrier)
 	}()
 	time.Sleep(150 * time.Millisecond)
 
-	conn := dialRaw(t, ctx, "127.0.0.1:19733", consumerCert, consumerKey, consumerCA)
+	conn := dialRaw(t, ctx, addr, consumerCert, consumerKey, consumerCA)
 	defer conn.CloseWithError(0, "")
 
 	caps := handshake(t, conn, "0.1.0")
@@ -243,14 +246,15 @@ func TestABarrierlessProviderRefusesMarkers(t *testing.T) {
 
 	ctx := t.Context()
 	echo := func(_ Caller, request []byte) ([]byte, error) { return request, nil }
+	addr := freeAddr(t)
 	go func() {
 		// Plain ServeQUIC: no barrier, which is the whole point.
-		_ = ServeQUIC(ctx, "tcp:127.0.0.1:19734",
+		_ = ServeQUIC(ctx, "tcp:"+addr,
 			providerCert, providerKey, providerCA, "0.1.0", echo)
 	}()
 	time.Sleep(150 * time.Millisecond)
 
-	conn := dialRaw(t, ctx, "127.0.0.1:19734", consumerCert, consumerKey, consumerCA)
+	conn := dialRaw(t, ctx, addr, consumerCert, consumerKey, consumerCA)
 	defer conn.CloseWithError(0, "")
 
 	caps := handshake(t, conn, "0.1.0")

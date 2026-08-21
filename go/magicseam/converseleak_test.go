@@ -32,7 +32,7 @@ func TestConverse_AbandonedConversationVersusAKnownLeak(t *testing.T) {
 		_, err := c.Ask([]byte("q"))
 		return nil, err
 	}
-	client := converseRig(t, "19812", handler)
+	client := converseRig(t, handler)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()

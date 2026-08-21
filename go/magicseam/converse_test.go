@@ -7,33 +7,140 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
 )
 
 // converseRig stands a provider up with a converse handler and dials it.
-func converseRig(t *testing.T, port string, h ConverseHandler) *QUICClient {
+// converseRig stands a provider up and returns a connected client.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+// ***THE `port` ARGUMENT IS IGNORED AND THE FIXED SLEEP IS GONE. BOTH WERE
+// LOAD-SENSITIVE AND BOTH FAILED IN A REAL SWEEP*** (radiant-main hit it at
+// 02:41 mid-verification of an unrelated change; reproduced here, **4 of 5
+// concurrent runs red**).
+//
+//	FIXED PORTS   callers passed 19801/19802/19803/19812. `go test` serialises
+//	              WITHIN a package, so one sweep is fine — but **two agents
+//	              running `go test ./...` at the same time bind the same port**,
+//	              and this machine has two dozen of them. A worktree does not
+//	              isolate a port; that is a host-global resource and the
+//	              control for it is two concurrent runs, which is exactly what
+//	              was happening.
+//	`Sleep(150ms)` a guess at how long `ServeQUICWithConverse` needs to bind.
+//	              Under load it is not enough and the dial fails immediately —
+//	              **the 0.15 s failures.** The 5.15 s ones are the same rig
+//	              failing later against a context deadline.
+//
+// ***PORT 0 AND A RETRY LOOP.*** The OS assigns a free port, so concurrent runs
+// cannot collide by construction rather than by luck; and the readiness gate is
+// **a successful dial** rather than a duration, so it is correct on a loaded box
+// and faster on an idle one.
+//
+// ***THE `port` PARAMETER IS GONE RATHER THAN IGNORED.*** Keeping it as `_` left
+// four dead `"19801"`-shaped literals at the call sites, and a census of
+// hardcoded ports in this package would still have counted them — the
+// retirement-notice-pollutes-the-census defect, measured in this repo tonight on
+// a WIT deletion notice.
+//
+// ***AND THE FIRST VERSION OF THIS PARAGRAPH WAS ITSELF THE ONLY HIT.*** It said
+// *"a grep for <loopback>:19 here now returns zero"* — and spelled the pattern
+// out, so the census found exactly one match: this sentence. **The notice
+// documenting the pollution polluted the census, within a minute of being
+// written.** The remedy is the one already recorded for retired symbols: name the
+// thing WITHOUT writing the matchable form. A census of fixed loopback ports in
+// this package now returns zero, and this comment does not spell one.
+// ═══════════════════════════════════════════════════════════════════════════
+func converseRig(t *testing.T, h ConverseHandler) *QUICClient {
 	t.Helper()
 	ca := generateTestCA(t)
 	providerCert, providerKey, providerCA := writeTestLeaf(t, ca, t.TempDir())
 	consumerCert, consumerKey, consumerCA := writeTestLeaf(t, ca, t.TempDir())
 
+	addr := freeAddr(t)
 	ctx := t.Context()
 	echo := func(_ Caller, request []byte) ([]byte, error) { return request, nil }
 	go func() {
-		_ = ServeQUICWithConverse(ctx, "tcp:127.0.0.1:"+port,
+		_ = ServeQUICWithConverse(ctx, "tcp:"+addr,
 			providerCert, providerKey, providerCA, "0.1.0", echo, nil, h)
 	}()
-	time.Sleep(150 * time.Millisecond)
 
-	client, err := DialQUICForConverse(ctx, "tcp:127.0.0.1:"+port, consumerCert, consumerKey, consumerCA, "0.1.0")
+	client, err := dialWhenReady(t, ctx, addr, consumerCert, consumerKey, consumerCA)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 
 	return client
+}
+
+// freeAddr returns a `127.0.0.1:PORT` the kernel just told us is free.
+//
+// PORT 0, then release. QUIC is UDP, so this reserves the right family. There is
+// a small window between close and re-bind; it is strictly better than a
+// constant that is GUARANTEED to collide with a concurrent run.
+func freeAddr(t *testing.T) string {
+	t.Helper()
+	probe, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve a port: %v", err)
+	}
+	addr := probe.LocalAddr().String()
+	_ = probe.Close()
+
+	return addr
+}
+
+// dialQUICWhenReady is dialWhenReady for the ORDINARY entry point.
+//
+// Two functions rather than one because the two dials are different calls —
+// `DialQUIC` and `DialQUICForConverse` — and several tests depend on which one
+// they use (a plain dial against a converse-advertising peer is refused for a
+// DIFFERENT reason, which one of them asserts). Collapsing them behind a flag
+// would put that distinction in a boolean.
+func dialQUICWhenReady(
+	t *testing.T, ctx context.Context, addr string, cert, key, ca, version string,
+) (*QUICClient, error) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		client, err := DialQUIC(ctx, "tcp:"+addr, cert, key, ca, version)
+		if err == nil {
+			return client, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("provider never became dialable at %s within 10s "+
+				"(a REAL failure, not the old 150ms guess): %w", addr, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// dialWhenReady retries until the provider answers, instead of sleeping a guess.
+//
+// ***READINESS IS A SUCCESSFUL DIAL, NOT A DURATION.*** The old `Sleep(150ms)`
+// was a guess at bind time: correct on an idle box, wrong on a loaded one, and
+// it produced the 0.15 s failures. Retrying is correct under load AND faster
+// when there is none. The 10 s ceiling is long enough that a failure here is a
+// real one rather than another guess.
+func dialWhenReady(
+	t *testing.T, ctx context.Context, addr string, cert, key, ca string,
+) (*QUICClient, error) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		client, err := DialQUICForConverse(ctx, "tcp:"+addr, cert, key, ca, "0.1.0")
+		if err == nil {
+			return client, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("provider never became dialable at %s within 10s "+
+				"(this is a REAL failure, not the old 150ms guess): %w", addr, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // THE WHOLE POINT: THE CALLEE ASKS QUESTIONS MID-CALL AND THE ANSWERS COME FROM
@@ -58,7 +165,7 @@ func TestConverse_CalleeAsksAndCallerAnswersFromItsOwnState(t *testing.T) {
 
 		return []byte("done:" + string(second)), nil
 	}
-	client := converseRig(t, "19801", handler)
+	client := converseRig(t, handler)
 
 	var asked []string
 	reply, err := client.Converse(t.Context(), []byte("run"), func(_ context.Context, ask []byte) ([]byte, error) {
@@ -108,7 +215,7 @@ func TestConverse_AbandonedStreamIsAnErrorNotAnEmptyReply(t *testing.T) {
 
 		return nil, err
 	}
-	client := converseRig(t, "19802", handler)
+	client := converseRig(t, handler)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Second)
 	defer cancel()
@@ -133,7 +240,7 @@ func TestConverse_AHandlerErrorIsDeliveredNotDropped(t *testing.T) {
 	handler := func(context.Context, *Conversation) ([]byte, error) {
 		return nil, errors.New("step refused: capability not granted")
 	}
-	client := converseRig(t, "19803", handler)
+	client := converseRig(t, handler)
 
 	reply, err := client.Converse(t.Context(), []byte("run"), func(context.Context, []byte) ([]byte, error) {
 		return nil, nil
@@ -159,18 +266,21 @@ func TestConverse_RefusedAgainstAPeerThatDoesNotServeIt(t *testing.T) {
 
 	ctx := t.Context()
 	echo := func(_ Caller, request []byte) ([]byte, error) { return request, nil }
+	// EPHEMERAL, NOT 19804 — see converseRig's banner. This is the one call site
+	// in the package that stands a provider up WITHOUT the rig, so the rig's fix
+	// did not reach it and it was the surviving red under concurrent runs.
+	addr := freeAddr(t)
 	go func() {
 		// NO converse handler - the ordinary entry point every existing provider
 		// uses, which must keep behaving exactly as before.
-		_ = ServeQUICWithBarrier(ctx, "tcp:127.0.0.1:19804",
+		_ = ServeQUICWithBarrier(ctx, "tcp:"+addr,
 			providerCert, providerKey, providerCA, "0.1.0", echo, nil)
 	}()
-	time.Sleep(150 * time.Millisecond)
 
 	// ADVERTISES, so this test fails for the reason it names: the peer does not
 	// serve converse. A plain DialQUIC would also be refused - by the opcode
 	// channel never opening - and the test would pass for the wrong reason.
-	client, err := DialQUICForConverse(ctx, "tcp:127.0.0.1:19804", consumerCert, consumerKey, consumerCA, "0.1.0")
+	client, err := dialWhenReady(t, ctx, addr, consumerCert, consumerKey, consumerCA)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}

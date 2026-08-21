@@ -33,13 +33,16 @@ func TestBarrierWithoutStreamStillReadsTheOpcode(t *testing.T) {
 	ctx := t.Context()
 	var barrier Barrier
 	echo := func(_ Caller, request []byte) ([]byte, error) { return request, nil }
+	// EPHEMERAL, NOT 19741 — which this file shared with peeraddr_test.go, so the
+	// two collided across concurrent runs. See converse_test.go's `freeAddr`.
+	addr := freeAddr(t)
 	go func() {
-		_ = ServeQUICWithBarrier(ctx, "tcp:127.0.0.1:19741",
+		_ = ServeQUICWithBarrier(ctx, "tcp:"+addr,
 			providerCert, providerKey, providerCA, "0.1.0", echo, &barrier)
 	}()
 	time.Sleep(150 * time.Millisecond)
 
-	conn := dialRaw(t, ctx, "127.0.0.1:19741", consumerCert, consumerKey, consumerCA)
+	conn := dialRaw(t, ctx, addr, consumerCert, consumerKey, consumerCA)
 	defer conn.CloseWithError(0, "")
 
 	// A consumer that wants markers but NOT bulk calls. Legal per §5.
@@ -111,14 +114,15 @@ func TestAPeersBarrierClaimAloneDoesNotOpenTheOpcodeGate(t *testing.T) {
 
 	ctx := t.Context()
 	echo := func(_ Caller, request []byte) ([]byte, error) { return request, nil }
+	addr := freeAddr(t)
 	go func() {
 		// Plain ServeQUIC: NO barrier on this side.
-		_ = ServeQUIC(ctx, "tcp:127.0.0.1:19742",
+		_ = ServeQUIC(ctx, "tcp:"+addr,
 			providerCert, providerKey, providerCA, "0.1.0", echo)
 	}()
 	time.Sleep(150 * time.Millisecond)
 
-	conn := dialRaw(t, ctx, "127.0.0.1:19742", consumerCert, consumerKey, consumerCA)
+	conn := dialRaw(t, ctx, addr, consumerCert, consumerKey, consumerCA)
 	defer conn.CloseWithError(0, "")
 
 	s, err := conn.OpenStreamSync(ctx)

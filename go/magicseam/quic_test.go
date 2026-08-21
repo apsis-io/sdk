@@ -115,13 +115,16 @@ func TestQUICRoundTripOverRealLoopbackMTLS(t *testing.T) {
 
 	ctx := t.Context()
 
+	// EPHEMERAL, NOT A CONSTANT — see converse_test.go's `freeAddr`. A fixed port
+	// collides with any concurrent `go test` run on this machine, and this box
+	// has two dozen agents; measured 4-of-5 concurrent runs red before this.
+	addr := freeAddr(t)
 	echo := func(_ Caller, request []byte) ([]byte, error) { return request, nil }
 	go func() {
-		_ = ServeQUIC(ctx, "tcp:127.0.0.1:19700", providerCert, providerKey, providerCA, "0.1.0", echo)
+		_ = ServeQUIC(ctx, "tcp:"+addr, providerCert, providerKey, providerCA, "0.1.0", echo)
 	}()
-	time.Sleep(150 * time.Millisecond) // let the listener bind before dialing
 
-	client, err := DialQUIC(ctx, "tcp:127.0.0.1:19700", consumerCert, consumerKey, consumerCA, "0.1.0")
+	client, err := dialQUICWhenReady(t, ctx, addr, consumerCert, consumerKey, consumerCA, "0.1.0")
 	if err != nil {
 		t.Fatalf("DialQUIC: %v", err)
 	}
@@ -150,12 +153,12 @@ func TestQUICConcurrentCallsDoNotSerialize(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 		return request, nil
 	}
+	addr := freeAddr(t)
 	go func() {
-		_ = ServeQUIC(ctx, "tcp:127.0.0.1:19701", providerCert, providerKey, providerCA, "", slow)
+		_ = ServeQUIC(ctx, "tcp:"+addr, providerCert, providerKey, providerCA, "", slow)
 	}()
-	time.Sleep(150 * time.Millisecond)
 
-	client, err := DialQUIC(ctx, "tcp:127.0.0.1:19701", consumerCert, consumerKey, consumerCA, "")
+	client, err := dialQUICWhenReady(t, ctx, addr, consumerCert, consumerKey, consumerCA, "")
 	if err != nil {
 		t.Fatalf("DialQUIC: %v", err)
 	}
@@ -198,12 +201,12 @@ func TestQUICRejectedAndTooLargeTagsRoundtrip(t *testing.T) {
 			return nil, errors.New("boom")
 		}
 	}
+	addr := freeAddr(t)
 	go func() {
-		_ = ServeQUIC(ctx, "tcp:127.0.0.1:19702", providerCert, providerKey, providerCA, "", handler)
+		_ = ServeQUIC(ctx, "tcp:"+addr, providerCert, providerKey, providerCA, "", handler)
 	}()
-	time.Sleep(150 * time.Millisecond)
 
-	client, err := DialQUIC(ctx, "tcp:127.0.0.1:19702", consumerCert, consumerKey, consumerCA, "")
+	client, err := dialQUICWhenReady(t, ctx, addr, consumerCert, consumerKey, consumerCA, "")
 	if err != nil {
 		t.Fatalf("DialQUIC: %v", err)
 	}
@@ -229,7 +232,7 @@ func TestQUICCarriesTheCaller(t *testing.T) {
 	consumerCert, consumerKey, consumerCA := writeTestLeaf(t, ca, t.TempDir())
 	ctx := t.Context()
 
-	addr := "tcp:127.0.0.1:19706"
+	addr := "tcp:" + freeAddr(t)
 	go func() {
 		_ = ServeQUIC(ctx, addr, providerCert, providerKey, providerCA, "0.1.0",
 			func(c Caller, _ []byte) ([]byte, error) { return encodeCaller(c), nil })

@@ -62,7 +62,9 @@ func TestPeerAddrIsPopulatedByARealConnection(t *testing.T) {
 	consumerCert, consumerKey, consumerCA := writeTestLeaf(t, ca, t.TempDir())
 	ctx := t.Context()
 
-	addr := "tcp:127.0.0.1:19741"
+	// EPHEMERAL, NOT 19741 — which opcodegate_test.go also used, so two files in
+	// one package shared a port. See converse_test.go's `freeAddr`.
+	addr := "tcp:" + freeAddr(t)
 	seen := make(chan string, 1)
 	go func() {
 		_ = ServeQUIC(ctx, addr, providerCert, providerKey, providerCA, "0.1.0",
