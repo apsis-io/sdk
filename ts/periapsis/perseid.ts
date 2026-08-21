@@ -155,6 +155,24 @@ export const deadlineIn = (ms: number, nowEpochMillis: number | bigint): Resume 
 // The throw strings below are the second kind ON PURPOSE. They echo what the
 // user typed, and that is the one thing an error message exists to be
 // recognisable as. Do not "fix" them (seam-vision drew this boundary).
+//
+// ***AND THIS NOTE SELF-MATCHES, UNAVOIDABLY — DO NOT "FIX" THAT EITHER.***
+// A rule about parens must display parens, and a warning that a search gives
+// false positives has to contain the search. So this text is a THIRD kind,
+// neither about-the-symbol nor quoting-the-caller: it is about the SEARCH, and
+// it is the one case where self-matching cannot be written around.
+//
+// ***WHICH IS FINE, BECAUSE THE SECOND AXIS IS WHERE, NOT ONLY WHAT***
+// (radiant-main):
+//
+//     a polluting mention in a CALLER file    indistinguishable from a call
+//     the same mention in the DEFINING file   trivially excluded — a census of
+//                                             callers excludes the definition
+//                                             by definition
+//
+// Both mentions that actually cost something tonight were in CALLER files
+// (comet, perseid-ts) and both are now bare. The residue is confined to this
+// file, which anybody counting callers already skips.
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
