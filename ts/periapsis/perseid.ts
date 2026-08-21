@@ -115,8 +115,19 @@ export const countNe = (selector: string, n: number): Resume =>
  *
  * Use `deadlineIn` when you have the guest's own clock.
  */
-export const deadline = (atEpochMillis: number): Resume =>
-  `Now() >= ${Math.trunc(atEpochMillis)}`
+// ***TAKES bigint TOO, BECAUSE THE WIT CLOCK RETURNS ONE.***
+// `reconcile.wit:96` is `now: func() -> u64`, and a u64 arrives in JS as a
+// BigInt — so `deadlineIn(5_000, now())`, the obvious call, would throw
+// TypeError on `bigint + number` INSIDE THE PRODUCER, before any string is
+// emitted and where no host-side test of the output form could ever see it.
+//
+// Two places in this repo already wrote `Number(now())` by hand, which is the
+// binding telling us what it returns. Coercing here means the obvious call
+// works instead of the correct call needing a wrapper nobody can be relied on
+// to remember (radiant-main found this; comet is unaffected because its `now`
+// is a `defineEffect<void, number>` rather than the WIT import).
+export const deadline = (atEpochMillis: number | bigint): Resume =>
+  `Now() >= ${Math.trunc(Number(atEpochMillis))}`
 
 /**
  * `deadline`, computed from the guest's clock: wake `ms` from `nowEpochMillis`.
@@ -126,8 +137,8 @@ export const deadline = (atEpochMillis: number): Resume =>
  * replay supplies a recorded one and a step stays a pure function of its
  * observations. Reading a clock inside this helper would defeat that.
  */
-export const deadlineIn = (ms: number, nowEpochMillis: number): Resume =>
-  deadline(nowEpochMillis + ms)
+export const deadlineIn = (ms: number, nowEpochMillis: number | bigint): Resume =>
+  deadline(Number(nowEpochMillis) + ms)
 
 /**
  * *** REPLACED BY `deadlineIn(ms, now)`, AND THIS THROWS RATHER THAN INVENTING A
