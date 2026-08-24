@@ -75,10 +75,27 @@ func GazerPrincipal(who Caller) (namespace, name string, err error) {
 			"for a pod peer - it is not evidence that nobody is impersonating anyone)",
 			ErrUnattested)
 	}
-	rest, ok := strings.CutPrefix(who.VerifiedPrincipal, GazerPrincipalPrefix)
+	return ParseGazerPrincipal(who.VerifiedPrincipal)
+}
+
+// ParseGazerPrincipal is GazerPrincipal's parser, exported so the side that
+// MINTS a device leaf validates with the identical code that later reads it.
+//
+// THE PRODUCER AND THE CONSUMER OF THIS SUBJECT MUST AGREE FOREVER, and the way
+// they stop agreeing is a second copy of the rules. internal/pki's
+// SignGazerTrailCSR calls this before it will sign anything, so a subject that
+// cannot be parsed cannot be issued in the first place - the failure moves from
+// a device that authenticates as nobody to a signer that refuses.
+//
+// Callers holding a Caller should use GazerPrincipal instead: it distinguishes
+// "no verified identity at all" (ErrUnattested) from "an identity that is not a
+// Gazer" (ErrNotAGazer), and that distinction is lost once the string is on its
+// own.
+func ParseGazerPrincipal(principal string) (namespace, name string, err error) {
+	rest, ok := strings.CutPrefix(principal, GazerPrincipalPrefix)
 	if !ok {
 		return "", "", fmt.Errorf("%w: %q has no %q prefix",
-			ErrNotAGazer, who.VerifiedPrincipal, GazerPrincipalPrefix)
+			ErrNotAGazer, principal, GazerPrincipalPrefix)
 	}
 	// EXACTLY two parts. SplitN with a limit would fold a third colon into the
 	// name and hand back something that parses but names a different object, so
@@ -86,14 +103,14 @@ func GazerPrincipal(who Caller) (namespace, name string, err error) {
 	parts := strings.Split(rest, ":")
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("%w: %q must be %s<namespace>:<name>",
-			ErrNotAGazer, who.VerifiedPrincipal, GazerPrincipalPrefix)
+			ErrNotAGazer, principal, GazerPrincipalPrefix)
 	}
 	namespace, name = parts[0], parts[1]
 	if err := validDNSName(namespace, 63, false); err != nil {
-		return "", "", fmt.Errorf("%w: namespace in %q: %v", ErrNotAGazer, who.VerifiedPrincipal, err)
+		return "", "", fmt.Errorf("%w: namespace in %q: %v", ErrNotAGazer, principal, err)
 	}
 	if err := validDNSName(name, 253, true); err != nil {
-		return "", "", fmt.Errorf("%w: name in %q: %v", ErrNotAGazer, who.VerifiedPrincipal, err)
+		return "", "", fmt.Errorf("%w: name in %q: %v", ErrNotAGazer, principal, err)
 	}
 	return namespace, name, nil
 }
