@@ -173,13 +173,14 @@ func StatusServed(peerCaps []string) bool {
 // The request is reassembled and handed to the ordinary Handler. That is the
 // same thing the trail side does today, and it is why an existing provider
 // gains bulk support without touching its handler code.
-func serveQUICStreamCall(stream *quic.Stream, peer string, handler Handler) {
+func serveQUICStreamCall(stream *quic.Stream, obs observed, handler Handler) {
 	callerFrame, err := readFrame(stream)
 	if err != nil {
 		return
 	}
 	caller := decodeCaller(callerFrame)
-	caller.PeerAddr = peer
+	caller.PeerAddr = obs.PeerAddr
+	caller.VerifiedPrincipal = obs.Principal
 
 	var request []byte
 	for {

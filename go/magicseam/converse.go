@@ -235,7 +235,7 @@ type ConverseHandler func(ctx context.Context, c *Conversation) ([]byte, error)
 // STREAM. That is the whole mechanism: no second connection, no listener, and no
 // way for two conversations to be confused with one another, because each one
 // owns its stream for its whole life.
-func serveQUICConverse(ctx context.Context, stream io.ReadWriter, peer string, handler ConverseHandler) {
+func serveQUICConverse(ctx context.Context, stream io.ReadWriter, obs observed, handler ConverseHandler) {
 	// A PEER THAT ADVERTISED NOTHING CANNOT GET HERE, but a nil handler behind an
 	// advertised capability would leave the caller waiting on a stream nobody
 	// reads. Refuse it as a call-level failure instead.
@@ -250,7 +250,8 @@ func serveQUICConverse(ctx context.Context, stream io.ReadWriter, peer string, h
 		return
 	}
 	caller := decodeCaller(callerFrame)
-	caller.PeerAddr = peer
+	caller.PeerAddr = obs.PeerAddr
+	caller.VerifiedPrincipal = obs.Principal
 
 	request, err := readFrame(stream)
 	if err != nil {

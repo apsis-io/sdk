@@ -83,6 +83,48 @@ type Caller struct {
 	// who signed them, and it is only as good as the CNI's source-address
 	// enforcement.
 	PeerAddr string
+
+	// VerifiedPrincipal is the peer certificate's CommonName, read from the
+	// COMPLETED TLS handshake and never from the wire.
+	//
+	// # WHY THIS EXISTS WHEN PeerAddr ALREADY DOES
+	//
+	// PeerAddr is trustworthy *because the CNI binds a source address to an
+	// endpoint*. That is a property of the cluster datapath, and it does not
+	// survive leaving it: a device is behind NAT, its address is bound to
+	// nothing and changes between apparitions. The one field a provider can
+	// attest against in-cluster is exactly the one that dies at the edge
+	// (ADR-0078's Gazer is off-cluster by construction). This carries an
+	// identity the SIGNER vouched for instead, so it travels.
+	//
+	// # EMPTY IS THE NORMAL CASE TODAY, AND EMPTY IS NOT "TRUSTED"
+	//
+	// Every trail leaf in the fleet is minted with the fixed subject
+	// pki.TrailQuicSNI - the signer imposes it and discards the CSR's own
+	// (internal/pki/trailrelay.go). So for every pod peer this is EMPTY, and it
+	// will stay empty until something issues an individually-subjected leaf.
+	// A provider that reads empty as "no claim made" is correct; one that reads
+	// it as "nobody is impersonating anyone" is making the absent-vs-unknown
+	// mistake this codebase exists to prevent. The fields above remain merely
+	// ASSERTED regardless of what this one says.
+	//
+	// It is deliberately NOT populated from TrailQuicSNI: a value every peer
+	// shares identifies nobody, and putting it here would turn "no identity"
+	// into a string that LOOKS like one - the same collapse that makes a
+	// mechanism returning one constant for every case survive review.
+	VerifiedPrincipal string
+}
+
+// observed is what the TRANSPORT established about a connection at accept time.
+//
+// A STRUCT RATHER THAN TWO STRING PARAMETERS, because the observed/asserted line
+// is the whole security property of Caller and threading it as loose strings is
+// how a future field gets added to one call path and forgotten on another. These
+// values cross no frame: they are read from the connection and the completed
+// handshake, so no peer can influence them however it pads its caller frame.
+type observed struct {
+	PeerAddr  string
+	Principal string
 }
 
 // encodeCaller renders a Caller into the wire frame trail expects. Kept beside

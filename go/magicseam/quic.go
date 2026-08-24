@@ -432,12 +432,15 @@ func serveQUIC(ctx context.Context, addr, certPath, keyPath, caPath, version str
 // goroutine so concurrent calls on this connection never queue behind each
 // other.
 func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler Handler, barrier *Barrier, converse ConverseHandler) {
-	// Observed once per connection: the transport's view of who is calling,
-	// which no wire frame can influence. See Caller.PeerAddr.
-	peer := ""
+	// Observed once per connection: what the TRANSPORT knows about who is
+	// calling, which no wire frame can influence. See Caller.PeerAddr and
+	// Caller.VerifiedPrincipal.
+	obs := observed{}
 	if a := conn.RemoteAddr(); a != nil {
-		peer = a.String()
+		obs.PeerAddr = a.String()
 	}
+	// obs.Principal is stamped further down, AFTER the handshake completes -
+	// see the comment at that point. It cannot be read here.
 	handshake, err := conn.AcceptStream(ctx)
 	if err != nil {
 		return
@@ -477,6 +480,37 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 	}
 	handshake.Close()
 
+	// THE VERIFIED IDENTITY, AND IT CANNOT BE READ ANY EARLIER THAN THIS.
+	//
+	// ListenEarly hands us a connection BEFORE its handshake completes, so that
+	// a resuming consumer's seam handshake can ride 0-RTT (quic0rtt.go). At
+	// accept time ConnectionState().TLS.PeerCertificates is therefore EMPTY -
+	// measured, not assumed: reading it there produced an empty principal for a
+	// leaf that plainly carried one, and the fleet-shared test still PASSED,
+	// because "identifies nobody" and "the mechanism does not work" are the same
+	// empty string.
+	//
+	// Waiting is also the security requirement rather than a workaround: 0-RTT
+	// data is replayable, so an identity taken from an incomplete handshake is
+	// not one. By here the chain has been verified against the trail CA by
+	// loadQUICTLSConfig's RequireAndVerifyClientCert, so this reads a subject
+	// that is already proven - it does not decide trust.
+	select {
+	case <-conn.HandshakeComplete():
+		if certs := conn.ConnectionState().TLS.PeerCertificates; len(certs) > 0 {
+			// TrailQUICSNI is filtered rather than reported: every trail leaf in
+			// the fleet carries it, and a value every peer shares identifies
+			// NOBODY. Surfacing it would turn "no identity" into a string that
+			// looks like one, and a provider comparing against an expected
+			// principal would start matching peers it has no business matching.
+			if cn := certs[0].Subject.CommonName; cn != TrailQUICSNI {
+				obs.Principal = cn
+			}
+		}
+	case <-ctx.Done():
+		return
+	}
+
 	var wg sync.WaitGroup
 	for {
 		stream, err := conn.AcceptStream(ctx)
@@ -484,7 +518,7 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 			break // connection closed or ctx done
 		}
 		wg.Go(func() {
-			serveQUICCall(ctx, stream, peer, handler, streams, opcodes, barrier, converse)
+			serveQUICCall(ctx, stream, obs, handler, streams, opcodes, barrier, converse)
 		})
 	}
 	wg.Wait()
@@ -492,7 +526,7 @@ func serveQUICConn(ctx context.Context, conn *quic.Conn, version string, handler
 
 // serveQUICCall handles exactly one call stream: read the request frame,
 // invoke handler, write the result tag (+ payload frame on success).
-func serveQUICCall(ctx context.Context, stream *quic.Stream, peer string, handler Handler, streamsNegotiated, opcodeExpected bool, barrier *Barrier, converse ConverseHandler) {
+func serveQUICCall(ctx context.Context, stream *quic.Stream, obs observed, handler Handler, streamsNegotiated, opcodeExpected bool, barrier *Barrier, converse ConverseHandler) {
 	defer stream.CancelRead(0)
 
 	// The opcode is on the wire ONLY when both ends advertised the bulk seam.
@@ -539,12 +573,12 @@ func serveQUICCall(ctx context.Context, stream *quic.Stream, peer string, handle
 	defer done()
 
 	if op == opStream {
-		serveQUICStreamCall(stream, peer, handler)
+		serveQUICStreamCall(stream, obs, handler)
 
 		return
 	}
 	if op == opConverse {
-		serveQUICConverse(ctx, stream, peer, converse)
+		serveQUICConverse(ctx, stream, obs, converse)
 
 		return
 	}
@@ -564,7 +598,8 @@ func serveQUICCall(ctx context.Context, stream *quic.Stream, peer string, handle
 	// here, where a peer cannot reach it. decodeCaller builds its result
 	// field-by-field, so no amount of frame padding can set PeerAddr.
 	caller := decodeCaller(callerFrame)
-	caller.PeerAddr = peer
+	caller.PeerAddr = obs.PeerAddr
+	caller.VerifiedPrincipal = obs.Principal
 	response, err := handler(caller, request)
 	if err != nil {
 		_, _ = stream.Write([]byte{tagFor(err)})
