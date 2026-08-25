@@ -313,6 +313,55 @@ export const quiesce = (resume: Resume): Outcome => ({ o: 'quiesce', resume })
 export const terminate: Outcome = { o: 'terminate' }
 
 // ---------------------------------------------------------------------------
+// Conditions — the payload of `periapsis:reconcile/status@0.1.0`.
+//
+// engi decided the vocabulary 2026-08-25: copy Kubernetes. This mirrors
+// `metav1.Condition` minus the two fields a guest cannot supply — the host owns
+// `lastTransitionTime` (it needs the PREVIOUS condition, and a step that held
+// one would be doing in-flight bookkeeping) and `observedGeneration` (a fact
+// about the object being written).
+
+/**
+ * ***`'True'`, NOT `true` AND NOT `'true'`. THE WIT ENUM AND THE KUBERNETES
+ * WIRE VALUE DIFFER BY CASE ALONE.***
+ *
+ * WIT identifiers are lower-case by grammar, so `reconcile.wit` reads
+ * `true`/`false`/`unknown`; `metav1.ConditionStatus` is `"True"`/`"False"`/
+ * `"Unknown"` and the CRD enumerates exactly those three strings.
+ *
+ * A lower-cased value is well-formed JSON that FAILS APISERVER VALIDATION, so
+ * the report is rejected at write time. `set` returns nothing by contract, so
+ * the step cannot see it and the condition simply never appears — which is
+ * indistinguishable from a step that chose not to report.
+ *
+ * ***THIS UNION IS THE REMEDY AND IT IS A MECHANISM, NOT A WARNING.*** The
+ * comment above cannot stop anyone; the type makes `status: 'true'` a COMPILE
+ * ERROR at the call site, which is the only form of this rule that survives a
+ * hurried author. It is also why the type lives in the SDK rather than in the
+ * example that needed it first.
+ */
+export type ConditionStatus = 'True' | 'False' | 'Unknown'
+
+/**
+ * One Kubernetes condition, as a step reports it.
+ *
+ * ***`type` IS AN IDENTITY, NOT A LABEL: A SECOND `set` WITH THE SAME `type`
+ * REPLACES RATHER THAN APPENDS***, exactly as `meta.SetStatusCondition` does.
+ * Two different facts reported under one `type` are not two conditions — the
+ * second silently destroys the first, and the loss is invisible because `set`
+ * returns nothing. Give each distinct fact its own `type`.
+ *
+ * `reason` is CamelCase and machine-readable; `message` is for a human. Both
+ * are required non-empty by Kubernetes.
+ */
+export type Condition = {
+  readonly type: string
+  readonly status: ConditionStatus
+  readonly reason: string
+  readonly message: string
+}
+
+// ---------------------------------------------------------------------------
 // Effects.
 //
 // `wit` is TYPE-ONLY — optional, never assigned, zero runtime cost. It names the
