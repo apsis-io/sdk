@@ -1,0 +1,14 @@
+[package]
+name = "seamwire"
+version = "0.1.0"
+edition = "2024"
+description = "The magic-seam wire vocabulary: opcodes, capability tokens and capability negotiation."
+
+# std-only, and deliberately so. This crate is the SHARED HALF of the seam that
+# every Rust speaker needs and no speaker's runtime should dictate: trail is
+# async over tokio, the Comet's apiserver path is blocking, and neither belongs
+# in a vocabulary. A dependency here would be inherited by both.
+[dependencies]
+
+[lib]
+path = "src/lib.rs"
