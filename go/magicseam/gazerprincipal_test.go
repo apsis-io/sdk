@@ -109,3 +109,56 @@ func TestGazerPrincipal_RefusesOverlongSegments(t *testing.T) {
 		t.Fatalf("refused a legal 63-character namespace: %v", err)
 	}
 }
+
+// THE CONSTRUCTOR AND THE PARSER MUST AGREE FOREVER, and the round trip is the
+// only way to know it. Checking the parts separately would wave through a
+// namespace containing a colon, which silently renames the object a signer is
+// about to authorize.
+func TestGazerPrincipalFor_RoundTripsThroughTheParser(t *testing.T) {
+	for _, tc := range []struct{ ns, name string }{
+		{"team-a", "phone-7"},
+		{"default", "a"},
+		{"team-a", "phone.7.local"},
+		{strings.Repeat("n", 63), strings.Repeat("m", 253)},
+	} {
+		principal, err := GazerPrincipalFor(tc.ns, tc.name)
+		if err != nil {
+			t.Fatalf("GazerPrincipalFor(%q,%q): %v", tc.ns, tc.name, err)
+		}
+		gotNS, gotName, err := ParseGazerPrincipal(principal)
+		if err != nil {
+			t.Fatalf("built %q and could not parse it back: %v", principal, err)
+		}
+		if gotNS != tc.ns || gotName != tc.name {
+			t.Fatalf("%q parsed to %q/%q, want %q/%q", principal, gotNS, gotName, tc.ns, tc.name)
+		}
+	}
+}
+
+// A DERIVED PRINCIPAL IS ONLY SAFE IF IT CANNOT BE STEERED. These are the inputs
+// an issuer might read off an object whose name it did not fully validate.
+func TestGazerPrincipalFor_RefusesInputsThatWouldRenameTheSubject(t *testing.T) {
+	for _, tc := range []struct{ name, ns, obj string }{
+		// A colon in the namespace shifts the split and names a DIFFERENT
+		// object - the exact reason this validates by round-tripping.
+		{"colon in namespace", "team-a:evil", "phone-7"},
+		{"colon in name", "team-a", "phone:7"},
+		{"empty namespace", "", "phone-7"},
+		{"empty name", "team-a", ""},
+		{"traversal", "../kube-system", "phone-7"},
+		{"uppercase", "Team-A", "phone-7"},
+		{"dot in namespace", "team.a", "phone-7"},
+		{"overlong namespace", strings.Repeat("n", 64), "phone-7"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := GazerPrincipalFor(tc.ns, tc.obj)
+			if err == nil {
+				t.Fatalf("built %q from %q/%q - a principal that names something other than "+
+					"the object it was derived from authorizes the wrong device", got, tc.ns, tc.obj)
+			}
+			if got != "" {
+				t.Errorf("returned %q alongside an error", got)
+			}
+		})
+	}
+}

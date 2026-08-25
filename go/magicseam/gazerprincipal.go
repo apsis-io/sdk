@@ -115,6 +115,59 @@ func ParseGazerPrincipal(principal string) (namespace, name string, err error) {
 	return namespace, name, nil
 }
 
+// GazerPrincipalFor builds the principal for a Gazer from its namespace and
+// name, so a signer never has to be HANDED one.
+//
+// ***THE POINT IS THAT THE PRINCIPAL IS DERIVED, NEVER SUPPLIED.***
+// SignGazerTrailCSR signs the principal it is given and says so: it cannot tell
+// whether the requester is entitled to it, and getting that wrong mints a
+// credential that authenticates as another device - one layer earlier than any
+// ValidatingAdmissionPolicy can see.
+//
+// The way that gap closes is not a second policy check, it is arithmetic. A
+// device's CSR arrives in its OWN Gazer, and deploy/gazer-vap.yaml already
+// guarantees only that device could have written that object. So the issuer
+// derives the principal from the OBJECT it found the request on, and a device
+// asking for someone else's identity has nowhere to put the request. The
+// entitlement question stops being answered and starts being unaskable - the
+// same move aperture makes with namespaces, where a cross-namespace write is
+// unspellable rather than refused.
+//
+// So: an issuer that calls this is safe by construction, and one that reads a
+// principal out of the request payload has reintroduced the whole problem while
+// looking like it is doing the same thing.
+func GazerPrincipalFor(namespace, name string) (string, error) {
+	principal := GazerPrincipalPrefix + namespace + ":" + name
+	// Validated by PARSING WHAT WAS BUILT rather than by checking the parts
+	// separately: the two must agree forever, and the only way to be sure the
+	// thing constructed here is the thing readable there is to read it.
+	// Catches a namespace containing a colon, which splitting the checks would
+	// wave through and which would silently rename the object being authorized.
+	gotNS, gotName, err := ParseGazerPrincipal(principal)
+	if err != nil {
+		return "", err
+	}
+	// ***UNREACHABLE TODAY, AND KEPT DELIBERATELY - SAYING SO BECAUSE AN
+	// UNTESTED CHECK THAT READS AS LOAD-BEARING IS WORSE THAN NO CHECK.***
+	//
+	// Measured by mutation: deleting this comparison breaks NO test, and the
+	// mutant was confirmed to apply and to compile before that was believed.
+	// It cannot fire while ParseGazerPrincipal demands exactly two colon
+	// segments and returns them verbatim - a colon in either input makes the
+	// split three parts, which the error above already catches.
+	//
+	// It is kept for ONE named, plausible future change: if the parser is ever
+	// relaxed to SplitN(rest, ":", 2), extra colons fold into the NAME instead
+	// of erroring, and this becomes the only thing standing between a namespace
+	// of "team-a:evil" and a principal that authorizes a different object. That
+	// change would look like tidying. This is the thing that would refuse it.
+	if gotNS != namespace || gotName != name {
+		return "", fmt.Errorf("%w: %q round-trips to %q/%q, not %q/%q",
+			ErrNotAGazer, principal, gotNS, gotName, namespace, name)
+	}
+	return principal, nil
+}
+
 // validDNSName checks the subset of DNS-1123 Kubernetes actually accepts, by
 // hand rather than via apimachinery: this SDK is deliberately client-go free
 // (the same tax facade.go and attest.go describe and choose to pay), and a
