@@ -44,6 +44,29 @@ import (
 // be one the Node authorizer has opinions about.
 const GazerPrincipalPrefix = "apsis:gazer:"
 
+// GazerOrganisation is the GROUP a device's client certificate carries, i.e.
+// the `O=` in its subject.
+//
+// ***THIS HAD THREE COPIES AND NO GO CONSTANT UNTIL 2026-08-25*** -
+// deploy/gazer-rbac.yaml's ClusterRoleBinding subject, deploy/gazer-vap.yaml's
+// matchCondition, and cmd/comet/agent's CSR generator - with nothing making any
+// of them agree.
+//
+// IT IS THE FAIL-OPEN DIRECTION, which is why the missing constant mattered
+// more than the usual duplication. gazer-vap.yaml says so itself: "an identity
+// NOT in this group is not checked here at all, so this policy is only as good
+// as the rule that `apsis:gazers` is granted to devices and nothing else." A
+// device whose certificate carries a different spelling is not DENIED by the
+// policy - it is not SUBJECT to it, and it keeps whatever the RBAC gave it.
+//
+// So a typo here does not produce a refusal anybody sees. It produces a device
+// outside the admission rule, looking healthy.
+//
+// cmd/comet/comettest/gazercsr_test.go pins this against the two manifests and
+// against the Rust constant, which is the only form the agreement can take
+// across three languages.
+const GazerOrganisation = "apsis:gazers"
+
 // ErrUnattested is returned when the caller presented NO verified identity.
 //
 // SEPARATE FROM ErrNotAGazer ON PURPOSE. "We could not establish who this is"
