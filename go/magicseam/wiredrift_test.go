@@ -258,7 +258,19 @@ func TestWireDrift_ConverseIsAdvertisedIfAndOnlyIfServed(t *testing.T) {
 	// The qualified path below is still `crate::streamwire::` and that is NOT
 	// stale: cmd/trail/src/main.rs carries `pub(crate) use seamwire as
 	// streamwire`, so trail's dispatch reads the same after the extraction as
-	// before. That alias is why this directory scan still finds SERVED at all.
+	// before. Deleting that LINE while call sites still say `crate::streamwire::`
+	// is a compile error (E0433), which is why it is not dead code.
+	//
+	// ***BUT RENAMING THE ALIAS DOES NOT BREAK THIS TEST, AND I CLAIMED IT WOULD.***
+	// trail-main wrote here that retiring the alias would turn SERVED false for
+	// every op. comet-main measured it - alias and all 46 call sites renamed to
+	// `wirevocab`, `go test -run WireDrift` still ok. The detector below is
+	// `strings.Contains(ln, op)`, a bare substring match on `OP_STREAM`; the
+	// MODULE name it is qualified by is invisible to it either way.
+	//
+	// Kept as a correction rather than deleted, because the wrong version was the
+	// reassuring one: it told a reader this scan was more fragile than it is, and
+	// a fragility claim is what stops somebody doing a rename that is fine.
 	//
 	// ***THE FIRST SERVED-DETECTOR RETURNED FALSE FOR EVERY OP INCLUDING THE FIVE
 	// THAT PLAINLY WORK***, and the test passed anyway because false==false. It
