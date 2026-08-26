@@ -2,25 +2,55 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // Package magicseam lets a genuinely non-WASM Go program expose the magic
-// seam (ADR-0028, periapsis:magic/handler) as a remote provider a trail-run
-// WASM consumer can bind to via --plug-remote-simple <addr>[#tier].
+// seam (ADR-0028, periapsis:magic/handler) as a remote provider.
 //
-// This is the provider (server) side of the magic sock's revived MSK1
-// protocol (cmd/trail/src/remote_simple.rs) - the ORIGINAL magic-sock wire
-// protocol, before wRPC replaced it for the WASM-to-WASM case (which needs
-// wRPC's generality: arbitrary WIT interfaces, resource handles, stream<T>).
+// *** TRAIL NO LONGER SPEAKS THIS PROTOCOL. *** MSK1 and its consumer flag
+// --plug-remote-simple were REMOVED from trail by ADR-0044 (commit 5fe956bf1,
+// "remove Simple/MSK1 transport, superseded by QUIC"). This doc comment cited
+// cmd/trail/src/remote_simple.rs for the authoritative wire description until
+// 2026-08-27; that file has not existed since. Do not go looking for it, and
+// do not pass --plug-remote-simple to trail - it is not a flag.
+//
+// So this package is now among the LAST SPEAKERS of MSK1 rather than one end
+// of a live pair. What that means for you:
+//
+//   - For a Go provider a trail consumer can actually bind to today, use the
+//     QUIC path in quic.go (--plug-remote-quic / --plug-serve-quic). That is
+//     the live remote transport and where this SDK's own weight now sits.
+//   - Trail DOES have a unix-socket rung again - the `ipc` rung, --ipc
+//     unix:<path>[#tier] - but *** ITS WIRE IS NOT MSK1. *** Different
+//     framing, different handshake, multiplexed. See docs/ipc-wire.md, which
+//     opens by warning about exactly this confusion. Pointing an --ipc trail
+//     at a Serve from this package will not handshake.
+//
+// The protocol below is kept and still described in full because the wire is
+// the record now that the Rust end is gone - there is no other file to defer
+// to. It is the ORIGINAL magic-sock wire protocol, before wRPC replaced it
+// for the WASM-to-WASM case (which needs wRPC's generality: arbitrary WIT
+// interfaces, resource handles, stream<T>).
 // The magic seam's own interface is exactly the value-type-only case MSK1
 // already handled (handle: func(request: list<u8>) -> result<list<u8>,
 // error>), so this package implements just that - no WIT-RPC framework, no
 // wasmtime, no dwarf, nothing WASM-shaped at all. A plain Go program calling
 // Serve is a real provider.
 //
-// Version gating happens on the CONSUMER (trail) side, not here: Serve
-// always accepts a connecting consumer's handshake regardless of the
-// version it requires - trail's own --plug-remote-simple gate (the same
-// version_compatible/--plug-min-version logic every other plug tier already
-// goes through) is the enforcement point. This package deliberately does
-// not reimplement that semver logic.
+// *** VERSION GATING: THE ENFORCEMENT POINT THIS DELEGATED TO IS GONE. ***
+// Serve always accepts a connecting consumer's handshake regardless of the
+// version it requires, and that was safe while trail's --plug-remote-simple
+// gate (the same version_compatible/--plug-min-version logic every other plug
+// tier goes through) sat on the other end. ADR-0044 removed that gate with the
+// transport. This comment went on saying the check happened somewhere else
+// until 2026-08-27.
+//
+// The delegation is what rotted, not the code: "we deliberately do not
+// reimplement that semver logic" is a correct decision that silently became
+// "nothing checks" when its counterparty was deleted. A REQUIRED version
+// still arrives on the wire and is still read (serveConn must, to stay framed)
+// and is still discarded - so an MSK1 consumer requiring a version this
+// provider does not implement is accepted, not rejected.
+//
+// If you build on this path, the check is YOURS. On the QUIC path in quic.go
+// the gate is live and trail-side as originally designed.
 package magicseam
 
 import (
@@ -183,13 +213,22 @@ var ErrUnavailable = errors.New("magicseam: provider unavailable")
 // wanted the version it actually serves.
 var ErrVersionRejected = errors.New("magicseam: provider rejected the required version")
 
-// Wire constants - see cmd/trail/src/remote_simple.rs's module doc
-// comment for the authoritative protocol description this mirrors exactly.
+// Wire constants. *** THIS IS THE AUTHORITATIVE DESCRIPTION NOW *** - it said
+// "see cmd/trail/src/remote_simple.rs's module doc comment for the
+// authoritative protocol description this mirrors exactly" until 2026-08-27,
+// and that file was removed by ADR-0044. Nothing this mirrors exists; the
+// constants below are the definition, not a copy of one.
 const (
 	preamble = "MSK1"
 	// maxFrame bounds a single frame so a hostile/garbled peer can't make
-	// this process allocate unbounded - matches remote_simple.rs's own
-	// MAX_FRAME (64 MiB, the seam's own too-large rejection ballpark).
+	// this process allocate unbounded - matches cmd/trail/src/remote_quic.rs's
+	// own MAX_FRAME (64 MiB, the seam's own too-large rejection ballpark).
+	// *** THAT EQUALITY IS ENFORCED, not merely asserted here: ***
+	// TestEverySeamSpeakerSharesOneFrameBound (cmd/comet/comettest/
+	// seamframebound_test.go) reds if any of the five speakers - trail, comet,
+	// this SDK, sdk/ts, sdk/c - drifts. It is the one cross-speaker fact that
+	// survived MSK1's removal, which is why this citation can be repointed
+	// when the parseAddr one below cannot.
 	maxFrame = 64 << 20
 
 	// THE REPLY TAGS: the FIRST BYTE of a reply frame, where 0 is success and
@@ -211,8 +250,11 @@ const (
 	tagTooLarge    byte = 3
 )
 
-// Serve listens on addr ("unix:<path>" or "tcp:<host:port>", the exact same
-// syntax trail's own --plug-remote/--plug-remote-simple already use) and
+// Serve listens on addr ("unix:<path>" or "tcp:<host:port>"). This said "the
+// exact same syntax trail's own --plug-remote/--plug-remote-simple already
+// use" until 2026-08-27; ADR-0079 renamed the tiers and BOTH those names are
+// dead. Trail's live spellings are --remote (tcp only) and --ipc (unix only),
+// so the syntax is not "the same" either - see parseAddr's note. Serve
 // serves the magic seam via handler, forever - one goroutine per accepted
 // connection (Go's cheap-goroutine model is a direct fit for what was
 // originally a thread-per-connection design in cmd/trail's pre-wRPC
@@ -232,10 +274,10 @@ func Serve(addr string, version string, handler Handler) error {
 		return err
 	}
 
-	// A stale socket file from a prior run would make Listen fail; clear it
-	// (mirrors the pre-wRPC Rust serve_provider this protocol was ported
-	// from - cmd/trail/src/remote_simple.rs's own module doc comment -
-	// and sdk/ts/magicseam's equivalent). A no-op, harmlessly, for "tcp".
+	// A stale socket file from a prior run would make Listen fail; clear it.
+	// Ported from the pre-wRPC Rust serve_provider, which ADR-0044 removed;
+	// sdk/ts/magicseam's equivalent is now the only other implementation to
+	// compare against. A no-op, harmlessly, for "tcp".
 	if network == "unix" {
 		_ = os.Remove(address)
 	}
@@ -257,8 +299,28 @@ func Serve(addr string, version string, handler Handler) error {
 	}
 }
 
-// parseAddr mirrors cmd/trail/src/remote_simple.rs's parse_addr exactly:
-// "unix:<path>" or "tcp:<host:port>", nothing else accepted.
+// parseAddr accepts "unix:<path>" or "tcp:<host:port>", nothing else.
+//
+// *** DO NOT "FIX" THIS CITATION BY REPOINTING IT AT A FILE THAT EXISTS. ***
+// It read "mirrors cmd/trail/src/remote_simple.rs's parse_addr exactly" until
+// 2026-08-27. `fn parse_addr` now appears NOWHERE in cmd/trail/src (verified
+// against a positive control: `fn read_frame` finds 2, `fn parse_addr` finds
+// 0). Trail did not move that grammar, it SPLIT it, and each half rejects what
+// this function accepts:
+//
+//	--ipc     unix:<path>[#tier]        unix only  - tcp: is not accepted
+//	--remote  tcp:<host:port>[#tier]    tcp only   - unix: is refused outright,
+//	                                    with "QUIC is UDP-based and unix: has
+//	                                    no meaning here. Use --ipc"
+//
+// Both carry a #tier suffix this function knows nothing about. So there is no
+// live trail function this mirrors, and repointing at either one would produce
+// a citation that is still wrong while LOOKING right - the path would resolve,
+// so the next reader stops there instead of checking the grammar. A dead path
+// at least announces itself.
+//
+// This combined unix-or-tcp grammar is now this SDK's own (sdk/ts and sdk/c
+// match it). It is not trail's any more.
 func parseAddr(addr string) (network, address string, err error) {
 	switch {
 	case strings.HasPrefix(addr, "unix:"):
@@ -288,10 +350,16 @@ func serveConn(conn net.Conn, version string, handler Handler) {
 	// Explicit, not relying on Go's own TCP default: the request/response
 	// pattern below (small write, then wait for a small reply) is exactly
 	// what Nagle's algorithm + delayed ACKs combine to add real per-call
-	// latency to over a genuine network - see remote_simple.rs's matching
-	// set_nodelay call and its comment for the live-confirmed symptom
-	// (a benchmark that ran instantly over a unix socket took minutes over
-	// a real Service ClusterIP before both sides set this).
+	// latency to over a genuine network.
+	//
+	// *** THE LIVE-CONFIRMED SYMPTOM, recorded HERE because the file that
+	// held it is gone: a benchmark that ran instantly over a unix socket took
+	// MINUTES over a real Service ClusterIP until both sides set this. ***
+	// This deferred to remote_simple.rs's matching set_nodelay comment until
+	// 2026-08-27; ADR-0044 deleted that file, and a measured symptom whose
+	// only record is a comment in a deleted file is a measurement lost. The
+	// unix-socket case is exactly where this looks unnecessary, which is why
+	// it is worth the words.
 	if tc, ok := conn.(*net.TCPConn); ok {
 		tc.SetNoDelay(true)
 	}
@@ -302,7 +370,10 @@ func serveConn(conn net.Conn, version string, handler Handler) {
 		return
 	}
 	if string(pre) != preamble {
-		return // not a magic-sock client - silently drop, matching remote_simple.rs's server-side (now Go-side) intent
+		// Not a magic-sock client - silently drop. Deliberate, and inherited
+		// from the Rust server side ADR-0044 removed: a wrong preamble is a
+		// stray connection, not an error worth a reply.
+		return
 	}
 
 	// The client's required version - read and discarded; this package

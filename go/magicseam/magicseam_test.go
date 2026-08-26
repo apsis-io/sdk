@@ -74,10 +74,23 @@ func TestTagFor(t *testing.T) {
 	}
 }
 
-// writeFrameRaw/readFrameRaw are a minimal hand-rolled MSK1 CLIENT (mirroring
-// cmd/trail/src/remote_simple.rs's Client exactly) used ONLY by this test -
-// the real client lives in Rust/trail; this proves Serve's server-side wire
-// behavior independently of it.
+// writeFrameRaw/readFrameRaw are a minimal hand-rolled MSK1 CLIENT used ONLY
+// by this test.
+//
+// *** ITS JUSTIFICATION HAS INVERTED, WHICH IS WORTH MORE THAN THE DEAD PATH
+// IT CITED. *** This read "mirroring cmd/trail/src/remote_simple.rs's Client
+// exactly ... the real client lives in Rust/trail; this proves Serve's
+// server-side wire behavior independently of it" until 2026-08-27. ADR-0044
+// removed that Client. There is no real client any more, in Rust or anywhere:
+// this hand-rolled one is now the ONLY MSK1 client in the tree.
+//
+// So it no longer proves Serve's behavior INDEPENDENTLY of the reference - it
+// IS the reference, and a test that is its own oracle cannot catch the two
+// ends drifting together. It still earns its place (it pins the wire against
+// accidental change to Serve, and would red if framing moved), but do not read
+// a pass here as cross-implementation agreement. The only real cross-speaker
+// check left is TestEverySeamSpeakerSharesOneFrameBound, and it covers exactly
+// one constant.
 func clientHandshakeAndCall(t *testing.T, conn net.Conn, request []byte) (accept bool, served string, response []byte, tag byte) {
 	t.Helper()
 	if _, err := conn.Write([]byte(preamble)); err != nil {

@@ -1,25 +1,41 @@
 // Lets a genuinely non-WASM TypeScript program (plain Node.js or Bun, no
 // dwarf/trail/WASM at all) expose the magic seam (periapsis:magic/handler,
-// ADR-0028) as a remote provider a trail-run WASM consumer can bind to via
-// --plug-remote-simple <addr>[#tier].
+// ADR-0028) as a remote provider.
+//
+// It said "a trail-run WASM consumer can bind to via --plug-remote-simple
+// <addr>[#tier]" here until 2026-08-27. *** NO TRAIL CONSUMER CAN BIND TO
+// THIS. *** See the MSK1 note below.
 //
 // NOT the same thing as ../periapsis/magic.ts (definePlugProvider/callSeam),
 // which wraps the WIT-level periapsis:magic/handler import/export for a
 // component running INSIDE dwarf/trail. This package is the OTHER side of
 // ADR-0028's non-WASM-provider gap: for a program that is not a WASM
 // component at all, running the provider (server) side of the magic sock's
-// revived MSK1 protocol (cmd/trail/src/remote_simple.rs) directly over a
-// real socket. Same protocol, same wire bytes, as sdk/go/magicseam - see
+// revived MSK1 protocol directly over a real socket.
+//
+// *** TRAIL NO LONGER SPEAKS THIS PROTOCOL. *** This cited
+// cmd/trail/src/remote_simple.rs until 2026-08-27; ADR-0044 (commit 5fe956bf1)
+// removed MSK1 and its --plug-remote-simple consumer flag from trail, so that
+// file has not existed for some time. For a provider a trail consumer can bind
+// to today use quic.ts. Trail's unix-socket rung (--ipc) exists again but
+// speaks a DIFFERENT wire - see docs/ipc-wire.md, which leads with that
+// warning.
+//
+// Same protocol, same wire bytes, as sdk/go/magicseam - see
 // that package's doc comment for the fuller rationale (why MSK1 instead of
 // the wRPC-based --plug-remote: wRPC's generality buys nothing for this
 // seam's actual interface, a single list<u8> -> result<list<u8>, error>
 // function, and there is no mature non-Rust wRPC implementation to adopt
 // instead).
 //
-// Version gating happens on the CONSUMER (trail) side, not here: serve()
-// always accepts a connecting consumer's handshake regardless of the
-// version it requires - trail's own --plug-remote-simple gate is the
-// enforcement point, same as sdk/go/magicseam.
+// *** VERSION GATING: THE ENFORCEMENT POINT THIS DELEGATED TO IS GONE. ***
+// serve() always accepts a connecting consumer's handshake regardless of the
+// version it requires. That was safe while trail's --plug-remote-simple gate
+// sat on the other end; ADR-0044 removed the gate with the transport, and this
+// comment went on saying the check happened elsewhere until 2026-08-27.
+// Nothing checks now - the required version is read (to stay framed) and
+// discarded. If you build on this path the check is yours. Same note, same
+// reason, in sdk/go/magicseam.
 
 import net from "node:net";
 import fs from "node:fs";
@@ -69,13 +85,19 @@ export class SeamRejectedError extends Error {}
 /** Thrown by a Handler to signal the seam's `too-large` error variant. */
 export class SeamTooLargeError extends Error {}
 
-// Wire constants - see cmd/trail/src/remote_simple.rs's module doc comment
-// for the authoritative protocol description this mirrors exactly (also
-// mirrored in sdk/go/magicseam).
+// Wire constants. These are AUTHORITATIVE now, not a mirror: this pointed at
+// cmd/trail/src/remote_simple.rs's module doc comment "for the authoritative
+// protocol description this mirrors exactly" until 2026-08-27, and ADR-0044
+// removed that file. sdk/go/magicseam carries the same values and the same
+// note.
 const PREAMBLE = "MSK1";
-// Matches remote_simple.rs's own MAX_FRAME (64 MiB, the seam's own
+// Matches cmd/trail/src/remote_quic.rs's own MAX_FRAME (64 MiB, the seam's own
 // too-large rejection ballpark) - bounds a single frame so a hostile/
-// garbled peer can't make this process allocate unbounded.
+// garbled peer can't make this process allocate unbounded. That equality is
+// ENFORCED across all five speakers by
+// TestEverySeamSpeakerSharesOneFrameBound in
+// cmd/comet/comettest/seamframebound_test.go, which is why this one citation
+// could be repointed at a live file when parseAddr's below could not.
 export const MAX_FRAME = 64 << 20;
 
 export const TAG_OK = 0;
@@ -85,8 +107,16 @@ export const TAG_TOO_LARGE = 3;
 
 type ParsedAddr = { path: string } | { host: string; port: number };
 
-// Mirrors cmd/trail/src/remote_simple.rs's parse_addr exactly: "unix:<path>"
-// or "tcp:<host:port>", nothing else accepted.
+// Accepts "unix:<path>" or "tcp:<host:port>", nothing else.
+//
+// *** DO NOT REPOINT THIS AT A FILE THAT EXISTS. *** It read "mirrors
+// cmd/trail/src/remote_simple.rs's parse_addr exactly" until 2026-08-27.
+// `fn parse_addr` is now in no trail source file at all. Trail SPLIT that
+// grammar rather than moving it - `--ipc unix:<path>[#tier]` takes unix only,
+// `--remote tcp:<host:port>[#tier]` takes tcp only and refuses unix outright -
+// and both carry a #tier suffix this function does not know. Pointing at
+// either would be a wrong citation that RESOLVES, which stops the next reader
+// checking. See sdk/go/magicseam's parseAddr for the same note.
 function parseAddr(addr: string): ParsedAddr {
   if (addr.startsWith("unix:")) {
     const path = addr.slice("unix:".length);
@@ -110,7 +140,8 @@ function parseAddr(addr: string): ParsedAddr {
 
 // One length-prefixed frame as a SINGLE buffer (length + payload together),
 // written with one socket.write() call - not two separate writes. This
-// matters: cmd/trail/src/remote_simple.rs originally wrote the length
+// matters: the original Rust implementation (remote_simple.rs, removed by
+// ADR-0044) wrote the length
 // prefix and payload as two separate write_all calls, which combined with
 // Nagle's algorithm + delayed ACKs to add real per-call latency over a
 // genuine network (confirmed live building examples/go/magic-echo-go -
@@ -210,8 +241,11 @@ async function handleConnection(socket: net.Socket, version: string, handler: Ha
 }
 
 /**
- * Listens on addr ("unix:<path>" or "tcp:<host:port>", the exact same
- * syntax trail's own --plug-remote/--plug-remote-simple already use) and
+ * Listens on addr ("unix:<path>" or "tcp:<host:port>"). This said "the exact
+ * same syntax trail's own --plug-remote/--plug-remote-simple already use"
+ * until 2026-08-27; ADR-0079 renamed the tiers and BOTH those names are dead.
+ * Trail's live spellings are --remote (tcp only) and --ipc (unix only), so the
+ * syntax is not "the same" either - see parseAddr's note. It
  * serves the magic seam via handler. version is this provider's own
  * self-declared seam version (e.g. "0.1.0", matching
  * periapsis:magic/handler@0.1.0) reported at every handshake - purely
@@ -227,9 +261,9 @@ async function handleConnection(socket: net.Socket, version: string, handler: Ha
 export function serve(addr: string, version: string, handler: Handler): Promise<void> {
   const parsed = parseAddr(addr);
   if ("path" in parsed) {
-    // A stale socket file from a prior run would make bind() fail; clear it
-    // (mirrors the pre-wRPC Rust serve_provider this protocol was ported
-    // from - cmd/trail/src/remote_simple.rs's own module doc comment).
+    // A stale socket file from a prior run would make bind() fail; clear it.
+    // Ported from the pre-wRPC Rust serve_provider, which ADR-0044 removed;
+    // sdk/go/magicseam's Serve is now the only other implementation.
     fs.rmSync(parsed.path, { force: true });
   }
 
