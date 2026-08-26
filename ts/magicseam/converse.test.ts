@@ -54,7 +54,7 @@ describe("converse capability", () => {
   // ***THE OPCODE MUST NOT COLLIDE WITH ANY OTHER.*** Checked as a SET over every
   // pair rather than against the neighbour it was added next to: OP_CONVERSE was
   // appended after OP_RESUME, so comparing it only to OP_RESUME would pass while
-  // it silently aliased OP_CALL. cmd/trail/src/streamwire.rs carries the same
+  // it silently aliased OP_CALL. sdk/rust/seamwire/src/lib.rs carries the same
   // all-pairs test for the same reason.
   test("every opcode is distinct", () => {
     const ops = [OP_CALL, OP_STREAM, OP_MARKER, OP_MARKER_ACK, OP_RESUME, OP_CONVERSE]
@@ -98,7 +98,7 @@ describe("converse capability", () => {
 
   // WIRE PARITY WITH THE OTHER IMPLEMENTATIONS, ASSERTED ON THE LITERALS.
   //
-  // These values are spelled independently in cmd/trail/src/streamwire.rs and
+  // These values are spelled independently in sdk/rust/seamwire/src/lib.rs and
   // sdk/go/magicseam/converse.go with no shared source, and the protocol doc
   // names that as the standing drift hazard. A mismatch here does not fail at
   // connect time - it misframes a conversation, which presents as a hang.

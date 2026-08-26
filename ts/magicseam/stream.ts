@@ -5,9 +5,13 @@
 //
 // A provider built on this SDK is NATIVE - it speaks the wire protocol directly
 // rather than running as a WASM component - so it implements the negotiation
-// itself. This mirrors cmd/trail/src/streamwire.rs, which is the
+// itself. This mirrors sdk/rust/seamwire/src/lib.rs, which is the
 // specification; the two are implementations of one protocol and must be read
 // together. sdk/go/magicseam/stream.go is the third.
+//
+// That path was cmd/trail/src/streamwire.rs until 2026-08-26, when it became a
+// shared crate so the Comet agent could speak the seam without a second Rust
+// implementation of it. trail consumes it under the same name.
 //
 // Without this a provider is simply an older peer: trail negotiates no
 // streaming, a consumer importing the bulk seam is refused at bind with an

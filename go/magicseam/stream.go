@@ -15,8 +15,13 @@ import (
 // A provider written with this SDK is NATIVE - it speaks the wire protocol
 // directly rather than running as a WASM component - so it has to implement
 // the negotiation and framing itself. Everything here mirrors
-// cmd/trail/src/streamwire.rs; that file is the specification and this is a
+// sdk/rust/seamwire/src/lib.rs; that file is the specification and this is a
 // second implementation of it, so the two must be read together.
+//
+// ***THAT PATH WAS `cmd/trail/src/streamwire.rs` UNTIL 2026-08-26***, when it was
+// extracted into a shared crate so the Comet agent could speak the seam without
+// a second Rust implementation. trail still uses it, under the same name, via
+// `pub(crate) use seamwire as streamwire`.
 //
 // WHY A PROVIDER GAINS ANYTHING FROM THIS. Without it a provider is simply an
 // older peer: trail negotiates no streaming, a consumer importing the bulk seam
