@@ -58,7 +58,7 @@ func TestWireConstantsAgreeWithTrail(t *testing.T) {
 	} {
 		want := rustByteConst(t, src, c.rust)
 		if want != c.got {
-			t.Errorf("%s DIVERGED: Go has %d, cmd/trail/src/streamwire.rs %s = %d. "+
+			t.Errorf("%s DIVERGED: Go has %d, "+rustWirePath+" %s = %d. "+
 				"A renumbered opcode does not error - both ends block and a pass "+
 				"never completes, which reads as a slow driver rather than a bug",
 				c.name, c.got, c.rust, want)
@@ -75,8 +75,8 @@ func TestWireCapabilityTokenAgreesWithTrail(t *testing.T) {
 	re := regexp.MustCompile(`CAP_CONVERSE:\s*&str\s*=\s*"([^"]+)"`)
 	m := re.FindSubmatch(src)
 	if m == nil {
-		t.Fatal("CAP_CONVERSE not found in streamwire.rs - the constant was renamed " +
-			"or removed, and this test cannot tell that from agreement")
+		t.Fatal("CAP_CONVERSE not found in " + rustWirePath + " - the constant was " +
+			"renamed or removed, and this test cannot tell that from agreement")
 	}
 	if string(m[1]) != CapConverse {
 		t.Errorf("capability token DIVERGED: Go %q, Rust %q - the peer never "+
@@ -85,13 +85,39 @@ func TestWireCapabilityTokenAgreesWithTrail(t *testing.T) {
 	}
 }
 
-// rustStreamWire reads trail's wire definitions. FATAL on any failure: an
-// unreadable file must not read as agreement.
+// rustStreamWire reads the Rust side's wire definitions. FATAL on any failure:
+// an unreadable file must not read as agreement.
+//
+// MOVED 2026-08-26: the vocabulary left cmd/trail/src/streamwire.rs for
+// sdk/rust/seamwire/src/lib.rs when it was extracted into a crate, so trail and
+// cmd/comet/agent link one copy instead of each carrying their own.
+//
+// ***THIS TEST CAUGHT THAT MOVE AND THAT IS WHY THE PATH IS STILL WRITTEN OUT.***
+// The extraction shipped green - cargo test, go vet and comettest all passed,
+// because this is a GO test reading RUST source and no build anywhere can see
+// it. What went red was the pair invariant below, reporting converse as
+// advertised=false, served=true. Searching for the file instead of naming it
+// would have turned the next move into a silent not-found, which is exactly what
+// the original comment refused and what the failure text at the pair test would
+// then have mis-explained.
+// rustWirePath is the ONE place the vocabulary's location is written down, and
+// every failure message that sends a reader there names it from here.
+//
+// It is a const because a repo-relative location is a CONVENTION, not a host
+// path: no test may point this somewhere else and still claim to have checked
+// the wire.
+//
+// The move above left three messages saying `streamwire.rs` - a diverged opcode,
+// a missing CAP_CONVERSE and a missing byte constant all directed the reader to
+// a file that no longer existed. Each was correct when written. Repointing three
+// string literals would have re-armed exactly that, so the literal exists once.
+const rustWirePath = "sdk/rust/seamwire/src/lib.rs"
+
 func rustStreamWire(t *testing.T) []byte {
 	t.Helper()
 	// Relative to sdk/go/magicseam. Written out rather than searched so a MOVED
 	// file fails here instead of being silently not-found somewhere else.
-	path := filepath.Join("..", "..", "..", "cmd", "trail", "src", "streamwire.rs")
+	path := filepath.Join("..", "..", "..", filepath.FromSlash(rustWirePath))
 	src, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("cannot read %s, so the two sides are UNCHECKED rather than in "+
@@ -105,7 +131,7 @@ func rustStreamWire(t *testing.T) []byte {
 // starts at `sig`, and whether it was found.
 //
 // Brace counting is enough for THIS input and would not be for arbitrary Rust: a
-// `{` inside a string or char literal would miscount. streamwire.rs's Caps
+// `{` inside a string or char literal would miscount. The seamwire crate's Caps
 // constructor is a vec! of identifiers, so the limitation is stated rather than
 // papered over - if that body ever grows a brace-bearing literal, the CAP_STREAM
 // control above fails loudly instead of this silently returning the wrong span.
@@ -173,7 +199,7 @@ func rustByteConst(t *testing.T, src []byte, name string) byte {
 		regexp.QuoteMeta(name)))
 	m := re.FindSubmatch(bytes.Join(code, []byte("\n")))
 	if m == nil {
-		t.Fatalf("%s not found in streamwire.rs OUTSIDE COMMENTS - renamed, removed, "+
+		t.Fatalf("%s not found in "+rustWirePath+" OUTSIDE COMMENTS - renamed, removed, "+
 			"or now only mentioned in prose, none of which this test can distinguish "+
 			"from agreement", name)
 	}
@@ -225,9 +251,14 @@ func TestWireDrift_ConverseIsAdvertisedIfAndOnlyIfServed(t *testing.T) {
 	}
 
 	// SERVED means "some file other than the wire-constant module refers to this
-	// op". streamwire.rs DEFINES all six and lists them again in a duplicate-value
-	// test table, so a mention there is worth nothing; a mention anywhere else is
-	// the dispatch reaching for it.
+	// op". The seamwire crate DEFINES all six and lists them again in a
+	// duplicate-value test table, so a mention there is worth nothing; a mention
+	// anywhere else is the dispatch reaching for it.
+	//
+	// The qualified path below is still `crate::streamwire::` and that is NOT
+	// stale: cmd/trail/src/main.rs carries `pub(crate) use seamwire as
+	// streamwire`, so trail's dispatch reads the same after the extraction as
+	// before. That alias is why this directory scan still finds SERVED at all.
 	//
 	// ***THE FIRST SERVED-DETECTOR RETURNED FALSE FOR EVERY OP INCLUDING THE FIVE
 	// THAT PLAINLY WORK***, and the test passed anyway because false==false. It
@@ -236,7 +267,57 @@ func TestWireDrift_ConverseIsAdvertisedIfAndOnlyIfServed(t *testing.T) {
 	// so it could not have fired for anything. ***That is why servedOps below is
 	// asserted against a positive control rather than only read.***
 	served := map[string]bool{}
+	// ***THE TWO HALVES NOW LIVE IN DIFFERENT PLACES, AND THAT SPLIT IS WHAT
+	// BROKE THIS TEST.*** Until the 2026-08-26 extraction both were under
+	// cmd/trail/src, so one directory scan answered both questions. Caps::ours()
+	// moved to sdk/rust/seamwire; the dispatch that SERVES an op did not. Reading
+	// only the old directory finds served=true, advertised=false, and reports a
+	// broken pair for a codebase that is fine.
+	//
+	// So ADVERTISED is read from the vocabulary crate by name, and SERVED is
+	// scanned across trail's sources. Two sources, because there are now two
+	// places - not because the invariant changed.
+	//
+	// ADVERTISED means "inside the Caps constructor body", not "mentioned in the
+	// file". A doc comment naming CAP_CONVERSE must not read as an
+	// advertisement, which is why this is a brace-matched window and not a
+	// whole-file Contains.
+	//
+	// ***THE WINDOW IS BRACE-MATCHED, NOT FIRST-`}`.*** It used to end at
+	// `strings.Index(src[i:], "}")` - the first closing brace after the signature
+	// - which works only because `ours()`'s body happens to contain no brace
+	// before the token list. Measured against synthetic input: adding one
+	// `if cfg!(...) { }` ahead of the vec! flips advertised to FALSE while
+	// CAP_CONVERSE is still plainly listed.
+	//
+	// That direction is a SPURIOUS RED, and this repo has measured what a guard
+	// that refuses wrongly produces: the remedy people reach for is removal. A
+	// cry-wolf invariant is worse than a missing one.
 	advertised := false
+	if body, ok := rustFnBody(string(rustStreamWire(t)), "pub fn ours()"); ok {
+		// POSITIVE CONTROL ON THIS DETECTOR, which it did not have while its
+		// sibling below did. CAP_STREAM has been advertised since negotiation
+		// existed, so if the window cannot see IT, the window is broken and
+		// the verdict on CAP_CONVERSE is an instrument zero rather than a
+		// measurement.
+		if !strings.Contains(body, "CAP_STREAM") {
+			t.Fatalf("CONTROL FAILED: the Caps::ours() window does not contain "+
+				"CAP_STREAM, which is advertised. The window is broken, so its "+
+				"verdict on CAP_CONVERSE means nothing - fix the extraction "+
+				"before reading any result from it. Window was:\n%s", body)
+		}
+		if strings.Contains(body, "CAP_CONVERSE") {
+			advertised = true
+		}
+	} else {
+		// The constructor not being FOUND is an instrument failure, not an
+		// absence: it means the crate moved or ours() was renamed, and every
+		// verdict below would be drawn from a window that does not exist.
+		t.Fatal("Caps::ours() not found in the seamwire crate - the vocabulary " +
+			"moved or the constructor was renamed, so advertised is UNCHECKED " +
+			"rather than false")
+	}
+
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".rs") {
 			continue
@@ -246,38 +327,14 @@ func TestWireDrift_ConverseIsAdvertisedIfAndOnlyIfServed(t *testing.T) {
 			t.Fatalf("cannot read %s: %v", e.Name(), err)
 		}
 		src := string(raw)
-		// ADVERTISED: inside the Caps constructor body, not merely mentioned. A
-		// doc comment naming CAP_CONVERSE must not read as an advertisement.
+		// SERVED ONLY. The advertised window is read once, above.
 		//
-		// ***THE WINDOW IS BRACE-MATCHED, NOT FIRST-`}`.*** It used to end at
-		// `strings.Index(src[i:], "}")` - the first closing brace after the
-		// signature - which works only because `ours()`'s body happens to contain
-		// no brace before the token list. Measured against synthetic input: adding
-		// one `if cfg!(...) { }` ahead of the vec! flips advertised to FALSE while
-		// CAP_CONVERSE is still plainly listed.
-		//
-		// That direction is a SPURIOUS RED, and this repo has measured what a
-		// guard that refuses wrongly produces: the remedy people reach for is
-		// removal. A cry-wolf invariant is worse than a missing one.
-		if body, ok := rustFnBody(src, "pub fn ours()"); ok {
-			// POSITIVE CONTROL ON THIS DETECTOR, which it did not have while its
-			// sibling below did. CAP_STREAM has been advertised since negotiation
-			// existed, so if the window cannot see IT, the window is broken and
-			// the verdict on CAP_CONVERSE is an instrument zero rather than a
-			// measurement.
-			if !strings.Contains(body, "CAP_STREAM") {
-				t.Fatalf("CONTROL FAILED: the Caps::ours() window does not contain "+
-					"CAP_STREAM, which is advertised. The window is broken, so its "+
-					"verdict on CAP_CONVERSE means nothing - fix the extraction "+
-					"before reading any result from it. Window was:\n%s", body)
-			}
-			if strings.Contains(body, "CAP_CONVERSE") {
-				advertised = true
-			}
-		}
-		if e.Name() == "streamwire.rs" {
-			continue
-		}
+		// The `streamwire.rs` exclusion that used to stand here is gone with the
+		// file. Its reason still holds and is now structural rather than a
+		// filter: the vocabulary defines every op and lists them again in a
+		// duplicate-value table, so a mention there is worth nothing - and this
+		// scan can no longer reach it, because it walks trail's sources and the
+		// vocabulary is a separate crate.
 		for _, line := range strings.Split(src, "\n") {
 			ln := strings.TrimSpace(line)
 			if strings.HasPrefix(ln, "//") || strings.HasPrefix(ln, "*") {
