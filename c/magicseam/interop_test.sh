@@ -76,8 +76,13 @@ fi
 # after a successful round trip whose reply it has already checked. So the
 # presence of that line IS the assertion - a broken wire produces trail's
 # "connection died; re-dialling" loop and no WHOLE line at all.
+# --remote, not --plug-remote-quic: ADR-0079 renamed the tiers and trail's parser
+# ends `other => bail!("unknown flag {other}")`. This script passed the OLD
+# spelling until 2026-08-27, so trail exited immediately and printed no WHOLE
+# line - which the check below reports as a BROKEN WIRE. The one failure this
+# test cannot distinguish from a dead flag is exactly what a dead flag produces.
 timeout 90 "$TRAIL" --p3 \
-  --plug-remote-quic "tcp:127.0.0.1:$PORT" \
+  --remote "tcp:127.0.0.1:$PORT" \
   --tls-cert "$D/client.pem" --tls-key "$D/client.key" --tls-ca "$D/ca.pem" \
   --component "$CONSUMER" > "$D/consumer.log" 2>&1
 rc=$?
