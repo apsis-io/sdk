@@ -162,6 +162,46 @@ func sessionCacheFor(addr string) tls.ClientSessionCache {
 	return cache
 }
 
+// seamInitialPacketSize is the QUIC spec floor, and it is set because quic-go's
+// DEFAULT DOES NOT FIT A 1280-MTU PATH.
+//
+// # The measurement (comet-main, 2026-08-27, on the aphelion0 tailnet)
+//
+// A Go dial across aphelion0 timed out against every peer, while a Rust probe
+// completed the whole conversation against the SAME address with the SAME
+// credential in the same window - so it was never the peer, the cert or ALPN.
+//
+//	aphelion0 mtu 1280  ->  max UDP payload with DF set = 1252
+//	payload 1252 + 28 = 1280  SENT
+//	payload 1256 + 28 = 1284  EMSGSIZE
+//	payload 1280 + 28 = 1308  EMSGSIZE   <- quic-go's default
+//
+// quic-go sets DF and defaults InitialPacketSize to 1280 (protocol.InitialPacketSize).
+// With a 20-byte IP and 8-byte UDP header that is 1308 on the wire, so the KERNEL
+// refuses every Initial locally and nothing reaches the peer at all. The symptom
+// is "timeout: no recent network activity" - a peer-shaped error for a failure
+// that never left the host, which is why it read as a device problem for an hour.
+//
+// quinn (trail's Rust side) uses 1200 and fits, which is exactly why only the Go
+// side saw it. Two implementations of one protocol with different defaults, and
+// the seam runs both.
+//
+// # Why 1200, and why this is not a cap
+//
+// 1200 is the minimum every conformant QUIC path must carry (RFC 9000 §14.1) and
+// quic-go's own documented lower limit - "values below 1200 are invalid". Path
+// MTU discovery stays ENABLED, so a fatter path is still discovered and used;
+// this only lowers the size of the packets sent BEFORE anything is known about
+// the path. On a 1500-MTU cluster link nothing changes, which is why every
+// in-cluster seam worked while the tailnet one could not handshake.
+//
+// ⚠ THIS CONFIG FEEDS quic.ListenEarly AS WELL AS THE TWO DIAL PATHS, so it is
+// the SERVER's handshake response as much as the client's Initial. A provider
+// reached over a 1280-MTU path would have failed to answer for the same reason,
+// and that half was never measured because the dial never got far enough to
+// provoke it.
+const seamInitialPacketSize = 1200
+
 // seamQUICConfig is the transport config both ends of the seam use.
 //
 // allow0RTT is server-side only: it lets a provider ACCEPT early data. A client
@@ -169,9 +209,10 @@ func sessionCacheFor(addr string) tls.ClientSessionCache {
 // it calls and whether a ticket happens to be cached.
 func seamQUICConfig(allow0RTT bool) *quic.Config {
 	return &quic.Config{
-		MaxIdleTimeout:  seamMaxIdleTimeout,
-		KeepAlivePeriod: seamKeepAlivePeriod,
-		Allow0RTT:       allow0RTT,
+		MaxIdleTimeout:    seamMaxIdleTimeout,
+		KeepAlivePeriod:   seamKeepAlivePeriod,
+		Allow0RTT:         allow0RTT,
+		InitialPacketSize: seamInitialPacketSize,
 	}
 }
 
