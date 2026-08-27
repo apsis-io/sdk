@@ -34,23 +34,26 @@
 // wasmtime, no dwarf, nothing WASM-shaped at all. A plain Go program calling
 // Serve is a real provider.
 //
-// *** VERSION GATING: THE ENFORCEMENT POINT THIS DELEGATED TO IS GONE. ***
-// Serve always accepts a connecting consumer's handshake regardless of the
-// version it requires, and that was safe while trail's --plug-remote-simple
-// gate (the same version_compatible/--plug-min-version logic every other plug
-// tier goes through) sat on the other end. ADR-0044 removed that gate with the
-// transport. This comment went on saying the check happened somewhere else
-// until 2026-08-27.
+// *** VERSION GATING IS ENFORCED HERE, AS OF 2026-08-27. *** Serve compares the
+// consumer's required version against the one it serves and refuses an
+// incompatible handshake with `accept = 0`. `versionCompatible` mirrors
+// cmd/trail/src/plug.rs's `version_compatible` exactly, including the 0.x rules
+// that are not plain semver.
 //
-// The delegation is what rotted, not the code: "we deliberately do not
-// reimplement that semver logic" is a correct decision that silently became
-// "nothing checks" when its counterparty was deleted. A REQUIRED version
-// still arrives on the wire and is still read (serveConn must, to stay framed)
-// and is still discarded - so an MSK1 consumer requiring a version this
-// provider does not implement is accepted, not rejected.
+// WHY IT HAD TO MOVE HERE, because the original decision was not wrong:
+// "version gating happens on the CONSUMER (trail) side, not here ... this
+// package deliberately does not reimplement that semver logic" was CORRECT
+// while trail's --plug-remote-simple gate sat on the other end. ADR-0044 deleted
+// that gate along with the transport, and the comment went on delegating to a
+// counterparty that no longer existed - so an MSK1 consumer requiring a version
+// this provider does not implement was accepted and served.
 //
-// If you build on this path, the check is YOURS. On the QUIC path in quic.go
-// the gate is live and trail-side as originally designed.
+// *** THE DELEGATION ROTTED, NOT THE CODE. *** A delegation names the thing it
+// trusts, so deleting that thing leaves a sentence that still parses and a check
+// nobody performs. On the QUIC path (quic.go) the gate is still trail-side and
+// still correct - that package genuinely does not need to reimplement it,
+// because there the server IS trail. Here the server is this package, and the
+// gate has nowhere else to live.
 package magicseam
 
 import (
@@ -61,6 +64,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -376,10 +380,25 @@ func serveConn(conn net.Conn, version string, handler Handler) {
 		return
 	}
 
-	// The client's required version - read and discarded; this package
-	// always accepts (see doc comment). Reading it is still necessary to
-	// stay in sync with the wire protocol's framing.
-	if _, err := readFrame(r); err != nil {
+	// The client's REQUIRED version, and this package now enforces it.
+	//
+	// *** IT USED TO BE "read and discarded; this package always accepts". ***
+	// That was safe while trail's --plug-remote-simple gate sat on the other
+	// end; ADR-0044 deleted the gate along with the transport, and the comment
+	// went on delegating to a counterparty that no longer existed. A delegation
+	// names the thing it trusts, so removing that thing leaves a sentence that
+	// still parses and a check nobody performs.
+	required, err := readFrame(r)
+	if err != nil {
+		return
+	}
+	if !versionCompatible(string(required), version) {
+		// accept = 0. The wire already carried this byte; nothing here was
+		// unable to refuse, only unwilling.
+		_, _ = conn.Write([]byte{0})
+		// The served version still follows, so the consumer's error can name
+		// what it asked for AND what it was offered rather than just failing.
+		_ = writeFrame(conn, []byte(version))
 		return
 	}
 	if _, err := conn.Write([]byte{1}); err != nil { // accept = 1
@@ -409,6 +428,74 @@ func serveConn(conn net.Conn, version string, handler Handler) {
 			return
 		}
 	}
+}
+
+// versionCompatible reports whether a provider serving `served` satisfies a
+// consumer requiring `required`.
+//
+// *** MIRRORS cmd/trail/src/plug.rs's version_compatible EXACTLY, including the
+// parts that are not plain semver. *** Copied deliberately rather than
+// approximated with a >= comparison, because the 0.x rules are where the two
+// would silently diverge and a divergence here means one end binds a plug the
+// other would have refused:
+//
+//	major differs        -> never compatible
+//	0.y.z                -> minor must be EQUAL (0.x minors are breaking)
+//	0.0.z                -> patch must be EQUAL (every 0.0.z is its own API)
+//	otherwise            -> (minor, patch) >= (required minor, patch)
+//
+// An UNPARSEABLE version on either side is accepted, matching trail's "serving
+// unversioned" behaviour: a provider that declares no version cannot gate, and
+// failing closed there would refuse every consumer of an unversioned provider
+// rather than the incompatible ones. That is a real hole and it is the same hole
+// trail has; it is not widened here.
+func versionCompatible(required, served string) bool {
+	rq, ok1 := parseVersion(required)
+	sv, ok2 := parseVersion(served)
+	if !ok1 || !ok2 {
+		return true
+	}
+	if rq[0] != sv[0] {
+		return false
+	}
+	if rq[0] == 0 {
+		if rq[1] != sv[1] {
+			return false
+		}
+		if rq[1] == 0 {
+			return sv[2] == rq[2]
+		}
+		return sv[2] >= rq[2]
+	}
+	return sv[1] > rq[1] || (sv[1] == rq[1] && sv[2] >= rq[2])
+}
+
+// parseVersion pulls major/minor/patch out of "X.Y.Z", ignoring any pre-release
+// or build-metadata suffix.
+//
+// (That sentence used to name the suffixes with their punctuation, and `go vet`
+// read the second one as a BUILD CONSTRAINT - "invalid non-alphanumeric build
+// constraint". A doc comment is not an inert place to write that token.)
+//
+// Hand-rolled on purpose: this package is vendored by third parties and
+// deliberately has no dependencies beyond the standard library.
+func parseVersion(v string) ([3]uint64, bool) {
+	var out [3]uint64
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return out, false
+	}
+	for i, p := range parts {
+		n, err := strconv.ParseUint(p, 10, 64)
+		if err != nil {
+			return out, false
+		}
+		out[i] = n
+	}
+	return out, true
 }
 
 // tagFor maps a Handler-returned error to its wire tag: ErrRejected/

@@ -28,13 +28,16 @@
 // function, and there is no mature non-Rust wRPC implementation to adopt
 // instead).
 //
-// *** VERSION GATING: THE ENFORCEMENT POINT THIS DELEGATED TO IS GONE. ***
-// serve() always accepts a connecting consumer's handshake regardless of the
-// version it requires. That was safe while trail's --plug-remote-simple gate
-// sat on the other end; ADR-0044 removed the gate with the transport, and this
-// comment went on saying the check happened elsewhere until 2026-08-27.
-// Nothing checks now - the required version is read (to stay framed) and
-// discarded. If you build on this path the check is yours. Same note, same
+// *** VERSION GATING IS ENFORCED HERE, AS OF 2026-08-27. *** serve() compares
+// the consumer's required version against the one it serves and refuses an
+// incompatible handshake with accept = 0. `versionCompatible` mirrors
+// cmd/trail/src/plug.rs's version_compatible and sdk/go/magicseam's copy
+// exactly, 0.x rules included.
+//
+// It previously always accepted, which was CORRECT while trail's
+// --plug-remote-simple gate sat on the other end - ADR-0044 deleted that gate
+// with the transport, and the comment went on delegating to a counterparty that
+// no longer existed. The delegation rotted, not the code. Same note, same
 // reason, in sdk/go/magicseam.
 
 import net from "node:net";
@@ -104,6 +107,48 @@ export const TAG_OK = 0;
 export const TAG_UNAVAILABLE = 1;
 export const TAG_REJECTED = 2;
 export const TAG_TOO_LARGE = 3;
+
+/** Major/minor/patch, or null if this is not an "X.Y.Z". */
+function parseVersion(v: string): [number, number, number] | null {
+  const cut = v.search(/[-+]/)
+  const core = cut >= 0 ? v.slice(0, cut) : v
+  const parts = core.split(".")
+  if (parts.length !== 3) return null
+  const nums = parts.map((p) => (/^\d+$/.test(p) ? Number(p) : NaN))
+  if (nums.some(Number.isNaN)) return null
+  return [nums[0], nums[1], nums[2]]
+}
+
+/**
+ * Whether a provider serving `served` satisfies a consumer requiring
+ * `required`.
+ *
+ * *** MIRRORS cmd/trail/src/plug.rs's version_compatible EXACTLY, and
+ * sdk/go/magicseam's versionCompatible line for line. *** The 0.x rules are not
+ * plain semver and are where three implementations would silently diverge:
+ *
+ *   major differs   never compatible
+ *   0.y.z           minor must be EQUAL - 0.x minors are breaking
+ *   0.0.z           patch must be EQUAL - every 0.0.z is its own API
+ *   otherwise       (minor, patch) >= required
+ *
+ * An unparseable version on either side is ACCEPTED, matching trail's "serving
+ * unversioned": a provider declaring no version cannot gate, and failing closed
+ * would refuse every consumer of an unversioned provider rather than the
+ * incompatible ones.
+ */
+export function versionCompatible(required: string, served: string): boolean {
+  const rq = parseVersion(required)
+  const sv = parseVersion(served)
+  if (!rq || !sv) return true
+  if (rq[0] !== sv[0]) return false
+  if (rq[0] === 0) {
+    if (rq[1] !== sv[1]) return false
+    if (rq[1] === 0) return sv[2] === rq[2]
+    return sv[2] >= rq[2]
+  }
+  return sv[1] > rq[1] || (sv[1] === rq[1] && sv[2] >= rq[2])
+}
 
 type ParsedAddr = { path: string } | { host: string; port: number };
 
@@ -207,9 +252,21 @@ async function handleConnection(socket: net.Socket, version: string, handler: Ha
     const pre = await reader.readExact(4);
     if (pre.toString("latin1") !== PREAMBLE) return; // not a magic-sock client - silently drop
 
-    // The client's required version - read and discarded; this package
-    // always accepts (see module doc comment).
-    await readFrameFromSocketReader(reader);
+    // The client's REQUIRED version, and this package now enforces it.
+    //
+    // *** IT USED TO BE "read and discarded; this package always accepts". ***
+    // That was safe while trail's --plug-remote-simple gate sat on the other
+    // end; ADR-0044 deleted the gate with the transport, and the comment went on
+    // delegating to a counterparty that no longer existed.
+    const required = await readFrameFromSocketReader(reader)
+    if (!versionCompatible(required.toString("utf8"), version)) {
+      // accept = 0, then the served version anyway - so the consumer's error can
+      // name what it asked for AND what was on offer.
+      socket.write(Buffer.from([0]))
+      socket.write(encodeFrame(Buffer.from(version, "utf8")))
+      socket.end()
+      return
+    }
     socket.write(Buffer.from([1])); // accept = 1
     socket.write(encodeFrame(Buffer.from(version, "utf8")));
 

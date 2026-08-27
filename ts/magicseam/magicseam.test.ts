@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import net from "node:net";
-import { serve, SeamRejectedError, SeamTooLargeError } from "./magicseam.js";
+import { serve, SeamRejectedError, SeamTooLargeError, versionCompatible } from "./magicseam.js";
 
 const PREAMBLE = "MSK1";
 
@@ -137,3 +137,35 @@ describe("serve", () => {
     expect(calls).toBe(5);
   });
 });
+
+// *** THE SAME TABLE AS sdk/go/magicseam's TestVersionCompatible_MirrorsTrailExactly
+// AND cmd/trail/src/plug.rs's version_compatible. *** Three speakers, one rule -
+// and the 0.x rows are where a plain ">=" would silently diverge, which matters
+// because 0.x is what the seam actually ships.
+test("versionCompatible mirrors trail's rule, including the 0.x cases", () => {
+  const cases: Array<[string, string, boolean, string]> = [
+    ["1.2.3", "1.2.3", true, "identical"],
+    ["1.2.3", "1.3.0", true, "higher minor satisfies 1.x"],
+    ["1.2.3", "1.2.4", true, "higher patch satisfies"],
+    ["1.2.3", "1.2.2", false, "lower patch does not"],
+    ["1.2.3", "1.1.9", false, "lower minor does not"],
+    ["1.2.3", "2.2.3", false, "major mismatch"],
+    ["0.1.0", "0.1.0", true, "identical 0.x"],
+    ["0.1.0", "0.1.5", true, "0.x higher patch satisfies"],
+    ["0.1.5", "0.1.0", false, "0.x lower patch does not"],
+    ["0.1.0", "0.2.0", false, "*** 0.x HIGHER MINOR IS BREAKING ***"],
+    ["0.2.0", "0.1.0", false, "0.x lower minor"],
+    ["0.0.1", "0.0.1", true, "identical 0.0.z"],
+    ["0.0.1", "0.0.2", false, "*** 0.0.z HIGHER PATCH IS BREAKING ***"],
+    ["", "0.1.0", true, "no required version cannot gate"],
+    ["garbage", "0.1.0", true, "unparseable required"],
+    ["0.1", "0.1.0", true, "two components is not X.Y.Z"],
+    ["0.1.0", "0.1.0-rc1", true, "pre-release suffix ignored"],
+  ]
+  for (const [required, served, want, why] of cases) {
+    expect(
+      versionCompatible(required, served),
+      `versionCompatible(${required}, ${served}) - ${why}`,
+    ).toBe(want)
+  }
+})

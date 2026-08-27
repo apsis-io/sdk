@@ -107,6 +107,15 @@ func clientHandshakeAndCall(t *testing.T, conn net.Conn, request []byte) (accept
 	if err != nil {
 		t.Fatal(err)
 	}
+	// *** STOP ON A REFUSAL, as a real consumer does. *** quic.go's client
+	// errors out at exactly this point rather than issuing the call. This helper
+	// used to plough on and write the request regardless, which was harmless
+	// while nothing could refuse - and the moment Serve gained a version gate it
+	// turned a correct refusal into `write: broken pipe` from the TEST, blaming
+	// the server for closing a connection it had just correctly declined.
+	if acceptByte[0] != 1 {
+		return false, string(servedBytes), nil, 0
+	}
 	if err := writeFrame(conn, request); err != nil {
 		t.Fatal(err)
 	}
@@ -228,5 +237,116 @@ func TestFrameLengthPrefixIsLittleEndian(t *testing.T) {
 	}
 	if binary.LittleEndian.Uint32(got) != 2 {
 		t.Errorf("decoded length = %d, want 2", binary.LittleEndian.Uint32(got))
+	}
+}
+
+// TestVersionCompatible_MirrorsTrailExactly.
+//
+// *** THE TABLE IS LIFTED FROM cmd/trail/src/plug.rs's version_compatible, AND
+// THE 0.x ROWS ARE THE WHOLE POINT. *** A plain "served >= required" would pass
+// every 1.x row here and get all four 0.x rows wrong - and 0.x is what the seam
+// actually ships (periapsis:magic/handler@0.1.0). A divergence means one end
+// binds a plug the other would have refused.
+func TestVersionCompatible_MirrorsTrailExactly(t *testing.T) {
+	for _, tc := range []struct {
+		required, served string
+		want             bool
+		why              string
+	}{
+		{"1.2.3", "1.2.3", true, "identical"},
+		{"1.2.3", "1.3.0", true, "higher minor satisfies 1.x"},
+		{"1.2.3", "1.2.4", true, "higher patch satisfies"},
+		{"1.2.3", "1.2.2", false, "lower patch does not"},
+		{"1.2.3", "1.1.9", false, "lower minor does not"},
+		{"1.2.3", "2.2.3", false, "major mismatch is never compatible"},
+		{"2.0.0", "1.9.9", false, "major mismatch, the other way"},
+
+		// 0.y.z: the minor is the breaking axis, so it must be EQUAL.
+		{"0.1.0", "0.1.0", true, "identical 0.x"},
+		{"0.1.0", "0.1.5", true, "0.x higher patch satisfies"},
+		{"0.1.5", "0.1.0", false, "0.x lower patch does not"},
+		{"0.1.0", "0.2.0", false, "*** 0.x HIGHER MINOR IS BREAKING, NOT SATISFYING ***"},
+		{"0.2.0", "0.1.0", false, "0.x lower minor does not"},
+
+		// 0.0.z: every patch is its own API.
+		{"0.0.1", "0.0.1", true, "identical 0.0.z"},
+		{"0.0.1", "0.0.2", false, "*** 0.0.z HIGHER PATCH IS BREAKING ***"},
+		{"0.0.2", "0.0.1", false, "0.0.z lower patch"},
+
+		// Unparseable accepts, matching trail's "serving unversioned".
+		{"", "0.1.0", true, "no required version cannot gate"},
+		{"0.1.0", "", true, "no served version cannot gate"},
+		{"garbage", "0.1.0", true, "unparseable required"},
+		{"0.1", "0.1.0", true, "two components is not X.Y.Z"},
+
+		// Suffixes are ignored, so a pre-release build is not refused for its tag.
+		{"0.1.0", "0.1.0-rc1", true, "pre-release suffix ignored"},
+		{"0.1.0", "0.1.0+build7", true, "build suffix ignored"},
+	} {
+		t.Run(tc.required+"_vs_"+tc.served, func(t *testing.T) {
+			if got := versionCompatible(tc.required, tc.served); got != tc.want {
+				t.Errorf("versionCompatible(%q, %q) = %v, want %v - %s",
+					tc.required, tc.served, got, tc.want, tc.why)
+			}
+		})
+	}
+}
+
+// TestServe_RefusesAnIncompatibleConsumer is the arm that matters: the table
+// above proves the RULE, this proves the rule is CONSULTED on the wire.
+//
+// Before this, serveConn read the required version and threw it away, so an
+// incompatible consumer was accepted and served - the gate trail used to apply
+// had been deleted with the transport and nothing replaced it.
+func TestServe_RefusesAnIncompatibleConsumer(t *testing.T) {
+	dir := t.TempDir()
+	sockPath := dir + "/refuse.sock"
+	addr := "unix:" + sockPath
+
+	errCh := make(chan error, 1)
+	go func() {
+		// *** THE PROVIDER SERVES 0.2.0; clientHandshakeAndCall HARDCODES A
+		// REQUIRED 0.1.0. *** The gap is deliberately on the 0.x MINOR, which is
+		// the breaking axis - 0.1.0 and 0.2.0 are different APIs, so a provider
+		// serving 0.2.0 must refuse a consumer that needs 0.1.0.
+		//
+		// The version gap is put on the PROVIDER because the shared helper's
+		// required version is fixed. This test first tried to say "require
+		// 0.2.0" and failed - not because the gate was broken but because the
+		// helper had gone on sending 0.1.0, so the arms were compatible and the
+		// failure message blamed the code for the test's own mistake.
+		errCh <- Serve(addr, "0.2.0", func(_ Caller, request []byte) ([]byte, error) {
+			return request, nil
+		})
+	}()
+	// Same dial-retry as the other Serve tests: Listen happens before Accept
+	// blocks, but the goroutine may not have run yet.
+	var conn net.Conn
+	var err error
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, err = net.Dial("unix", sockPath)
+		if err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("dial %s: %v", addr, err)
+	}
+	defer conn.Close()
+
+	accept, served, _, _ := clientHandshakeAndCall(t, conn, []byte("hello"))
+	if accept {
+		t.Error("a consumer requiring 0.1.0 was ACCEPTED by a provider serving 0.2.0. " +
+			"The 0.x minor is the breaking axis, and nothing on this path gates it " +
+			"any more - trail's --plug-remote-simple gate went with ADR-0044.")
+	}
+	// The served version must STILL arrive on a refusal, so the consumer's error
+	// can name what it asked for AND what it was offered. A bare "rejected" sends
+	// an operator to read both manifests.
+	if served != "0.2.0" {
+		t.Errorf("served version on a REFUSAL = %q, want %q - a refusal that does not "+
+			"say what is on offer is much harder to act on", served, "0.2.0")
 	}
 }
