@@ -171,6 +171,23 @@ pub const CAP_STATUS: &str = "status";
 /// closed and one that produces a torn cut nobody detects.
 pub const CAP_BARRIER: &str = "barrier";
 
+/// The capability token for a device KEYCHAIN seam - a Comet re-exporting the
+/// platform keystore it holds (ADR-0078).
+///
+/// ***THE FIRST TOKEN HERE THAT A DEVICE ADVERTISES RATHER THAN A SERVER.*** The
+/// four above are trail's wire features; this one is a capability a piece of
+/// HARDWARE has and a cluster does not. It is the shape ADR-0078 is for: "a
+/// capability the agent holds and re-exports is a seam, one a workload holds
+/// directly is a hole".
+///
+/// A device advertises it because the handler is compiled in and answers - with
+/// a structured `Err` naming the reason when the platform keystore is missing,
+/// which is a REPLY and not a hang. That distinction is what makes advertising
+/// honest here: `gazer-seamprobe` reports `SEAMPROBE-KEYCHAIN-UNAVAILABLE`
+/// separately from a seam failure, because the seam worked and the keychain did
+/// not - different findings, different remedies.
+pub const CAP_KEYCHAIN: &str = "keychain";
+
 /// What a peer said it can do. Unknown tokens are retained but unused, so a
 /// newer peer advertising more does not confuse an older one.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -219,6 +236,23 @@ impl Caps {
     /// Distinct from an EMPTY frame only in intent; both mean "nothing".
     pub fn none() -> Caps {
         Caps::default()
+    }
+
+    /// The capabilities a NON-TRAIL speaker offers.
+    ///
+    /// [`Caps::ours`] is trail's own set and is deliberately a fixed list - it is
+    /// a statement about THIS binary. A Comet is a different binary with a
+    /// different set, and before this existed the only public constructors were
+    /// `ours`, `none` and `decode`, so a device could advertise its keychain only
+    /// by round-tripping its own tokens through the wire decoder. That works and
+    /// reads as a trick; this says what is meant.
+    ///
+    /// The same rule applies as to `ours`: ***every token passed here is a
+    /// promise the caller can keep.***
+    pub fn of(tokens: &[&str]) -> Caps {
+        Caps {
+            tokens: tokens.iter().map(|t| (*t).to_string()).collect(),
+        }
     }
 
     pub fn encode(&self) -> Vec<u8> {
