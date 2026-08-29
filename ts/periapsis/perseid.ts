@@ -837,6 +837,16 @@ export type Condition = {
 // same class of defect: main.ts named `periapsis:reconcile/emit@0.1.0` for four
 // days after that interface was deleted, and it built and passed its own tests
 // throughout.
+/**
+ * The shared vocabulary. TYPES-ONLY: it declares `obs` and no functions, so
+ * importing it confers nothing.
+ *
+ * It exists so `observe` and `observe-cluster` can return the same three-valued
+ * observation WITHOUT one implying the other - `use observe.{obs}` made every
+ * world importing the cluster read also import the namespaced one, so a program
+ * had to be granted a read it never calls.
+ */
+export const WIT_TYPES = 'periapsis:reconcile/types@0.1.0'
 export const WIT_OBSERVE = 'periapsis:reconcile/observe@0.1.0'
 export const WIT_OBSERVE_CLUSTER = 'periapsis:reconcile/observe-cluster@0.1.0'
 export const WIT_WORKLOADS = 'periapsis:reconcile/workloads@0.1.0'
@@ -844,6 +854,7 @@ export const WIT_STATUS = 'periapsis:reconcile/status@0.1.0'
 
 /** The interfaces this SDK knows. Autocompletion comes from this union. */
 export type KnownWit =
+  | typeof WIT_TYPES
   | typeof WIT_OBSERVE
   | typeof WIT_OBSERVE_CLUSTER
   | typeof WIT_WORKLOADS
