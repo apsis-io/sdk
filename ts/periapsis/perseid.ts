@@ -30,6 +30,8 @@
 // unreadable smaps, a settle check that could not tell drained from
 // never-started). Collapsing the two into `undefined` reintroduces that whole
 // family, so the type will not let you.
+import * as E from './expr'
+
 export type Obs<T> =
   | { readonly t: 'known'; readonly v: T }
   | { readonly t: 'absent' }
@@ -63,30 +65,396 @@ export const unknown: Obs<never> = { t: 'unknown' }
 //
 // It is STILL DATA - a string rather than a closure - which is what the four
 // lines at the top of this section are about, and the reason is unchanged.
-export type Resume = string
+//
+// ═══════════════════════════════════════════════════════════════════════════
+// ***A RESUME MUST BE PURE, AND THAT BECAME A CHECKED PROPERTY ON 2026-08-29
+// RATHER THAN AN OBVIOUS ONE.*** aperture gained types, arity checking and
+// EFFECTS-AS-EXPRESSIONS in the same language: `SetReplicas(path, n)` and
+// `SetCondition(type, status, reason, message)` are now ordinary expressions,
+// not opcodes beside them.
+//
+// One vocabulary for reads and writes is what makes the wake index possible - a
+// park's subject and a write's target are finally comparable - and it means the
+// two are separated by a CHECK rather than by their syntax:
+//
+//	emit position     an effect expression      SetReplicas("/apis/…", 3)
+//	resume position   must be PURE              refused by CheckPure
+//
+// The host evaluates a resume WITHOUT running the step, repeatedly, to decide
+// whether to wake it. An effect there would perform a write on every wake check
+// - a write nobody asked for, on the wake path, for as long as the program
+// stays parked.
+//
+// Every builder below is pure by construction; `internal/aperture`'s
+// TestSDKResumeExpressions_ParseAndTypecheck runs each one's output through the
+// host's own `Parse`/`CheckArity`/`CheckPure`, because the guest builds these
+// strings and cannot evaluate them. That test also carries the negative control:
+// an effect expression IS refused in a resume position, so the checks are not
+// inert.
+// ═══════════════════════════════════════════════════════════════════════════
+export type Resume = E.Expr<'bool'>
+
+// ---------------------------------------------------------------------------
+// THE THREE VOCABULARIES, AND WHY THEY ARE THREE TYPES RATHER THAN THREE
+// COMMENTS ABOUT `string`.
+//
+// engi, 2026-08-29: *"why 'replicasNe takes a name, not a path' - can it detect
+// that it's already normalized? or require and enforce canonical form
+// everywhere?"*
+//
+// A step addresses objects in three different languages, and which one is
+// correct depends on the QUESTION being asked, not on taste:
+//
+//	PATH      /apis/apps/v1/namespaces/default/deployments/api   observe.get, scale
+//	NAME      api                                                Replicas, GetPod
+//	SELECTOR  app=api                                            ListPods / count
+//
+// ***THE ASYMMETRY IS A SECURITY PROPERTY AND NOT AN INCONSISTENCY.*** A NAME
+// cannot name a namespace, so it resolves in the GRANT's namespace and there is
+// nothing to bind wrongly. A PATH can name one, so it must be checked against
+// the grant — a second enforcement point that can disagree with the first.
+// `perseidrun/assemble.go` records making that trade the other way and
+// regretting it: *"strictly weaker — the replacement rests on a DERIVATION
+// staying correct rather than on a capability being absent."*
+//
+// ***SO: DO NOT "DETECT AND NORMALISE".*** Accepting a path in `replicasNe` and
+// converting it would put a forgeable namespace back on the READ side, where
+// today there is nothing to forge. Worse, the detection is a GUESS whose wrong
+// branch fails SILENTLY — and this contract has paid for that guess twice:
+//
+//	observe('replicas')          a NAME where a path goes    unresolvable for 4 days
+//	count('/api/v1/...')         a PATH where a selector goes 239 asks, 119 resolved
+//
+// Both compiled. Both ran. Neither errored: `get` and `count` never throw by
+// contract, `unknown` is a legitimate answer and `yield` a legitimate outcome.
+//
+// ***AND "ONE CANONICAL FORM EVERYWHERE" DOES NOT SURVIVE EITHER, WHICHEVER ONE
+// YOU PICK.*** Paths everywhere costs reads their unforgeability — the property
+// above. Names everywhere makes a cross-namespace write inexpressible, and
+// `spec.writes` exists precisely to authorise those. The vocabularies differ
+// because the questions differ.
+//
+// ***THE ANSWER IS TO MAKE THEM UNCONFUSABLE RATHER THAN IDENTICAL.*** Each is a
+// distinct type below, so passing one where another goes is a COMPILE error —
+// which mechanically prevents both incidents above, neither of which any amount
+// of documentation prevented.
 
 /**
- * Quote a literal for the aperture grammar.
+ * The shape of a namespaced apiserver path: it must contain a `/namespaces/`
+ * segment.
  *
- * *** THE GRAMMAR'S STRING TOKEN IS `"[^"]*"` — THERE ARE NO ESCAPES. *** A
- * value containing a double quote cannot be represented at all, so this REFUSES
- * rather than emitting something that will not parse. A silently-mangled
- * selector would park a program on a condition nobody can satisfy, which is the
- * exact state the whole design exists to make inspectable.
+ * ***DELIBERATELY WEAKER THAN THE HOST'S GRAMMAR, BECAUSE THE STRICTER FORM
+ * SILENTLY LOSES COMPLETION.*** The obvious spelling is the full grammar
+ * `namespacedName` parses — `/api/V/namespaces/NS/KIND/NAME` and
+ * `/apis/G/V/namespaces/NS/KIND/NAME`. Measured at the argument position, with
+ * the cluster vocabulary augmented in:
+ *
+ *	`/api/${s}/namespaces/${s}/${s}/${s}` | `/apis/…`   completions 0   rejects 'replicas'
+ *	`/${string}`                                        completions 2   rejects 'replicas'
+ *	`${string}/namespaces/${string}`                    completions 2   rejects 'replicas'  ← this
+ *
+ * A template literal type in a union can suppress the string literals beside it
+ * for completion purposes. WHY these three differ is NOT established — the
+ * pattern beginning with a placeholder completes and the one beginning with
+ * `/api` does not, but `/${string}` also begins with a literal and completes, so
+ * "starts with a placeholder" is refuted as the rule. Recorded as four
+ * measurements rather than a mechanism.
+ *
+ * ***WHAT IS LOST BY WEAKENING IT IS NOTHING THE HOST DOES NOT ALREADY CATCH.***
+ * `namespacedName` anchors on POSITION and refuses anything else, including
+ * cluster-scoped paths and a group literally named `namespaces`. This type's job
+ * is to separate the three VOCABULARIES — a bare name, a selector and a path —
+ * which is the confusion that has actually cost this contract twice. Requiring
+ * `/namespaces/` rejects `replicas` and `app=api` and accepts every real
+ * namespaced path.
  */
-const lit = (s: string): string => {
-  if (s.includes('"')) {
-    throw new Error(
-      `perseid: a resume literal cannot contain a double quote (got ${JSON.stringify(s)}). ` +
-        'The aperture grammar has no string escapes, so this would produce an expression ' +
-        'that does not parse and a program parked on a condition nobody can satisfy.'
-    )
-  }
-  return `"${s}"`
+export type ApiPathShape = `${string}/namespaces/${string}`
+
+/** The shape of a label selector: at minimum `key=value`. */
+export type LabelSelectorShape = `${string}=${string}`
+
+// ---------------------------------------------------------------------------
+// CLUSTER VOCABULARY — completion from objects that actually exist.
+//
+// engi, 2026-08-29: "can you make autocompletion from real cluster?"
+//
+// These are EMPTY interfaces on purpose. `tools/gen-cluster-vocab.ts` queries a
+// live cluster and emits a declaration-merging augmentation that adds one member
+// per object; `keyof` then yields the union, and it is `never` when nothing has
+// been generated — so the SDK ships with no cluster knowledge baked in and an
+// un-augmented consumer loses completion rather than correctness.
+//
+// ***THIS IS THE ONLY CLUSTER FACT THAT IS SAFE TO COMPLETE FROM, AND THE OTHER
+// TWO WERE MEASURED AND REJECTED.*** A Perseid CR's `spec.capabilities` is
+// AUTHORED, so a typo shipped in a CR would become a suggestion — the
+// self-certifying loop `reconcile.wit` warns about one level up. Its
+// `spec.imports` is the artifact's derived demand: 44 ids for `scaler-v4`, 39 of
+// them `wasi:*` noise. An object that EXISTS is neither — it is a fact about the
+// world rather than a claim about a program.
+export interface KnownWorkloadPaths {}
+export interface KnownWorkloadNames {}
+export interface KnownSelectors {}
+export interface KnownNamespaces {}
+export interface KnownPodNames {}
+
+declare const canonicalOf: unique symbol
+
+/**
+ * A namespaced apiserver path in CANONICAL form — one that was BUILT rather
+ * than typed (engi, 2026-08-29: "make fluent api api path", "and require
+ * canonical form").
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***THE BRAND IS WHAT MAKES IT A REQUIREMENT RATHER THAN A CONVENTION.*** A
+ * bare string literal, however well-formed, is NOT assignable here — it carries
+ * no `[CanonicalPath]` — so `path()` (or the documented escape hatch) is the
+ * only way to obtain one. A comment saying "please use the builder" is advice; a
+ * brand is a compile error.
+ *
+ * ***AND REQUIRING IT DISSOLVES A TENSION THAT COST FOUR MEASUREMENTS.*** While
+ * a path was a validated STRING, completion and validation fought each other:
+ * the full grammar as a template literal type offered ZERO completions, and the
+ * shapes that completed were weaker than the host's parser. With the path
+ * CONSTRUCTED, neither question is asked of the string at all — completion moves
+ * to the builder's ARGUMENTS, where a namespace and an object name are exactly
+ * the things the cluster can enumerate, and correctness comes from the builder
+ * having only one way to assemble the segments.
+ *
+ * The literal is preserved through the brand rather than erased, so the type
+ * still displays as the path it is - useful when a mismatch is being read in an
+ * error message.
+ *
+ * ***`Kind` IS NOT DECORATION — WITHOUT IT THERE IS EXACTLY ONE CANONICAL FORM
+ * IN THE UNIVERSE*** (engi, 2026-08-29: "standalone Canonical is bad, what if we
+ * introduce another canonical form of something").
+ *
+ * A single unbranded `Canonical<S>` marks a string as "built by a builder" and
+ * says nothing about WHICH. The moment a second one exists — a canonical label
+ * selector, a canonical resume expression, a canonical workload reference —
+ * every one of them carries the identical brand, so they are mutually
+ * assignable wherever their string shapes overlap, and a selector could be
+ * passed where a path goes.
+ *
+ * ***AND THE OVERLAP IS NOT HYPOTHETICAL FOR THIS SDK.*** `ApiPathShape` is
+ * `${string}/namespaces/${string}` and `LabelSelectorShape` is
+ * `${string}=${string}` — both are satisfied by
+ * `app=x/namespaces/y`. Two brands that differ only in `Kind` are disjoint;
+ * one brand shared between them would make that string legal in both positions,
+ * which is precisely the vocabulary confusion this whole section exists to
+ * prevent, reintroduced by the mechanism meant to prevent it.
+ *
+ * `Kind` is phantom: it exists only in the type, costs nothing at runtime, and
+ * appears in the error message when the wrong canonical form is passed.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export type Canonical<Kind extends string, S extends string> = S & {
+  readonly [canonicalOf]: Kind
 }
 
-/** Wake when a named pod is readable. */
-export const exists = (name: string): Resume => `GetPod(${lit(name)}).exists`
+/** A namespaced apiserver path, canonical by construction. */
+export type ApiPath = Canonical<'apiserver-path', ApiPathShape>
+
+/**
+ * The shape of a CLUSTER-SCOPED apiserver path.
+ *
+ * The complement of `ApiPathShape`, deliberately: an object is namespaced or it
+ * is not, and a path satisfying both would be one the two read surfaces
+ * disagree about.
+ */
+export type ClusterPathShape = `/api${string}`
+
+/**
+ * A cluster-scoped apiserver path, canonical by construction.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***THE SECOND CANONICAL FORM, AND WHY `Canonical` IS KINDED*** (engi,
+ * 2026-08-29: "standalone Canonical is bad, what if we introduce another
+ * canonical form of something").
+ *
+ * With an unkinded brand this would be the SAME TYPE as `ApiPath`, and the two
+ * would be interchangeable wherever their shapes overlapped. They address
+ * different read surfaces with different authority:
+ *
+ *	ApiPath       observe.get          confined by the grant's NAMESPACE
+ *	ClusterPath   observe-cluster.get  confined by spec.reads, per OBJECT
+ *
+ * Passing one where the other goes routes a read around the confinement chosen
+ * for it. `Kind` makes that a compile error instead of a convention.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export type ClusterPath = Canonical<'cluster-path', ClusterPathShape>
+
+/** A namespace name. Real namespaces complete. */
+export type Namespace = (keyof KnownNamespaces & string) | (string & {})
+
+/** A pod NAME, resolved in the grant's namespace. Never a path. */
+export type PodName = (keyof KnownPodNames & string) | (string & {})
+
+/** A workload NAME, resolved in the grant's namespace. Never a path. */
+export type WorkloadName = (keyof KnownWorkloadNames & string) | (string & {})
+
+/** A label selector. Real selectors complete; any `key=value` is accepted. */
+export type LabelSelector = (keyof KnownSelectors & string) | (LabelSelectorShape & {})
+
+/**
+ * Build a canonical apiserver path.
+ *
+ *     path.ns('default').deployments('api')
+ *     path.ns('default').pods('api-7d9f')
+ *     path.ns('kube-system').resource('apps', 'v1', 'daemonsets', 'kube-proxy')
+ *
+ * ***THE ONLY WAY TO GET AN `ApiPath`, AND THAT IS THE POINT*** (engi,
+ * 2026-08-29: "make fluent api api path", "and require canonical form"). A
+ * hand-typed string is not assignable no matter how correct it looks, so the
+ * segments cannot be mis-ordered, a separator cannot be doubled, and the
+ * `namespaces` segment cannot be forgotten.
+ *
+ * ***THE NAMESPACE IS AN ARGUMENT HERE AND THAT IS NOT A CONTRADICTION.*** The
+ * grant still decides what a program may reach: `spec.writes` gates every
+ * obligation and a read outside the grant returns ABSENT. What this removes is
+ * the class of error where a program meant a legal object and produced a
+ * malformed or differently-shaped string for it — which is the failure that
+ * costs a silent `unknown` forever rather than a refusal.
+ *
+ * Completion comes from the ARGUMENTS rather than the assembled string, which
+ * is why requiring the builder made the vocabulary problem easier instead of
+ * harder: a namespace and an object name are exactly what a cluster can
+ * enumerate, and `tools/gen-cluster-vocab.ts` fills both in.
+ */
+export const path = {
+  /** Scope to a namespace. Real namespaces complete. */
+  ns: <NS extends Namespace>(namespace: NS) => ({
+    /** `/apis/apps/v1/namespaces/NS/deployments/NAME` — what `scale` writes. */
+    deployments: <N extends WorkloadName>(name: N) =>
+      `/apis/apps/v1/namespaces/${namespace}/deployments/${name}` as Canonical<
+        'apiserver-path',
+        `/apis/apps/v1/namespaces/${NS}/deployments/${N}`
+      >,
+
+    /** `/api/v1/namespaces/NS/pods/NAME` — the CORE group, so `/api` not `/apis`. */
+    pods: <N extends PodName>(name: N) =>
+      `/api/v1/namespaces/${namespace}/pods/${name}` as Canonical<
+        'apiserver-path',
+        `/api/v1/namespaces/${NS}/pods/${N}`
+      >,
+
+    /** Any grouped resource: `/apis/GROUP/VERSION/namespaces/NS/KIND/NAME`. */
+    resource: <G extends string, V extends string, K extends string, N extends string>(
+      group: G,
+      version: V,
+      kind: K,
+      name: N,
+    ) =>
+      `/apis/${group}/${version}/namespaces/${namespace}/${kind}/${name}` as Canonical<
+        'apiserver-path',
+        `/apis/${G}/${V}/namespaces/${NS}/${K}/${N}`
+      >,
+
+    /** Any core resource: `/api/VERSION/namespaces/NS/KIND/NAME`. */
+    core: <V extends string, K extends string, N extends string>(version: V, kind: K, name: N) =>
+      `/api/${version}/namespaces/${namespace}/${kind}/${name}` as Canonical<
+        'apiserver-path',
+        `/api/${V}/namespaces/${NS}/${K}/${N}`
+      >,
+  }),
+  /**
+   * A CLUSTER-SCOPED object: `/apis/GROUP/VERSION/RESOURCE/NAME`.
+   *
+   * No namespace, because there is none - which is exactly why reading one needs
+   * `spec.reads` to name it and `observe-cluster` to be imported. `path.ns(...)`
+   * builds the other kind and the two are not interchangeable.
+   */
+  cluster: <G extends string, V extends string, R extends string, N extends string>(
+    group: G,
+    version: V,
+    resource: R,
+    name: N,
+  ) =>
+    `/apis/${group}/${version}/${resource}/${name}` as Canonical<
+      'cluster-path',
+      `/apis/${G}/${V}/${R}/${N}`
+    >,
+
+  /** A cluster-scoped object in the CORE group: `/api/VERSION/RESOURCE/NAME`. */
+  clusterCore: <V extends string, R extends string, N extends string>(
+    version: V,
+    resource: R,
+    name: N,
+  ) =>
+    `/api/${version}/${resource}/${name}` as Canonical<
+      'cluster-path',
+      `/api/${V}/${R}/${N}`
+    >,
+} as const
+
+/**
+ * Adopt a path that only exists at RUNTIME — from config, an env var, an
+ * annotation — after checking it the way the host will.
+ *
+ * ***IT THROWS RATHER THAN RETURNING A RESULT, AND THAT IS DELIBERATE.*** A step
+ * that could handle a malformed path would have to decide what to do about it,
+ * and every available answer is worse than stopping: emitting the obligation
+ * anyway is a write at an unknown target, and skipping it is a program that
+ * looks healthy and reconciles nothing. The builder above covers every path
+ * known at authoring time, so reaching this function at all means the value came
+ * from outside the program.
+ *
+ * The check mirrors `namespacedName` — ANCHORED ON POSITION, not searched for.
+ * That is not a detail: the host's first version scanned for a segment equal to
+ * `namespaces`, which a group literally named `namespaces` can shift. A parse an
+ * attacker can shift is a boundary an attacker can cross, so a laxer check here
+ * would admit strings the host then reads differently.
+ */
+export function unsafeApiPath(candidate: string): ApiPath {
+  const parts = candidate.replace(/^\/+|\/+$/g, '').split('/')
+  const at = parts[0] === 'api' ? 2 : parts[0] === 'apis' ? 3 : -1
+  const ok =
+    at > 0 &&
+    parts[at] === 'namespaces' &&
+    at + 3 < parts.length &&
+    parts[at + 1] !== '' &&
+    parts[at + 2] !== '' &&
+    parts[at + 3] !== ''
+
+  if (!ok) {
+    throw new Error(
+      `unsafeApiPath: ${JSON.stringify(candidate)} is not a namespaced apiserver path. ` +
+        'Expected /api/VERSION/namespaces/NS/KIND/NAME or ' +
+        '/apis/GROUP/VERSION/namespaces/NS/KIND/NAME. The host refuses anything else ' +
+        'rather than treating it as belonging to the grant, so this would observe ' +
+        '`unknown` forever while looking healthy.',
+    )
+  }
+
+  return candidate as ApiPath
+}
+
+/**
+ * Refuses a PATH in a NAME position, as a guard parameter.
+ *
+ * ***A GUARD TUPLE RATHER THAN A CONDITIONAL PARAMETER TYPE, AND THE CHOICE IS
+ * MEASURED — IT IS THE OPPOSITE OF THE ONE `quiesce` MAKES.*** A name position
+ * must do two things at once: OFFER the real workload names, and REFUSE a path.
+ * Three forms, completions and rejection counted separately:
+ *
+ *	name: WorkloadName                    completions 3   path rejected NO
+ *	name: NotAPath<N>  (conditional)      completions 0   path rejected yes
+ *	name: N + this guard                  completions 3   path rejected yes   ← this
+ *
+ * A conditional parameter type is unresolved at the caret, so the language
+ * service offers nothing — the same class of silent completion loss measured on
+ * `Wit`. `quiesce` can afford the conditional because there is no vocabulary to
+ * complete there, only an empty string to refuse; here there is, so the worse
+ * error message is the right trade.
+ */
+export type RefusesAPath<N extends string> = N extends `/${string}`
+  ? [ERROR_a_PATH_was_passed_where_a_NAME_goes_the_grant_supplies_the_namespace: never]
+  : []
+
+export const exists = <N extends PodName>(
+  name: N,
+  ...___: RefusesAPath<N>
+): Resume => E.exists(E.getPod(name))
 
 /**
  * Wake when a named pod is ABSENT.
@@ -98,11 +466,41 @@ export const exists = (name: string): Resume => `GetPod(${lit(name)}).exists`
  * is not "missing" *** — treating it as missing would wake a program to tear
  * something down because the apiserver blipped.
  */
-export const missing = (name: string): Resume => `!GetPod(${lit(name)}).exists`
+export const missing = <N extends PodName>(
+  name: N,
+  ...___: RefusesAPath<N>
+): Resume => E.not(E.exists(E.getPod(name)))
 
 /** Wake when the pods matching a LABEL SELECTOR stop numbering n. */
-export const countNe = (selector: string, n: number): Resume =>
-  `ListPods(${lit(selector)}).length != ${n}`
+export const countNe = (selector: LabelSelector, n: number): Resume =>
+  E.ne(E.length(E.listPods(selector)), n)
+
+/**
+ * Wake when the pods matching a SELECTOR stop numbering what the DEPLOYMENT
+ * asks for.
+ *
+ * ***NEWLY EXPRESSIBLE, AND ONLY BECAUSE aperture GREW A TYPE SYSTEM AND
+ * ARITHMETIC ON 2026-08-29.*** Every other builder here compares an observation
+ * to a LITERAL the guest already knows. This compares two OBSERVATIONS - both
+ * `Int` - which the language could not express while a comparison's right-hand
+ * side had to be a constant.
+ *
+ * It is the wake condition a level-triggered scaler actually wants. `countNe`
+ * needs the guest to supply the desired count, so a park is stale the moment
+ * anyone edits `spec.replicas`; this one re-reads BOTH sides at wake time, so a
+ * spec change to a different number wakes the program rather than leaving it
+ * parked on a target nobody wants any more.
+ *
+ * Verified against the host's own parser and checks by
+ * `TestSDKResumeExpressions_ParseAndTypecheck` in internal/aperture - the guest
+ * builds these and cannot evaluate them, so "aperture accepts this" is a claim
+ * that needs a test rather than a comment.
+ */
+export const countNeReplicas = <N extends WorkloadName>(
+  selector: LabelSelector,
+  workload: N,
+  ...___: RefusesAPath<N>
+): Resume => E.ne(E.length(E.listPods(selector)), E.replicas(workload))
 
 /**
  * Wake when a DEPLOYMENT's desired replica count stops being n.
@@ -124,12 +522,17 @@ export const countNe = (selector: string, n: number): Resume =>
  * grant's namespace and labels still apply: a deployment outside them reads
  * ABSENT, so this wakes on "not there" rather than on a permission error.
  */
-export const replicasNe = (name: string, n: number): Resume =>
-  `Replicas(${lit(name)}) != ${n}`
+export const replicasNe = <N extends WorkloadName>(
+  name: N,
+  n: number,
+  ...___: RefusesAPath<N>
+): Resume => E.ne(E.replicas(name), n)
 
 /** Wake when a DEPLOYMENT is gone — or, until it exists, when it appears. */
-export const workloadMissing = (name: string): Resume =>
-  `!Replicas(${lit(name)}).exists`
+export const workloadMissing = <N extends WorkloadName>(
+  name: N,
+  ...___: RefusesAPath<N>
+): Resume => E.not(E.exists(E.replicas(name)))
 
 /**
  * Wake at an ABSOLUTE deadline, in epoch millis.
@@ -154,7 +557,7 @@ export const workloadMissing = (name: string): Resume =>
 // to remember (radiant-main found this; comet is unaffected because its `now`
 // is a `defineEffect<void, number>` rather than the WIT import).
 export const deadline = (atEpochMillis: number | bigint): Resume =>
-  `Now() >= ${Math.trunc(Number(atEpochMillis))}`
+  E.ge(E.now(), Math.trunc(Number(atEpochMillis)))
 
 /**
  * `deadline`, computed from the guest's clock: wake `ms` from `nowEpochMillis`.
@@ -216,6 +619,23 @@ export const deadlineIn = (ms: number, nowEpochMillis: number | bigint): Resume 
  * Kept as a throwing export rather than deleted so the four call sites still
  * RESOLVE their import and fail with this sentence instead of a module-level
  * "no such export", which says nothing about what to do.
+ *
+ * ⚠ ***aperture GREW ARITHMETIC ON 2026-08-29, SO THE OBVIOUS FIX IS NOW
+ * SPELLABLE AND IS SILENTLY WRONG.*** `Now() + ms` looks like it restores this
+ * builder, and it does not:
+ *
+ *	Now() >= Now() + 60000     parses ✓   arity ✓   pure ✓   ALWAYS FALSE
+ *
+ * Measured against the host's own checks. A resume is re-evaluated on every wake
+ * check, so BOTH sides move together and the right-hand side stays 60 seconds
+ * ahead forever. Nothing errors, nothing logs, and the program is parked on a
+ * condition that cannot become true - which `reconcile.wit` calls *"a program
+ * correctly asleep on a condition nobody will satisfy, indistinguishable from a
+ * program correctly asleep."*
+ *
+ * A delay needs an anchor the expression cannot see. `deadlineIn(ms, now)` takes
+ * the instant from an observation, which is the whole point: the anchor is DATA
+ * the step observed, not a clock the resume reads.
  */
 export const after = (ms: number): Resume => {
   throw new Error(
@@ -283,10 +703,8 @@ export const changed = (ref: string): Resume => {
 
 // `paren`, not `group`: this file already EXPORTS a `group` Step combinator
 // (see below), and a second declaration merges with it rather than shadowing.
-const paren = (r: Resume): string => `(${r})`
-
 /** Wake when ANY sub-condition holds. */
-export const anyOf = (...of: Resume[]): Resume => of.map(paren).join(' || ')
+export const anyOf = (...of: Resume[]): Resume => E.or(...of)
 
 /**
  * Wake when EVERY sub-condition holds.
@@ -296,7 +714,7 @@ export const anyOf = (...of: Resume[]): Resume => of.map(paren).join(' || ')
  * `reconcilehost.hasTimeBound`. If you want a guaranteed wake, put the deadline
  * in an `anyOf`.
  */
-export const allOf = (...of: Resume[]): Resume => of.map(paren).join(' && ')
+export const allOf = (...of: Resume[]): Resume => E.and(...of)
 
 // ---------------------------------------------------------------------------
 // Outcome. `quiesce` REQUIRES a resume expression — there is no way to say "I am
@@ -309,8 +727,49 @@ export type Outcome =
   | { readonly o: 'terminate' }
 
 export const yieldStep: Outcome = { o: 'yield' }
-export const quiesce = (resume: Resume): Outcome => ({ o: 'quiesce', resume })
 export const terminate: Outcome = { o: 'terminate' }
+
+/**
+ * ***AN EMPTY RESUME IS A COMPILE ERROR, NOT A RUNTIME ONE*** (engi,
+ * 2026-08-29: "forbid returning quiesce as func and empty resume").
+ *
+ * `quiesce('')` is a park with no wake condition. The host ALREADY refuses it —
+ * `podstep.go` returns *"step parked with an EMPTY resume"* — so this changes
+ * nothing about whether it works; it changes WHEN you find out, from the first
+ * live pass against radiant to the build. `examples/wasm/perseid-ts/src/hand.ts`
+ * had shipped exactly this call.
+ *
+ * The mechanism is the parameter type, not the doc comment: when `R` infers as
+ * the literal `''` the parameter resolves to `never`, which is uninhabited, so
+ * there is no way to satisfy it deliberately. Any other literal — and any value
+ * merely typed `string` — passes through as itself.
+ *
+ * ***THE CONDITIONAL IS IN THE PARAMETER RATHER THAN A GUARD TUPLE ON PURPOSE:
+ * IT IS THE SAME REFUSAL WITH A USABLE ERROR.*** A rest-parameter guard reports
+ * *"Expected 2 arguments, but got 1"* at the call — a wrong-arity complaint
+ * about a one-argument function, which sends the reader looking for a parameter
+ * that does not exist. This reports *"Argument of type '""' is not assignable to
+ * parameter of type 'never'"* AT THE ARGUMENT. Both refuse; only one points at
+ * the empty string.
+ *
+ * A resume that is only empty at RUNTIME — `quiesce(buildResume())` where the
+ * builder returned '' — cannot be seen by any type, so it throws. That is the
+ * one place in this file where a throw is right: the alternative is a program
+ * that parks forever on a condition nothing can satisfy, which
+ * `reconcile.wit` calls *"a program correctly asleep on a condition nobody will
+ * satisfy, indistinguishable from a program correctly asleep."*
+ */
+export function quiesce<R extends Resume>(resume: R extends '' ? never : R): Outcome {
+  if (resume === '') {
+    throw new Error(
+      'quiesce: empty resume. A park must say what would change its mind - the host ' +
+        'refuses this ("step parked with an EMPTY resume") and a step that ignored ' +
+        'the refusal would wait for a condition nothing can satisfy.',
+    )
+  }
+
+  return { o: 'quiesce', resume }
+}
 
 // ---------------------------------------------------------------------------
 // Conditions — the payload of `periapsis:reconcile/status@0.1.0`.
@@ -362,6 +821,105 @@ export type Condition = {
 }
 
 // ---------------------------------------------------------------------------
+// The WIT interface vocabulary.
+//
+// engi, 2026-08-29: "wit string => auto completion and maybe typed string" -
+// BOTH, and the two turned out to fight each other (see `Wit`). These are the
+// interfaces `wit/reconcile/reconcile.wit` actually declares, so typing the
+// opening quote offers them instead of requiring the id to be recalled and
+// retyped per effect.
+//
+// ***A TYPO HERE IS NOT A COMPILE ERROR ANYWHERE ELSE.*** The id is data: it
+// feeds `tools/derive-wit.ts`, which reads it off the yield type to emit the
+// component's world. A misspelled interface derives a world naming an import no
+// host supplies, and the component then fails to INSTANTIATE — the failure is at
+// link time, far from the string that caused it. This file already records the
+// same class of defect: main.ts named `periapsis:reconcile/emit@0.1.0` for four
+// days after that interface was deleted, and it built and passed its own tests
+// throughout.
+export const WIT_OBSERVE = 'periapsis:reconcile/observe@0.1.0'
+export const WIT_OBSERVE_CLUSTER = 'periapsis:reconcile/observe-cluster@0.1.0'
+export const WIT_WORKLOADS = 'periapsis:reconcile/workloads@0.1.0'
+export const WIT_STATUS = 'periapsis:reconcile/status@0.1.0'
+
+/** The interfaces this SDK knows. Autocompletion comes from this union. */
+export type KnownWit =
+  | typeof WIT_OBSERVE
+  | typeof WIT_OBSERVE_CLUSTER
+  | typeof WIT_WORKLOADS
+  | typeof WIT_STATUS
+
+/**
+ * The SHAPE of a WIT interface id: `namespace:package/interface@major.minor.patch`.
+ *
+ * ***THE ID IS TYPED, NOT MERELY OPEN*** (engi, 2026-08-29: "can you type wit
+ * string, or make a builder"). This is the whole reason it is a template literal
+ * type and not `(string & {})`: that idiom keeps the set open and validates
+ * NOTHING, so `'observe'`, `'periapsis:reconcile/observe'` (no version) and
+ * `'periapsis/reconcile:observe@0.1.0'` (separators swapped) are all accepted.
+ *
+ * ***AND A MALFORMED ID IS INVISIBLE UNTIL LINK TIME.*** It is data: it feeds
+ * `tools/derive-wit.ts`, which reads it off the yield type to emit the world.
+ * A misspelled interface derives a world naming an import no host supplies, and
+ * the component then fails to INSTANTIATE — far from the string that caused it,
+ * with a message about an unsatisfied import rather than a typo. This tree has
+ * already paid for that once: main.ts named `periapsis:reconcile/emit@0.1.0` for
+ * four days after that interface was deleted, and it built and passed its own
+ * tests throughout.
+ *
+ * `${bigint}` rather than `${number}` for the version segments: `${number}`
+ * admits `1e3`, `1.5` and `-1`, which are all valid TypeScript numbers and none
+ * of them a semver component.
+ *
+ * It does not parse WIT — `':/@1.2.3'` satisfies it. It rejects the shapes people
+ * actually mistype, which is a different and achievable goal.
+ */
+export type WitId = `${string}:${string}/${string}@${bigint}.${bigint}.${bigint}`
+
+/**
+ * A WIT interface id: the known ones offered by name, any other one accepted if
+ * it is WELL-FORMED.
+ *
+ * ***THIS IS ONE TYPE SATISFYING TWO ASKS THAT PULL APART***: completion of the
+ * known ids, and a typed string rather than a bare `string`. Getting either
+ * alone is easy and neither is worth much without the other — completion with
+ * no validation accepts `'observe'`; validation with no completion means nobody
+ * discovers the ids in the first place.
+ *
+ * The union also keeps the set OPEN — a Perseid may import a host interface this
+ * SDK has never heard of, and the SDK is not the right place to decide it
+ * cannot. What it may not do is import a malformed one.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***THE `& {}` IS LOAD-BEARING AND THE BARE UNION LOSES COMPLETION ENTIRELY.***
+ * Measured with the TypeScript language service at the argument position, four
+ * forms, completions counted and malformed ids counted separately:
+ *
+ *	KnownWit | (string & {})    completions 3   malformed rejected 0/2
+ *	KnownWit | WitId            completions 0   malformed rejected 2/2
+ *	KnownWit | (WitId & {})     completions 3   malformed rejected 2/2   ← this
+ *
+ * A template literal type in a union SUBSUMES the string literals for
+ * completion purposes, so the obvious `KnownWit | WitId` type-checks perfectly
+ * and silently offers nothing — the ask-1 behaviour disappears while every
+ * assertion about assignability still passes. `& {}` defeats the subsumption
+ * without weakening the constraint.
+ *
+ * ***THIS WAS NOT PREDICTED. It was found by measuring the baseline BEFORE the
+ * change and again after***, which is the only reason the regression was
+ * visible at all: completion is not a property any type test can assert, so
+ * `tsgo --noEmit` is green for all four rows above.
+ *
+ * What IS guarded, as the nearest structural proxy: `Wit` must not collapse to
+ * `string`. Absorption into `string` is exactly what kills completion, and
+ * `_WitHasNotCollapsedToString` in perseid.test.ts fires on it — it is also
+ * what fails for the old `(string & {})` form, since `string` IS assignable to
+ * that.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export type Wit = KnownWit | (WitId & {})
+
+// ---------------------------------------------------------------------------
 // Effects.
 //
 // `wit` is TYPE-ONLY — optional, never assigned, zero runtime cost. It names the
@@ -409,11 +967,143 @@ export type Step<E extends AnyEffect, A = Outcome> = Generator<E, A, any>
  * helper cannot produce that shape.
  */
 export function defineEffect<A, R>() {
-  return <W extends string, Op extends string>(_wit: W, op: Op) =>
+  return <W extends Wit, Op extends string>(_wit: W, op: Op) =>
     function* (args: A): Step<Effect<W, Op, A>, R> {
       return (yield { op, args }) as R
     }
 }
+
+// ---------------------------------------------------------------------------
+// SUGAR FOR EFFECTS (engi, 2026-08-29: "add sugar for effects").
+//
+// `defineEffect` is the general form and stays the general form. What it makes
+// you repeat is the part that is FIXED BY THE CONTRACT: every program that
+// scales writes the same interface id, the same op name and the same argument
+// shape, and each of those is a string or a record it could get wrong on its
+// own. `reconcile` below is that contract, pre-applied.
+//
+// ***THE ARGUMENT SHAPE IS THE PART WORTH CENTRALISING, AND main.ts CARRIES A
+// SIX-LINE COMMENT EXPLAINING IT.*** `scale` takes `{ path, n }` and NOT
+// `{ path, replicas }`: the WIT parameter is `replicas`, but the wire shape is
+// aperture's `SetReplicasArgs`, whose JSON tags are `path` and `n`. Both
+// vocabularies are correct and only one is what the host parses. That is a fact
+// about the seam, so it belongs at the seam rather than in a comment every
+// author has to find — a step written against `{ path, replicas }` type-checks
+// against its own handler and marshals to something radiant cannot read.
+
+/** The wire shape of a `workloads.scale` obligation: aperture's `SetReplicasArgs`. */
+export type ScaleArgs = {
+  readonly path: ApiPath
+  /** The ABSOLUTE replica count, not a delta. JSON tag `n`, not `replicas`. */
+  readonly n: number
+}
+
+/**
+ * The `periapsis:reconcile` contract as ready-made effects.
+ *
+ *     const observe = reconcile.observe<number>()
+ *     const scale   = reconcile.scale()
+ *     const have    = yield* observe(deployment)   // Obs<number>, checked
+ *
+ * Each is a THUNK because the observation's value type is the caller's: `obs`
+ * carries `known(string)` on the wire, and whether a step sees `Obs<string>` or
+ * `Obs<number>` depends on what its handler converts to. Fixing it here would
+ * force a cast at exactly the boundary that exists to prevent one.
+ */
+export const reconcile = {
+  /** `observe.get(path) -> obs`. The path is an apiserver path, not a field name. */
+  observe: <T = string>() => defineEffect<ApiPath, Obs<T>>()(WIT_OBSERVE, 'get'),
+
+  /**
+   * `observe-cluster.get(path) -> obs`. A CLUSTER-SCOPED read.
+   *
+   * Importing this interface is the authority to read cluster-scoped objects at
+   * all; `spec.reads` names WHICH ones, by exact path. A path outside that list
+   * reports `absent` - "not in your world" is correctly indistinguishable from
+   * "not there", and `unknown` would invite a retry that can never succeed.
+   *
+   * The value is the object as JSON rather than a scalar: a cluster-scoped
+   * object has no single number a reconciler maintains, and three scalar reads
+   * would be three round trips whose results could disagree with each other.
+   */
+  observeCluster: <T = string>() =>
+    defineEffect<ClusterPath, Obs<T>>()(WIT_OBSERVE_CLUSTER, 'get'),
+
+  /**
+   * `observe.count(query) -> obs`.
+   *
+   * ***THE QUERY IS A LABEL SELECTOR (`app=api`), NOT A PATH.*** A path fails
+   * `labels.Parse`, so the host answers `unknown` forever and nothing reports
+   * it — `count` never throws by contract. Measured on a live node once
+   * already: 239 asks, 119 resolved.
+   */
+  count: <T = number>() => defineEffect<LabelSelector, Obs<T>>()(WIT_OBSERVE, 'count'),
+
+  /** `observe.now() -> u64`. EPOCH MILLISECONDS, UTC. */
+  now: () => defineEffect<void, number>()(WIT_OBSERVE, 'now'),
+
+  /** `workloads.scale(path, replicas)`. Returns nothing on purpose — see the WIT. */
+  scale: () => defineEffect<ScaleArgs, void>()(WIT_WORKLOADS, 'scale'),
+
+  /** `status.set(condition)`. `type` is an IDENTITY: a second set REPLACES. */
+  report: () => defineEffect<Condition, void>()(WIT_STATUS, 'set'),
+} as const
+
+// ---------------------------------------------------------------------------
+// STEP SUGAR (engi, 2026-08-29: "step syntax sugar, with types").
+//
+// A bare `function* step() { … }` infers its effects correctly and its RETURN
+// TYPE not at all — TypeScript widens it to whatever the arms happen to produce.
+// Writing the annotation by hand costs four lines of type plumbing, which
+// main.ts pays in full:
+//
+//	type ObserveEff = ReturnType<typeof observe> extends Step<infer A, any> ? A : never
+//	type ScaleEff   = ReturnType<typeof scale>   extends Step<infer A, any> ? A : never
+//	type ReportEff  = ReturnType<typeof report>  extends Step<infer A, any> ? A : never
+//	function* step(): Step<ObserveEff | ScaleEff | ReportEff, Outcome> { … }
+//
+// `defineStep` infers the effect union from the yields, exactly as the bare form
+// does, and PINS the return type to `Outcome` — which the bare form cannot,
+// because there is nothing to contextually type it against.
+//
+// ***THAT PIN IS ALSO THE ANSWER TO "FORBID RETURNING QUIESCE AS FUNC".***
+// `return quiesce` — the function, unapplied — is a plausible typo for
+// `return quiesce(…)`, and under a bare generator it is ACCEPTED: the step's
+// return type simply widens to include `(resume: Resume) => Outcome`, nothing
+// errors, and `runStep` hands the host a function. `JSON.stringify` renders a
+// function as `undefined`, so the reply is `{}` — which `podstep.go` reads as an
+// unknown verb and refuses at runtime, one process away from the typo.
+//
+// Under `defineStep` the body is contextually typed as returning `Outcome`, so
+// the unapplied function is a compile error at the `return`. Ask 2 and ask 3 are
+// one mechanism, which is why they are documented together rather than as two
+// features that happen to help each other.
+
+/**
+ * Declare a step: yields are inferred, the return is pinned to `Outcome`.
+ *
+ *     const step = defineStep(function* () {
+ *       const have = yield* observe(path)
+ *       if (have.t !== 'known') return yieldStep
+ *       return quiesce(countNe('app=api', 3))
+ *     })
+ *
+ * It is the identity function at runtime. All of its work is done by the time
+ * the program runs, which is the point.
+ */
+export function defineStep<E extends AnyEffect>(body: () => Step<E, Outcome>): () => Step<E, Outcome> {
+  return body
+}
+
+/**
+ * The effect union of a step — its capability set, as the compiler tracks it.
+ *
+ * This is what `Handler<…>` is written over when a runner wants to name the
+ * handler type rather than pass a literal:
+ *
+ *     const handler: Handler<EffectsOf<typeof step>> = { … }
+ */
+export type EffectsOf<S> = S extends () => Step<infer E, any> ? E : never
 
 // ---------------------------------------------------------------------------
 // The runner.
@@ -425,6 +1115,33 @@ export type Handler<E extends AnyEffect> = {
   readonly [K in Exclude<E['op'], StructuralOp>]: (args: Extract<E, { op: K }>['args']) => unknown
 }
 
+// ⛔ ***`Handler<NoInfer<E>>` TYPES EVERY HANDLER ARGUMENT AS `never`, AND IT
+// COMPILES CLEAN — 2026-08-29, reported by engi as "it types handlers as
+// never".***
+//
+// `NoInfer<E>` is an intrinsic, not an alias: it does NOT reduce to the union it
+// wraps, so `Extract<NoInfer<E>, {op: K}>` matches no member and collapses to
+// `never`. `never['args']` is `never`, so every handler parameter becomes
+// `never` — and `never` is assignable to everything, so nothing errors. The
+// handler still type-checks, `runStep` still runs, and the ONLY symptom is that
+// completion and argument checking are silently gone inside every handler body.
+//
+// Measured, same file, same compiler:
+//
+//	Handler<E>            get: (a: string) => …     ✓
+//	Handler<NoInfer<E>>   get: (a: never)  => …     ✗   no error anywhere
+//
+// ***THE FIX IS TO WRAP THE RESULT, NOT THE INPUT: `NoInfer<Handler<E>>`.***
+// The mapped type is computed over the real union first and NoInfer then blocks
+// inference from the handler position, which is the only thing it was ever there
+// to do — an extra key is still rejected as an excess property rather than
+// widening E. Both arms are pinned by TestHandlerArgsAreNotNever in
+// handler_types_test.ts; a bare `never` cannot be caught by "does it compile",
+// because that is exactly what it does.
+
+/** The handler position for a runner: computed over E, then closed to inference. */
+type HandlerArg<E extends AnyEffect> = NoInfer<Handler<E>>
+
 /**
  * Drive one step to completion against `handler`, which supplies the world.
  *
@@ -435,7 +1152,7 @@ export type Handler<E extends AnyEffect> = {
  */
 export function runStep<E extends AnyEffect, A>(
   step: () => Step<E, A>,
-  handler: Handler<NoInfer<E>>,
+  handler: HandlerArg<E>,
 ): A {
   return driveSync(step(), handler as Record<string, (a: unknown) => unknown>)
 }
@@ -474,7 +1191,7 @@ function driveSync(it: Step<any, any>, handler: Record<string, (a: unknown) => u
  */
 export async function runStepAsync<E extends AnyEffect, A>(
   step: () => Step<E, A>,
-  handler: Handler<NoInfer<E>>,
+  handler: HandlerArg<E>,
 ): Promise<A> {
   return driveAsync(step(), handler as Record<string, (a: unknown) => unknown>)
 }
@@ -534,8 +1251,34 @@ export type SelectEff = {
   readonly wit?: typeof STRUCTURAL
 }
 
-type YieldOf<S> = S extends Step<infer E, any> ? E : never
-type ReturnOf<S> = S extends Step<any, infer R> ? R : never
+/**
+ * The effects a `Step` yields — its capability set, as the compiler tracks it.
+ *
+ * ***EXPORTED FOR THE HANDLER-AS-A-CONSTANT CASE*** (engi, 2026-08-29). An
+ * inline handler literal is contextually typed by `runStep`, so its arguments
+ * are checked and completed. A handler lifted into its own `const` is NOT —
+ * nothing types a free-standing object literal, so every parameter falls back
+ * to implicit `any` and TypeScript reports TS7006/TS7031 under `strict`:
+ *
+ *	const handlers = { get: (what) => … }        // `what` is implicitly any
+ *	runStep(step, handlers)                       // too late - already widened
+ *
+ * The annotation is what recovers it, and this is the type that spells it:
+ *
+ *	const handlers: Handler<YieldOf<ReturnType<typeof step>>> = { get: (what) => … }
+ *	const handlers: Handler<EffectsOf<typeof step>> = { get: (what) => … }   // same, shorter
+ *
+ * ***`EffectsOf` AND `YieldOf` ARE NOT DUPLICATES AND THE DIFFERENCE IS ONE
+ * `ReturnType`.*** `YieldOf` takes a STEP — the generator object; `EffectsOf`
+ * takes the FUNCTION that returns one, which is what you have a `typeof` for.
+ * Both are here because `group`/`select` compose over steps while call sites
+ * name functions, and collapsing them would force a `ReturnType` at whichever
+ * end lost.
+ */
+export type YieldOf<S> = S extends Step<infer E, any> ? E : never
+
+/** What a `Step` returns — `Outcome` for a step, the sub-result inside a `group`. */
+export type ReturnOf<S> = S extends Step<any, infer R> ? R : never
 
 /**
  * Run several sub-steps and collect ALL results, positionally typed.
