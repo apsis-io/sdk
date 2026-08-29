@@ -122,16 +122,28 @@ export function runtimeGuards(): void {
     'setCondition',
   )
 
-  // The grammar has no string escapes, so a quote must REFUSE rather than emit
-  // something that will not parse.
-  let threw = ''
-  try {
-    getPod('we"b')
-  } catch (e) {
-    threw = String(e)
+  // ⭐ ***A QUOTE ROUND-TRIPS NOW; IT USED TO REFUSE.*** The grammar's token was
+  // `"[^"]*"`, so a value containing a quote was unrepresentable and `lit`
+  // refused rather than emit something that would not parse. The token accepts
+  // JSON escapes now, so the value is representable and is escaped instead.
+  //
+  // ***THE ASSERTION IS THE ESCAPED TEXT, NOT "IT DID NOT THROW".*** A `lit`
+  // that silently dropped the quote would also not throw, and would produce an
+  // expression that parses and means something else - which is worse than the
+  // refusal it replaced.
+  const quoted = String(setCondition('Ready', 'False', 'NotBound', 'policy "x" is absent'))
+  const want =
+    'SetCondition("Ready", "False", "NotBound", "policy \\"x\\" is absent")'
+  if (quoted !== want) {
+    throw new Error(`a quoted message was not escaped as the grammar expects:\n  got  ${quoted}\n  want ${want}`)
   }
-  if (!threw.includes('double quote')) {
-    throw new Error(`a quoted literal did not refuse; got: ${threw || '(no throw)'}`)
+
+  // And the host must be able to read it back. internal/aperture decodes with
+  // encoding/json, which is the same dialect JSON.stringify emits - that pairing
+  // is what makes this safe, and TestSDKResumeExpressions pins it from the Go
+  // side against this exact shape.
+  if (!quoted.includes('\\"x\\"')) {
+    throw new Error(`the escape is not JSON-shaped, so the Go decoder will not match it: ${quoted}`)
   }
 
   console.log('expr.test.ts: runtime guards pass')

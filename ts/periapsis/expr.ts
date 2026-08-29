@@ -84,21 +84,28 @@ const mk = <T extends ApType>(text: string): Expr<T> => text as Expr<T>
 /**
  * Quote a string literal for the grammar.
  *
- * *** THE GRAMMAR'S STRING TOKEN IS `"[^"]*"` - THERE ARE NO ESCAPES. *** A value
- * containing a double quote cannot be represented at all, so this REFUSES rather
- * than emitting something that will not parse. A silently-mangled selector would
- * park a program on a condition nobody can satisfy.
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***THIS REFUSED A DOUBLE QUOTE UNTIL 2026-08-29, AND THE REFUSAL WAS RIGHT
+ * ABOUT A LANGUAGE THAT HAS SINCE CHANGED.*** The grammar's string token was
+ * `"[^"]*"` - no escapes - so a value containing a quote could not be
+ * represented, and emitting one would have produced an expression that does not
+ * parse. Refusing was the correct response to that.
+ *
+ * The token now accepts JSON escapes, so the value IS representable and this
+ * escapes rather than refuses. `JSON.stringify` is exactly the right tool: the
+ * grammar decodes with `encoding/json` on the host side, so producer and
+ * consumer are the same dialect by construction rather than by agreement.
+ *
+ * ***WHY THE LIMIT MATTERED ENOUGH TO CHANGE THE LANGUAGE.*** `cmd/trail`
+ * rendered a condition's message with JSON escaping and aperture could not parse
+ * it, so the write boundary refused the obligation - silently, because an action
+ * returns nothing to the guest by contract. Every condition apogeos' governance
+ * monitor declared quoted a policy name, so every one was dropped for hours with
+ * no error on either side.
+ * ═══════════════════════════════════════════════════════════════════════════
  */
 function lit(s: string): string {
-  if (s.includes('"')) {
-    throw new Error(
-      `aperture: a string literal cannot contain a double quote (got ${JSON.stringify(s)}). ` +
-        'The grammar has no string escapes, so this would produce an expression that does ' +
-        'not parse and a program parked on a condition nobody can satisfy.',
-    )
-  }
-
-  return `"${s}"`
+  return JSON.stringify(s)
 }
 
 const intText = (v: IntLike): string => (typeof v === 'number' ? String(Math.trunc(v)) : v)
