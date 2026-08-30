@@ -360,6 +360,52 @@ function valueText(v: EnsureValue): string {
 }
 
 /**
+ * A structured value: an object body for {@link create}.
+ *
+ * Values are scalars, `computed(...)` expressions, or nested `StructValue`s.
+ */
+export type StructValue = { [k: string]: EnsureValue | StructValue }
+
+const isStruct = (v: EnsureValue | StructValue): v is StructValue =>
+  typeof v === 'object' && v !== null && !(computedOf in (v as object))
+
+/**
+ * Render a structured value with SORTED keys.
+ *
+ * ***THE SORT IS THE OBLIGATION'S IDENTITY, NOT TIDINESS.*** `Effect.Expr` IS
+ * the identity - the host's ledger dedups on it and retires by
+ * non-reassertion - so two passes building the same body must produce
+ * byte-identical strings. JS object key order is insertion order, so a body
+ * assembled by different code paths would otherwise render differently and the
+ * ledger would see a new obligation every pass, re-applying a create it had
+ * already performed, forever, with nothing erroring.
+ */
+const structText = (v: StructValue): string => {
+  const parts = Object.keys(v)
+    .sort()
+    .map((k) => {
+      const inner = v[k]
+
+      return `${lit(k)}: ${isStruct(inner) ? structText(inner) : valueText(inner)}`
+    })
+
+  return `{${parts.join(', ')}}`
+}
+
+/**
+ * `Create(path, body) -> effect`. Bring an object into existence.
+ *
+ * ***THE PATH IS THE IDENTITY; THE BODY IS EVERYTHING ELSE.*** A canonical path
+ * already carries group, version, resource, namespace and name, so the body
+ * holds `spec`, labels and the like. A body setting `apiVersion`, `kind`,
+ * `metadata.name` or `metadata.namespace` is REFUSED by the host: the path is
+ * the string `spec.writes` was checked against, and a body that could name a
+ * different object would put it outside the approved address.
+ */
+export const create = (path: ApiPath, body: StructValue): Expr<'effect'> =>
+  mk(`Create(${lit(path)}, ${structText(body)})`)
+
+/**
  * `Delete(path) -> effect`. Remove the object a path names.
  *
  * ***THE ONLY IRREVERSIBLE VERB IN THIS LANGUAGE.*** Everything else converges

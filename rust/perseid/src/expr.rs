@@ -442,6 +442,68 @@ pub fn ensure(path: &crate::path::ApiPath, field: &str, value: impl EnsureValue)
     ))
 }
 
+/// `Create(path, body) -> effect`. Bring an object into existence.
+///
+/// **THE PATH IS THE IDENTITY; THE BODY IS EVERYTHING ELSE.** A canonical path
+/// already carries group, version, resource, namespace and name - every field
+/// of a new object's identity - so the body holds `spec`, labels and the like.
+/// A body that sets `apiVersion`, `kind`, `metadata.name` or
+/// `metadata.namespace` is REFUSED by the host: the path is the string
+/// `spec.writes` was checked against, and a body that could name a different
+/// object would put it outside the address that was approved.
+///
+/// **KEYS RENDER SORTED.** The obligation's identity IS its expression text, so
+/// two passes building the same body must produce byte-identical strings or the
+/// ledger sees a new obligation every pass and re-applies it forever.
+#[must_use]
+pub fn create(path: &crate::path::ApiPath, body: &Struct) -> Expr<Effect> {
+    Expr::new(format!("Create({}, {})", lit(path.as_str()), body.render()))
+}
+
+/// A structured value: an object body for [`create`].
+///
+/// **A BUILDER RATHER THAN A MAP LITERAL, SO THE RENDERING IS CANONICAL BY
+/// CONSTRUCTION.** Keys are sorted when rendered, not when inserted, so the
+/// caller can build in any order and still get one string.
+#[derive(Debug, Clone, Default)]
+pub struct Struct {
+    fields: std::collections::BTreeMap<String, String>,
+}
+
+impl Struct {
+    /// An empty body.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set a field to a scalar or a computed expression - the same
+    /// [`EnsureValue`] split `ensure` uses, and for the same reason: a `&str`
+    /// is a literal to quote, an `Expr` is text to emit bare.
+    #[must_use]
+    pub fn set(mut self, key: &str, value: impl EnsureValue) -> Self {
+        self.fields.insert(key.to_string(), value.value_text());
+        self
+    }
+
+    /// Nest another structured value.
+    #[must_use]
+    pub fn nest(mut self, key: &str, inner: &Struct) -> Self {
+        self.fields.insert(key.to_string(), inner.render());
+        self
+    }
+
+    fn render(&self) -> String {
+        let inner: Vec<String> = self
+            .fields
+            .iter()
+            .map(|(k, v)| format!("{}: {}", lit(k), v))
+            .collect();
+
+        format!("{{{}}}", inner.join(", "))
+    }
+}
+
 /// `Delete(path) -> effect`. Remove the object a path names.
 ///
 /// **THE ONLY IRREVERSIBLE VERB IN THIS LANGUAGE.** Everything else converges
