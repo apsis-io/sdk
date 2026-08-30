@@ -9,7 +9,7 @@
 //!
 //! # The type is the safety property
 //!
-//! [`Resume`] is `Expr<Bool>`, so an effect - `set_replicas(..)`, an ordinary
+//! [`Resume`] is `Expr<Bool>`, so an effect - `ensure(..)`, an ordinary
 //! expression in the same language - is a compile error in a wake condition.
 //! That is the host's `CheckPure` rule, moved to the build.
 
@@ -19,53 +19,53 @@ use crate::path::ApiPath;
 /// A wake condition.
 pub type Resume = Expr<Bool>;
 
-/// Wake when a pod EXISTS - or, if it does, when it stops existing.
+/// Wake when an object EXISTS - or, if it does, when it stops existing.
+///
+/// Any kind: the path says which. `Get`'s field is `metadata.name`, which every
+/// object has and which is therefore ABSENT exactly when the object is.
 #[must_use]
-pub fn pod_exists(name: &str) -> Resume {
-    e::exists(&e::get_pod(name))
+pub fn object_exists(path: &ApiPath) -> Resume {
+    e::exists(&e::get(path, "metadata.name"))
 }
 
-/// Wake when a pod is GONE.
+/// Wake when an object is GONE.
 #[must_use]
-pub fn pod_gone(name: &str) -> Resume {
-    e::not(&e::exists(&e::get_pod(name)))
+pub fn object_gone(path: &ApiPath) -> Resume {
+    e::not(&e::exists(&e::get(path, "metadata.name")))
 }
 
 /// Wake when the number of pods matching a selector stops being `n`.
 ///
-/// Prefer [`replicas_ne`] for a scaler: a pod census is a lagging, flapping
-/// proxy for the field a scaler reconciles toward. It passes through values
-/// nobody set during a rollout, a crashlooping pod moves it without any spec
-/// change, and a spec change to the SAME count is invisible to it.
+/// Prefer [`field_ne`] on the field a scaler maintains: a pod census is a
+/// lagging, flapping proxy for it. It passes through values nobody set during a
+/// rollout, a crashlooping pod moves it without any spec change, and a spec
+/// change to the SAME count is invisible to it.
 #[must_use]
 pub fn count_ne(selector: &str, n: i64) -> Resume {
     e::ne(e::length(&e::list_pods(selector)), n)
 }
 
-/// Wake when the pod census stops matching the DESIRED replica count.
+/// Wake when the pod census stops matching a workload's desired replica count.
 ///
 /// Both sides are observations rather than one being a literal the guest already
 /// knew - a shape that only became expressible once aperture grew types and
 /// arithmetic, because the right-hand side is not a constant.
 #[must_use]
-pub fn count_ne_replicas(selector: &str, workload: &str) -> Resume {
-    e::ne(e::length(&e::list_pods(selector)), e::replicas(workload))
+pub fn count_ne_field(selector: &str, workload: &ApiPath) -> Resume {
+    e::ne(
+        e::length(&e::list_pods(selector)),
+        e::get(workload, "spec.replicas"),
+    )
 }
 
-/// Wake when a deployment's desired replica count stops being `n`.
+/// Wake when a field of an object stops being `n`.
 ///
-/// `Replicas` reads `spec.replicas` - the desired count, the field a scaler
-/// writes. Parking on the field you maintain is what makes a level-triggered
-/// program level-triggered.
+/// **PARK ON THE FIELD YOU MAINTAIN.** `spec.replicas` is the field a scaler
+/// writes, and parking on it is what makes a level-triggered program
+/// level-triggered - it wakes on a spec change nobody's pods have reflected yet.
 #[must_use]
-pub fn replicas_ne(name: &str, n: i64) -> Resume {
-    e::ne(e::replicas(name), n)
-}
-
-/// Wake when a deployment is gone - or, until it exists, when it appears.
-#[must_use]
-pub fn workload_missing(name: &str) -> Resume {
-    e::not(&e::exists(&e::replicas(name)))
+pub fn field_ne(path: &ApiPath, field: &str, n: i64) -> Resume {
+    e::ne(e::get(path, field), n)
 }
 
 /// Wake at an ABSOLUTE deadline, in epoch milliseconds.
@@ -198,7 +198,16 @@ pub fn workload_of(observed: &ApiPath) -> Result<&str, NotDerivable> {
 ///
 /// [`NotDerivable`] if the observed path does not address a deployment.
 pub fn until_drift(observed: &ApiPath, seen: i64) -> Result<Resume, NotDerivable> {
-    Ok(replicas_ne(workload_of(observed)?, seen))
+    // ***THE NAME IS DISCARDED AND THAT IS THE POINT.*** `workload_of` exists to
+    // pull a NAME out of a path, because `Replicas` took a bare name and a park
+    // therefore had to be re-addressed in a second vocabulary. `Get` takes the
+    // path, so the round trip is gone - what is left of that function here is
+    // its VALIDATION, which still matters: it refuses a path that does not
+    // address a deployment, and refuses a subresource (`.../scale`), which is a
+    // different object than the one this parks on.
+    workload_of(observed)?;
+
+    Ok(field_ne(observed, "spec.replicas", seen))
 }
 
 #[cfg(test)]
@@ -206,26 +215,35 @@ mod tests {
     use super::*;
     use crate::path;
 
+    const DEP: &str = "/apis/apps/v1/namespaces/default/deployments/api";
+
     #[test]
     fn builders_emit_what_aperture_parses() {
-        assert_eq!(pod_exists("web").as_str(), r#"GetPod("web").exists"#);
-        assert_eq!(pod_gone("web").as_str(), r#"!GetPod("web").exists"#);
+        let d = path::ns("default").deployments("api");
+        let pod = path::ns("default").pods("web");
+        assert_eq!(
+            object_exists(&pod).as_str(),
+            r#"Get("/api/v1/namespaces/default/pods/web", "metadata.name").exists"#
+        );
+        assert_eq!(
+            object_gone(&pod).as_str(),
+            r#"!Get("/api/v1/namespaces/default/pods/web", "metadata.name").exists"#
+        );
         assert_eq!(
             count_ne("app=api", 3).as_str(),
             r#"ListPods("app=api").length != 3"#
         );
-        assert_eq!(replicas_ne("api", 3).as_str(), r#"Replicas("api") != 3"#);
         assert_eq!(
-            workload_missing("api").as_str(),
-            r#"!Replicas("api").exists"#
+            field_ne(&d, "spec.replicas", 3).as_str(),
+            format!(r#"Get("{DEP}", "spec.replicas") != 3"#)
         );
         assert_eq!(
             deadline(1_788_011_630_089).as_str(),
             "Now() >= 1788011630089"
         );
         assert_eq!(
-            count_ne_replicas("app=api", "api").as_str(),
-            r#"ListPods("app=api").length != Replicas("api")"#
+            count_ne_field("app=api", &d).as_str(),
+            format!(r#"ListPods("app=api").length != Get("{DEP}", "spec.replicas")"#)
         );
     }
 
@@ -247,13 +265,30 @@ mod tests {
         let pods = path::ns("default").pods("api-7d9f");
         let err = workload_of(&pods).unwrap_err();
         assert!(err.to_string().contains("not a deployment path"), "{err}");
-        assert!(err.to_string().contains("pod_exists"), "{err}");
 
-        // A SUBRESOURCE addresses a different object than Replicas reads.
+        // A SUBRESOURCE addresses a different object than the parent.
         let scale = path::ns("default").resource("apps", "v1", "deployments", "api/scale");
         assert!(
             workload_of(&scale).is_err(),
             "a subresource path was accepted as its parent"
+        );
+    }
+
+    // ***THE VALIDATION SURVIVED THE COLLAPSE, WHICH IS WORTH ITS OWN ARM.***
+    // `until_drift` no longer USES the name `workload_of` returns - it parks on
+    // the path directly - so the refusal is now reachable only through the call
+    // whose result is discarded. A reader deleting that call as dead would
+    // silently start accepting a pods path and emit a resume on `spec.replicas`
+    // of a pod, which is absent forever: a program that never wakes.
+    #[test]
+    fn until_drift_still_refuses_a_path_that_is_not_a_deployment() {
+        assert!(until_drift(&path::ns("default").pods("api-7d9f"), 2).is_err());
+        assert!(
+            until_drift(
+                &path::ns("default").resource("apps", "v1", "deployments", "api/scale"),
+                2
+            )
+            .is_err()
         );
     }
 
@@ -263,10 +298,10 @@ mod tests {
     #[test]
     fn until_drift_emits_exactly_what_the_hand_written_resume_emitted() {
         let d = path::ns("default").deployments("api");
-        assert_eq!(until_drift(&d, 2).unwrap(), replicas_ne("api", 2));
+        assert_eq!(until_drift(&d, 2).unwrap(), field_ne(&d, "spec.replicas", 2));
         assert_eq!(
             until_drift(&d, 2).unwrap().as_str(),
-            r#"Replicas("api") != 2"#
+            format!(r#"Get("{DEP}", "spec.replicas") != 2"#)
         );
     }
 
@@ -275,7 +310,8 @@ mod tests {
     // one of them.
     #[test]
     fn until_drift_follows_the_path_when_the_path_changes() {
-        let before = until_drift(&path::ns("default").deployments("api"), 2).unwrap();
+        let d = path::ns("default").deployments("api");
+        let before = until_drift(&d, 2).unwrap();
         let after = until_drift(&path::ns("default").deployments("api-v2"), 2).unwrap();
 
         assert_ne!(before, after);
@@ -284,7 +320,7 @@ mod tests {
         // The control showing the OLD shape really was broken: a resume written
         // against a stale name is UNCHANGED by the path moving, which is what
         // made the defect invisible.
-        let hand_written = replicas_ne("api", 2);
+        let hand_written = field_ne(&d, "spec.replicas", 2);
         assert_eq!(hand_written, before);
         assert_ne!(hand_written, after);
     }
@@ -292,13 +328,12 @@ mod tests {
     #[test]
     fn a_derived_resume_composes_with_explicit_clauses() {
         let d = path::ns("default").deployments("api");
-        let composed = any_of(&[
-            until_drift(&d, 2).unwrap(),
-            count_ne_replicas("app=api", workload_of(&d).unwrap()),
-        ]);
+        let composed = any_of(&[until_drift(&d, 2).unwrap(), count_ne_field("app=api", &d)]);
         assert_eq!(
             composed.as_str(),
-            r#"(Replicas("api") != 2) || (ListPods("app=api").length != Replicas("api"))"#
+            format!(
+                r#"(Get("{DEP}", "spec.replicas") != 2) || (ListPods("app=api").length != Get("{DEP}", "spec.replicas"))"#
+            )
         );
     }
 }

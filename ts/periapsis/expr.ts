@@ -62,10 +62,8 @@ export type ApType =
   | 'int'
   | 'observed-int'
   | 'string'
-  | 'pod'
   | 'pods'
-  | 'workload'
-  | 'object'
+  | 'value'
   | 'effect'
 
 /**
@@ -82,15 +80,22 @@ export type ApType =
  */
 export type Expr<T extends ApType> = string & { readonly [exprOf]: T }
 
-/** Anything usable where an integer goes: a literal, a clock read, an observation. */
-export type IntLike = Expr<'int'> | Expr<'observed-int'> | number
+/**
+ * Anything usable where an integer goes: a literal, a clock read, an observation.
+ *
+ * `value` is here because `Get` is the only way to read a number off an object
+ * now, so excluding it would leave arithmetic and comparison with nothing to
+ * consume. It is a WIDENING of what the type system checks - a `value` may hold
+ * a string - and the host is three-valued rather than typed at that point, so a
+ * comparison against a non-number yields UNKNOWN rather than an error. That is
+ * the same latitude `observed-int` always had; what is lost is the SDK's
+ * ability to reject `get(cfg, 'data.mode') > 3` statically, which is the price
+ * of one symbol reading every kind.
+ */
+export type IntLike = Expr<'int'> | Expr<'observed-int'> | Expr<'value'> | number
 
 /** Anything `.exists` can be asked of - i.e. anything actually OBSERVED. */
-export type Observed =
-  | Expr<'pod'>
-  | Expr<'observed-int'>
-  | Expr<'workload'>
-  | Expr<'object'>
+export type Observed = Expr<'observed-int'> | Expr<'value'>
 
 const mk = <T extends ApType>(text: string): Expr<T> => text as Expr<T>
 
@@ -126,16 +131,43 @@ const intText = (v: IntLike): string => (typeof v === 'number' ? String(Math.tru
 // ---------------------------------------------------------------------------
 // Symbols. One per entry in aperture's `signatures` table.
 
-/** `GetPod(name) -> pod`. A NAME, resolved in the grant's namespace. */
-export const getPod = (name: PodName): Expr<'pod'> => mk(`GetPod(${lit(name)})`)
-
 /** `ListPods(selector) -> pods`. A LABEL SELECTOR, never a path. */
 export const listPods = (selector: LabelSelector): Expr<'pods'> =>
   mk(`ListPods(${lit(selector)})`)
 
-/** `Replicas(name) -> int`, and OBSERVED, so `exists()` may be asked of it. */
-export const replicas = (name: WorkloadName): Expr<'observed-int'> =>
-  mk(`Replicas(${lit(name)})`)
+/**
+ * `Get(path, field) -> value`. THE READ, for every kind.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * engi, 2026-08-30: *"write generalized read - deprecate specialized reads
+ * (GetConfigMap, ...)"*.
+ *
+ *     get(deployment('default', 'api'), 'status.readyReplicas')
+ *     get(configMap('default', 'cfg'), 'data.mode')
+ *
+ * It replaced `getPod`, `replicas`, `getDeployment`, `getStatefulSet`,
+ * `getDaemonSet`, `getReplicaSet`, `getConfigMap` and `getSecret` - eight
+ * constructors that differed only in the kind they named and the two fields they
+ * exposed. A ninth kind was a ninth round of capability + signature + dispatch +
+ * read surface + an entry in BOTH SDKs. The path already says the kind.
+ *
+ * ***THE AUTHORITY DID NOT COLLAPSE WITH THE SYMBOL.*** `Get` is conferred by
+ * every read capability, and the host checks the PATH'S KIND against the granted
+ * set at evaluation - so holding `pods:read` makes this resolvable and lets it
+ * read pods, and does not let it read a Secret. In particular `secrets:read` is
+ * still absent from the host's fixed resume capability set, so a Get naming a
+ * Secret does not resolve in a WAKE CONDITION and cannot publish a claim about a
+ * secret's value into `status.waitingFor`. Read secrets in a STEP.
+ *
+ * ***A FIELD, NEVER THE OBJECT.*** The host narrows to the single field named
+ * here before the language sees anything, so there is no pod template or
+ * annotation map to reach. A missing field is ABSENT rather than unknown - the
+ * object was read, the field genuinely is not there - so `.exists` on an
+ * optional field is a real question rather than a frozen program.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export const get = (path: ApiPath, field: string): Expr<'value'> =>
+  mk(`Get(${lit(path)}, ${lit(field)})`)
 
 /**
  * `Now() -> int`. EPOCH MILLISECONDS, UTC.
@@ -156,94 +188,24 @@ export const exists = (o: Observed): Expr<'bool'> => mk(`${o}.exists`)
 export const length = (p: Expr<'pods'>): Expr<'int'> => mk(`${p}.length`)
 
 // ---------------------------------------------------------------------------
-// NATIVE KUBERNETES CONTROLLERS AND OBJECTS.
+// ⛔ EIGHT PER-KIND CONSTRUCTORS WERE HERE AND ARE DELETED, 2026-08-30.
 //
-// One constructor per kind, because aperture types one SYMBOL per kind - and it
-// does that because `Addresses.Kind` is static and the wake index reads it. A
-// `get('statefulsets', name)` here would be shorter and would emit an expression
-// the host cannot index, so a parked program would silently fall back to polling.
+// `getPod`, `replicas`, `getDeployment`, `getStatefulSet`, `getDaemonSet`,
+// `getReplicaSet`, `getConfigMap`, `getSecret` - and the `desired`, `ready` and
+// `data` properties that only they produced. `get(path, field)` is all of them.
 //
-// ***A CONTROLLER REDUCES TO TWO NUMBERS BEFORE THE LANGUAGE SEES IT*** - the
-// host narrows at the read surface, so there is no pod template, selector or
-// annotation to reach. The gap between `desired` and `ready` is the only
-// question worth asking about a controller, and it is the whole surface.
-
-/** `GetDeployment(name) -> workload`. Adds `.ready`, which `replicas` lacks. */
-export const getDeployment = (name: WorkloadName): Expr<'workload'> =>
-  mk(`GetDeployment(${lit(name)})`)
-
-/** `GetStatefulSet(name) -> workload`. */
-export const getStatefulSet = (name: WorkloadName): Expr<'workload'> =>
-  mk(`GetStatefulSet(${lit(name)})`)
-
-/**
- * `GetDaemonSet(name) -> workload`.
- *
- * Its `desired` is `desiredNumberScheduled` - a function of which NODES match,
- * not a number anybody set. Observe against it; reconciling toward it is a
- * category error.
- */
-export const getDaemonSet = (name: WorkloadName): Expr<'workload'> =>
-  mk(`GetDaemonSet(${lit(name)})`)
-
-/**
- * `GetReplicaSet(name) -> workload`.
- *
- * Usually owned by a Deployment, so writing to one fights the controller that
- * will overwrite it. There is no effect symbol addressing replicasets.
- */
-export const getReplicaSet = (name: WorkloadName): Expr<'workload'> =>
-  mk(`GetReplicaSet(${lit(name)})`)
-
-/** `GetConfigMap(name) -> object`. `.exists`, and `data(o, key)`. */
-export const getConfigMap = (name: string): Expr<'object'> =>
-  mk(`GetConfigMap(${lit(name)})`)
-
-/**
- * `GetSecret(name) -> object`. `.exists`, and `data(o, key)`.
- *
- * ***USABLE IN A STEP, REFUSED IN A RESUME, AND THAT IS ENFORCED RATHER THAN
- * ADVISED.*** The host evaluates a wake condition WITHOUT running the step, so
- * it cannot consult the guest's `spec.capabilities` and instead uses a fixed
- * capability set (`reconcilehost.resumeCaps`). `secrets:read` is deliberately
- * not in it, so `GetSecret(...)` does not RESOLVE in a resume at all.
- *
- * That is what closes the leak this would otherwise be: a resume is rendered
- * into `status.waitingFor`, which anyone with `get perseid` can read, so parking
- * on a secret's value would publish a claim about it and let an observer narrow
- * the value by watching when the program woke.
- *
- * So: read a Secret in the STEP, where your own `spec.capabilities` gates the
- * call and radiant's RBAC gates it again. To WAIT for one, park on something you
- * may observe - the workload that consumes it - or on a deadline.
- */
-export const getSecret = (name: string): Expr<'object'> => mk(`GetSecret(${lit(name)})`)
-
-/**
- * `.replicas` - what somebody ASKED FOR.
- *
- * Named `desired` here because `replicas` is already the SYMBOL that reads a
- * deployment's count directly; the emitted property is `.replicas` either way.
- */
-export const desired = (w: Expr<'workload'>): Expr<'observed-int'> => mk(`${w}.replicas`)
-
-/** `.ready` - what the controller reports is actually serving. */
-export const ready = (w: Expr<'workload'>): Expr<'observed-int'> => mk(`${w}.ready`)
-
-/**
- * `.data["key"]` on a ConfigMap or Secret.
- *
- * A SUBSCRIPT AND NEVER A BARE `.data`, because naming the map would hand over
- * every key. The key is a string LITERAL in the grammar, so the readable key set
- * stays knowable at parse time and nobody can make an expression resolve
- * differently by adding a key.
- *
- * Yields a three-valued observation, not a string: "no such key" and "the key
- * holds the empty string" are different facts, and for a Secret they call for
- * opposite actions.
- */
-export const data = (o: Expr<'object'>, key: string): Expr<'string'> =>
-  mk(`${o}.data[${lit(key)}]`)
+// ***THE COMMENT THAT USED TO SIT HERE ARGUED THEY WERE NECESSARY, AND IT WAS
+// WRONG ON THE MECHANISM.*** It said a generic `get('statefulsets', name)`
+// "would emit an expression the host cannot index, so a parked program would
+// silently fall back to polling" - because `Addresses.Kind` is static per
+// symbol. That is true of a KIND-plus-NAME spelling and false of the one that
+// shipped: a full path carries namespace, kind and name, so `Addressing.ByPath`
+// indexes it exactly, and MORE precisely than the old form did - a bare name had
+// to borrow its namespace from the grant.
+//
+// Recorded rather than deleted because the argument was load-bearing for months
+// and reads as sound; what it got wrong was assuming the generic form had to be
+// (kind, name).
 
 // ---------------------------------------------------------------------------
 // Comparison. Both operands must be integers - which is the rule the host does
@@ -309,36 +271,93 @@ export const and = (...bs: Expr<'bool'>[]): Expr<'bool'> => mk(bs.map(paren).joi
 // a compile error here rather than a host-side refusal the guest cannot see.
 
 /**
- * `SetReplicas(path, n) -> effect`. The path is CANONICAL - built, not typed.
+ * `Ensure(path, field, value) -> effect`. THE WRITE, for every kind.
  *
- * The replica count may be an EXPRESSION, which is what arithmetic bought:
- * `setReplicas(p, plus(length(listPods('app=x')), 2))` is legal, and the host
- * evaluates the argument at emit time so the stored obligation carries the
- * resulting literal. A step's conclusion is fixed when it declares it.
- */
-export const setReplicas = (path: ApiPath, n: IntLike): Expr<'effect'> =>
-  mk(`SetReplicas(${lit(path)}, ${intText(n)})`)
-
-/**
- * `Ensure(path, field, value) -> effect`. Sets ONE key on a ConfigMap.
+ * ═══════════════════════════════════════════════════════════════════════════
+ * The mirror of `get`, and it replaced `setReplicas` (engi, 2026-08-30:
+ * *"deprecate specialized writes"*).
  *
- * ***THE DECLARATION IS THE OBJECT.*** `spec.writes` names the ConfigMap and
- * that is complete access to it - which key you write is not a second grant:
+ *     ensure(deployment('default', 'api'), 'spec.replicas', 3)
+ *     ensure(configMap('default', 'cfg'), 'data.mode', 'fast')
+ *
+ * The value may be an EXPRESSION, which is what arithmetic bought:
+ * `ensure(p, 'spec.replicas', plus(length(listPods('app=x')), 2))` is legal, and
+ * the host evaluates the argument at emit time so the stored obligation carries
+ * the resulting literal. A step's conclusion is fixed when it declares it.
+ *
+ * ***THE DECLARATION IS THE OBJECT.*** `spec.writes` names the object and that
+ * is complete access to it - which field you write is not a second grant:
  *
  *     writes:
- *       - /api/v1/namespaces/default/configmaps/cfg
+ *       - /apis/apps/v1/namespaces/default/deployments/api
  *
- * A field-scoped boundary was tried and removed: enumerating keys does not
- * scale, and `spec.writes` exists for admission-time CONFLICT DETECTION, which
- * reasons about objects - so field-scoping would have made two programs writing
- * one object stop looking like a conflict.
+ * A field-scoped boundary was tried and removed the same day. Enumerating fields
+ * does not scale - you cannot list every env var or label - and `spec.writes`
+ * exists for admission-time CONFLICT DETECTION, which reasons about OBJECTS, so
+ * field-scoping would have made two programs writing one object stop looking
+ * like a conflict.
  *
- * What bounds this instead is the KIND (configmaps, refused at emit for any
- * other path), its OWN capability (`radiant:reconcile/ensure`, so no existing
- * scaler gains it), and the grant's namespace.
+ * What bounds this instead is its OWN capability (`radiant:reconcile/ensure`,
+ * so no existing scaler silently gains it), the grant's namespace, and the KIND:
+ * configmaps, secrets, deployments, statefulsets, daemonsets, replicasets.
+ *
+ * ⛔ ***NOT pods, AND THAT ONE EXCLUSION IS A SECURITY ARGUMENT RATHER THAN A
+ * SCOPE DECISION.*** An obligation is applied with RADIANT'S credential, and the
+ * seam-binding admission policy exempts exactly that identity - on pods. A
+ * program that could write a pod could stamp the binding annotations through the
+ * one identity the policy lets past.
+ * ═══════════════════════════════════════════════════════════════════════════
  */
-export const ensure = (path: ApiPath, field: string, value: string): Expr<'effect'> =>
-  mk(`Ensure(${lit(path)}, ${lit(field)}, ${lit(value)})`)
+export const ensure = (path: ApiPath, field: string, value: EnsureValue): Expr<'effect'> =>
+  mk(`Ensure(${lit(path)}, ${lit(field)}, ${valueText(value)})`)
+
+/**
+ * What `ensure` may write: a scalar LITERAL, or a computed expression.
+ *
+ * ***A NUMBER OR BOOLEAN IS UNAMBIGUOUS; A STRING IS NOT, AND THAT IS WHY
+ * `computed()` EXISTS.*** An `Expr` IS a plain string at runtime - the brand is
+ * erased - so nothing can tell `'fast'` (a ConfigMap value to quote) from
+ * `Get(...) + 1` (expression text to emit bare) by inspecting it.
+ *
+ * The first attempt here was a regex on the string's SHAPE, and it is worth
+ * recording why it was thrown away rather than tightened: it decides a
+ * correctness question with a guess, and it is wrong in the DANGEROUS direction.
+ * A ConfigMap value that happens to read `Now()` - a perfectly ordinary thing to
+ * store - would be emitted bare and EVALUATED, writing the clock into the field
+ * instead of the four characters the caller asked for. No amount of narrowing
+ * fixes that; the shape of a value and the shape of an expression genuinely
+ * overlap.
+ *
+ * So the caller says which they meant. A bare string is ALWAYS a literal - the
+ * common case stays `ensure(cfg, 'data.mode', 'fast')` - and an expression is
+ * wrapped once, which is exactly where the author already knows the answer.
+ */
+export type EnsureValue = string | number | boolean | Computed
+
+/** An expression to be evaluated at emit time, rather than a literal to store. */
+export type Computed = { readonly [computedOf]: true; readonly text: string }
+
+declare const computedOf: unique symbol
+
+/**
+ * Mark an expression as the COMPUTED value of an `ensure`.
+ *
+ *     ensure(dep, 'spec.replicas', computed(plus(length(listPods('app=x')), 2)))
+ *
+ * Only needed for a value the host must evaluate. A literal - including a
+ * numeric one - goes in directly.
+ */
+export const computed = (e: Expr<'int'> | Expr<'observed-int'> | Expr<'value'>): Computed =>
+  ({ text: e }) as unknown as Computed
+
+/** Render an Ensure value: a quoted literal, or bare expression text. */
+function valueText(v: EnsureValue): string {
+  if (typeof v === 'number') return String(Math.trunc(v))
+  if (typeof v === 'boolean') return String(v)
+  if (typeof v === 'string') return lit(v)
+
+  return v.text
+}
 
 /**
  * `SetCondition(type, status, reason, message) -> effect`. SELF-TARGETED.

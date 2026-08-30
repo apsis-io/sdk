@@ -14,7 +14,10 @@
 //! let deployment = path::ns("default").deployments("api");
 //! // Parked on what the step actually READ, derived from the path it read.
 //! let wake = resume::until_drift(&deployment, 2).unwrap();
-//! assert_eq!(wake.as_str(), r#"Replicas("api") != 2"#);
+//! assert_eq!(
+//!     wake.as_str(),
+//!     r#"Get("/apis/apps/v1/namespaces/default/deployments/api", "spec.replicas") != 2"#
+//! );
 //! ```
 //!
 //! # What this crate deliberately does not contain
