@@ -534,6 +534,91 @@ export const workloadMissing = <N extends WorkloadName>(
   ...___: RefusesAPath<N>
 ): Resume => E.not(E.exists(E.replicas(name)))
 
+// ---------------------------------------------------------------------------
+// DERIVING A RESUME FROM WHAT THE STEP ACTUALLY OBSERVED.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+// ***A HAND-WRITTEN RESUME NAMES THE OBJECT A SECOND TIME, AND THE TWO SPELLINGS
+// ARE NOT CHECKED AGAINST EACH OTHER.*** This is the shape every example had:
+//
+//	const deployment = path.ns('default').deployments('api')   // what it OBSERVES
+//	const workload   = 'api'                                   // what it PARKS on
+//	quiesce(replicasNe(workload, want))
+//
+// Those are two spellings of one object, written apart, kept in step by hand.
+// Nothing in the type system, the host, or the grant relates them - `ApiPath` is
+// branded precisely so a path cannot be typed by hand, and then the resume takes
+// a bare NAME, which can. Edit the path to `deployments('api-v2')` and the
+// program observes the new object and parks on the old one: it wakes when a
+// deployment it no longer reads changes, and sleeps through every change to the
+// one it does.
+//
+// ***THAT FAILURE IS INVISIBLE FROM BOTH SIDES.*** The step is correctly asleep
+// on a well-formed condition, `quiesce` returns nothing to the guest, and the
+// host cannot know the two were meant to agree. It is ADR-0075's "asleep on a
+// condition nobody will satisfy", reached by an edit rather than a design error.
+//
+// So derive it. The path the step read IS the input, so there is no second
+// spelling to drift - the same reason `path` is a builder rather than a string.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** `/apis/apps/v1/namespaces/<ns>/deployments/<name>`, the shape `path.ns().deployments()` builds. */
+const DEPLOYMENT_PATH = /^\/apis\/apps\/v1\/namespaces\/[^/]+\/deployments\/([^/]+)$/
+
+/**
+ * The workload NAME an apiserver path addresses.
+ *
+ * Exported because a resume often needs the name in more than one clause, and
+ * deriving it twice from the one path is still one source of truth - whereas a
+ * `const workload = 'api'` beside the path is a second one.
+ *
+ * ***THROWS RATHER THAN RETURNING A GUESS.*** A path this cannot read is a
+ * program asking for a resume the SDK has no derivation for, and the useful
+ * answer is which explicit helper to reach for. Returning something plausible
+ * would produce an expression that parses, evaluates, and watches the wrong
+ * object - the failure mode this whole section exists to remove.
+ */
+export const workloadOf = (observed: ApiPath): WorkloadName => {
+  const m = DEPLOYMENT_PATH.exec(observed)
+  if (!m) {
+    throw new Error(
+      `workloadOf: ${observed} is not a deployment path, so there is no replica count to ` +
+        'watch. Autoderivation covers deployments (the object `scale` writes); for anything ' +
+        'else name the condition explicitly - podExists, countNe, deadlineIn - so the resume ' +
+        'says what it means rather than being inferred wrongly.',
+    )
+  }
+
+  return m[1] as WorkloadName
+}
+
+/**
+ * Wake when the object this step OBSERVED stops holding the value it SAW.
+ *
+ * The two arguments are the observation itself: the path that was read, and the
+ * value that came back. Both are already in hand at the moment a step decides to
+ * park, so there is nothing to restate and nothing to keep in step.
+ *
+ *     known: when(
+ *       [(o: KnownReplicas) => o.v === want, ({ v }) => quiesce(untilDrift(deployment, v))],
+ *       …
+ *     )
+ *
+ * ***IT PARKS ON WHAT IT SAW, NOT ON WHAT IT WANTED, AND THOSE DIFFER MORE THAN
+ * THEY LOOK.*** At the moment of quiescing they are equal - that is why the step
+ * quiesced - so the emitted expression is identical either way. What differs is
+ * what happens when the target changes: `want` is the program's own constant and
+ * cannot drift, while `v` is a fact about the cluster. Deriving from the
+ * observation means the resume is a statement about the world rather than a copy
+ * of a literal that also appears three lines up.
+ *
+ * Uses `Replicas`, which reads `spec.replicas` - the DESIRED count, the field a
+ * scaler writes - for the reasons `replicasNe` sets out at length: a pod census
+ * lags, flaps during a rollout, and cannot see a spec change to the same count.
+ */
+export const untilDrift = (observed: ApiPath, seen: number): Resume =>
+  E.ne(E.replicas(workloadOf(observed)), seen)
+
 /**
  * Wake at an ABSOLUTE deadline, in epoch millis.
  *
