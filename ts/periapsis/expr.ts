@@ -360,6 +360,23 @@ function valueText(v: EnsureValue): string {
 }
 
 /**
+ * `Delete(path) -> effect`. Remove the object a path names.
+ *
+ * ***THE ONLY IRREVERSIBLE VERB IN THIS LANGUAGE.*** Everything else converges
+ * toward a declared state and can be re-declared if it lands wrong; a delete
+ * cannot be undone by re-running the step.
+ *
+ * ***ITS OWN INTERFACE (`radiant:reconcile/delete`), NOT `ensure`'s.***
+ * Authority is conferred by IMPORTING an interface, so folding it in would grant
+ * it to every program already granted Ensure - and `spec.writes` bounds WHICH
+ * object either verb may touch while saying nothing about which VERB, so a
+ * scaler would silently gain the ability to delete the Deployment it scales.
+ *
+ * No field: a delete is about the OBJECT, so there is nothing to narrow.
+ */
+export const del = (path: ApiPath): Expr<'effect'> => mk(`Delete(${lit(path)})`)
+
+/**
  * `SetCondition(type, status, reason, message) -> effect`. SELF-TARGETED.
  *
  * ***IT TAKES NO PATH, AND THAT IS THE POINT.*** The subject is the grant's own

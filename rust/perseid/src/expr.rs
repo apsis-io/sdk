@@ -442,6 +442,24 @@ pub fn ensure(path: &crate::path::ApiPath, field: &str, value: impl EnsureValue)
     ))
 }
 
+/// `Delete(path) -> effect`. Remove the object a path names.
+///
+/// **THE ONLY IRREVERSIBLE VERB IN THIS LANGUAGE.** Everything else converges
+/// toward a declared state and can be re-declared if it lands wrong; a delete
+/// cannot be undone by re-running the step.
+///
+/// **ITS OWN INTERFACE (`radiant:reconcile/delete`), NOT `ensure`'s.** Authority
+/// is conferred by IMPORTING an interface, so folding it in would grant it to
+/// every program already granted Ensure - and `spec.writes` bounds WHICH object
+/// either verb may touch while saying nothing about which VERB, so a scaler
+/// would silently gain the ability to delete the Deployment it scales.
+///
+/// No field: a delete is about the OBJECT, so there is nothing to narrow.
+#[must_use]
+pub fn delete(path: &crate::path::ApiPath) -> Expr<Effect> {
+    Expr::new(format!("Delete({})", lit(path.as_str())))
+}
+
 /// What [`ensure`] may write: a scalar LITERAL, or a computed expression.
 ///
 /// The distinction is the whole point - see [`ensure`]. A `&str` is always a
