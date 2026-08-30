@@ -86,6 +86,10 @@ aptype! {
     Str => "string",
     /// A set of pods; `.length` is an `Int`.
     Pods => "pods",
+    /// A STRING THAT NAMES AN OBJECT. Distinct from `Str` because the write
+    /// boundary reads the object out of the argument typed this way rather than
+    /// guessing it from position.
+    Path => "path",
     /// ONE FIELD of ONE OBJECT, three-valued - what `get` produces.
     ///
     /// It replaced `Pod`, `Workload` and `Object`, which were the result types
@@ -198,8 +202,8 @@ fn lit(s: &str) -> String {
 /// `exists` on an optional field is a real question rather than a frozen
 /// program.
 #[must_use]
-pub fn get(path: &crate::path::ApiPath, field: &str) -> Expr<Value> {
-    Expr::new(format!("Get({}, {})", lit(path.as_str()), lit(field)))
+pub fn get(path: impl PathArg, field: &str) -> Expr<Value> {
+    Expr::new(format!("Get({}, {})", path.path_text(), lit(field)))
 }
 
 /// `ListPods(selector) -> pods`. A LABEL SELECTOR (`app=api`), never a path.
@@ -433,13 +437,70 @@ pub fn and(bs: &[Expr<Bool>]) -> Expr<Bool> {
 /// replicasets. **Not pods** - an obligation is applied with RADIANT's
 /// credential, which the seam-binding admission policy exempts on pods.
 #[must_use]
-pub fn ensure(path: &crate::path::ApiPath, field: &str, value: impl EnsureValue) -> Expr<Effect> {
+pub fn ensure(path: impl PathArg, field: &str, value: impl EnsureValue) -> Expr<Effect> {
     Expr::new(format!(
         "Ensure({}, {}, {})",
-        lit(path.as_str()),
+        path.path_text(),
         lit(field),
         value.value_text()
     ))
+}
+
+/// `At(apiVersion, kind, name) -> path`. Name an object WITHOUT a namespace.
+///
+/// ```ignore
+/// get(&at("apps/v1", "deployments", "web"), "status.readyReplicas")
+/// ensure(&at("v1", "configmaps", "cfg"), "data.mode", "fast")
+/// ```
+///
+/// **THE NAMESPACE COMES FROM THE GRANT, AND A PROGRAM CANNOT SUPPLY ONE.** Not
+/// "is refused when it tries" - cannot say it. `reconcile.wit` argues the same
+/// point about `count`: a path "lets a program NAME one - which then has to be
+/// checked against the grant, so the boundary gains a SECOND ENFORCEMENT POINT
+/// THAT CAN DISAGREE WITH THE FIRST".
+///
+/// The apiVersion is spelled as an object's own `apiVersion` field spells it -
+/// `apps/v1`, or `v1` for the core group - rather than as a group and a version
+/// nobody orders correctly.
+///
+/// An OBLIGATION built from one still stores a plain path: an effect evaluates
+/// its arguments and renders the result, so nothing downstream sees an `At`.
+#[must_use]
+pub fn at(api_version: &str, kind: &str, name: &str) -> Expr<Path> {
+    Expr::new(format!(
+        "At({}, {}, {})",
+        lit(api_version),
+        lit(kind),
+        lit(name)
+    ))
+}
+
+/// Anywhere a path goes: a BUILT path, or an `at(...)` that resolves to one.
+///
+/// **THE TWO ARE NOT INTERCHANGEABLE IN STRENGTH AND BOTH ARE LEGITIMATE.** An
+/// `ApiPath` states a namespace, which the host then checks against the grant -
+/// a second enforcement point that CAN disagree. An `at(...)` cannot state one,
+/// so there is nothing to check. The second is stronger; the first is what you
+/// need when the object is genuinely addressed another way.
+///
+/// A trait rather than an enum for the reason `EnsureValue` is one: the call
+/// site reads `get(&at(..), "f")` and `get(&dep, "f")` identically, and the
+/// types decide which text to emit.
+pub trait PathArg {
+    /// Render this as a path argument: a quoted literal, or bare expression text.
+    fn path_text(self) -> String;
+}
+
+impl PathArg for &crate::path::ApiPath {
+    fn path_text(self) -> String {
+        lit(self.as_str())
+    }
+}
+
+impl PathArg for &Expr<Path> {
+    fn path_text(self) -> String {
+        self.as_str().to_string()
+    }
 }
 
 /// `Create(path, body) -> effect`. Bring an object into existence.
@@ -456,8 +517,8 @@ pub fn ensure(path: &crate::path::ApiPath, field: &str, value: impl EnsureValue)
 /// two passes building the same body must produce byte-identical strings or the
 /// ledger sees a new obligation every pass and re-applies it forever.
 #[must_use]
-pub fn create(path: &crate::path::ApiPath, body: &Struct) -> Expr<Effect> {
-    Expr::new(format!("Create({}, {})", lit(path.as_str()), body.render()))
+pub fn create(path: impl PathArg, body: &Struct) -> Expr<Effect> {
+    Expr::new(format!("Create({}, {})", path.path_text(), body.render()))
 }
 
 /// A structured value: an object body for [`create`].
@@ -518,8 +579,8 @@ impl Struct {
 ///
 /// No field: a delete is about the OBJECT, so there is nothing to narrow.
 #[must_use]
-pub fn delete(path: &crate::path::ApiPath) -> Expr<Effect> {
-    Expr::new(format!("Delete({})", lit(path.as_str())))
+pub fn delete(path: impl PathArg) -> Expr<Effect> {
+    Expr::new(format!("Delete({})", path.path_text()))
 }
 
 /// What [`ensure`] may write: a scalar LITERAL, or a computed expression.

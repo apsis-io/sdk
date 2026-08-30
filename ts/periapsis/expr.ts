@@ -63,6 +63,7 @@ export type ApType =
   | 'observed-int'
   | 'string'
   | 'pods'
+  | 'path'
   | 'value'
   | 'effect'
 
@@ -166,8 +167,8 @@ export const listPods = (selector: LabelSelector): Expr<'pods'> =>
  * optional field is a real question rather than a frozen program.
  * ═══════════════════════════════════════════════════════════════════════════
  */
-export const get = (path: ApiPath, field: string): Expr<'value'> =>
-  mk(`Get(${lit(path)}, ${lit(field)})`)
+export const get = (path: PathLike, field: string): Expr<'value'> =>
+  mk(`Get(${pathText(path)}, ${lit(field)})`)
 
 /**
  * `Now() -> int`. EPOCH MILLISECONDS, UTC.
@@ -308,8 +309,8 @@ export const and = (...bs: Expr<'bool'>[]): Expr<'bool'> => mk(bs.map(paren).joi
  * one identity the policy lets past.
  * ═══════════════════════════════════════════════════════════════════════════
  */
-export const ensure = (path: ApiPath, field: string, value: EnsureValue): Expr<'effect'> =>
-  mk(`Ensure(${lit(path)}, ${lit(field)}, ${valueText(value)})`)
+export const ensure = (path: PathLike, field: string, value: EnsureValue): Expr<'effect'> =>
+  mk(`Ensure(${pathText(path)}, ${lit(field)}, ${valueText(value)})`)
 
 /**
  * What `ensure` may write: a scalar LITERAL, or a computed expression.
@@ -358,6 +359,48 @@ function valueText(v: EnsureValue): string {
 
   return v.text
 }
+
+/**
+ * `At(apiVersion, kind, name) -> path`. Name an object WITHOUT a namespace.
+ *
+ *     get(at('apps/v1', 'deployments', 'web'), 'status.readyReplicas')
+ *     ensure(at('v1', 'configmaps', 'cfg'), 'data.mode', 'fast')
+ *
+ * ***THE NAMESPACE COMES FROM THE GRANT, AND A PROGRAM CANNOT SUPPLY ONE.*** Not
+ * "is refused when it tries" - cannot say it. `reconcile.wit` makes the same
+ * argument about `count`: a path "lets a program NAME one - which then has to be
+ * checked against the grant, so the boundary gains a SECOND ENFORCEMENT POINT
+ * THAT CAN DISAGREE WITH THE FIRST".
+ *
+ * The apiVersion is spelled the way an object's own `apiVersion` field spells it
+ * - `apps/v1`, or `v1` for the core group - rather than as a group and a version
+ * nobody orders correctly.
+ *
+ * An OBLIGATION built from one still stores a plain path: an effect evaluates
+ * its arguments and renders the result, so nothing downstream sees an `At`.
+ */
+export const at = (apiVersion: string, kind: string, name: string): Expr<'path'> =>
+  mk(`At(${lit(apiVersion)}, ${lit(kind)}, ${lit(name)})`)
+
+/**
+ * Anywhere a path goes: a BUILT path, or an `at(...)` that resolves to one.
+ *
+ * ***THE TWO ARE NOT INTERCHANGEABLE IN STRENGTH AND BOTH ARE LEGITIMATE.*** An
+ * `ApiPath` states a namespace, which the host then checks against the grant - a
+ * second enforcement point that CAN disagree. An `at(...)` cannot state one, so
+ * there is nothing to check. The second is stronger; the first is what you need
+ * when the object is genuinely in another shape of address.
+ */
+export type PathLike = ApiPath | Expr<'path'>
+
+/** Render a path argument: both forms are already the text to emit. */
+const pathText = (p: PathLike): string => (isAtExpr(p) ? p : lit(p))
+
+// An `at(...)` is emitted BARE (it is an expression the host evaluates); a built
+// path is a LITERAL and must be quoted. They are both strings at runtime, so the
+// discriminator is the shape - and `At(` is one this SDK produces and a
+// canonical path can never start with.
+const isAtExpr = (p: PathLike): boolean => p.startsWith('At(')
 
 /**
  * A structured value: an object body for {@link create}.
@@ -504,7 +547,7 @@ export const create = <K extends string>(o: {
  *
  * No field: a delete is about the OBJECT, so there is nothing to narrow.
  */
-export const del = (path: ApiPath): Expr<'effect'> => mk(`Delete(${lit(path)})`)
+export const del = (path: PathLike): Expr<'effect'> => mk(`Delete(${pathText(path)})`)
 
 /**
  * `SetCondition(type, status, reason, message) -> effect`. SELF-TARGETED.
