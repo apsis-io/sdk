@@ -80,10 +80,22 @@ aptype! {
     Int => "int",
     /// A number that is OBSERVED, so it may be absent and `.exists` applies.
     ObservedInt => "observed-int",
+    /// A STRING. No SYMBOL results in one - like `Path`, it is a parameter type
+    /// in aperture's table - but a ConfigMap's or Secret's `data(o, key)` does,
+    /// so the marker exists for that subscript and for nothing else.
+    Str => "string",
     /// One pod.
     Pod => "pod",
     /// A set of pods; `.length` is an `Int`.
     Pods => "pods",
+    /// A CONTROLLER, reduced to two numbers before the language sees it:
+    /// `.replicas` (desired) and `.ready`. Deployment, StatefulSet, DaemonSet
+    /// and ReplicaSet all produce one - they differ in what they schedule, not
+    /// in what an operator program needs to know.
+    Workload => "workload",
+    /// A ConfigMap or Secret. `.exists`, and `data(o, key)` by subscript -
+    /// never a bare `.data`, which would hand over every key.
+    Object => "object",
     /// An OBLIGATION - something that should be true, performed by radiant.
     ///
     /// Not a value: it cannot be compared, added or used as an argument, and
@@ -196,6 +208,8 @@ pub fn now() -> Expr<Int> {
 pub trait Observed: ApType {}
 impl Observed for Pod {}
 impl Observed for ObservedInt {}
+impl Observed for Workload {}
+impl Observed for Object {}
 
 /// `.exists` - did this observation RESOLVE.
 #[must_use]
@@ -207,6 +221,96 @@ pub fn exists<T: Observed>(o: &Expr<T>) -> Expr<Bool> {
 #[must_use]
 pub fn length(p: &Expr<Pods>) -> Expr<Int> {
     Expr::new(format!("{p}.length"))
+}
+
+// ---------------------------------------------------------------------------
+// Native Kubernetes controllers and objects.
+//
+// One constructor per kind, because aperture types one SYMBOL per kind - and it
+// does that because `Addresses.Kind` is static and the wake index reads it. A
+// `get(kind, name)` here would be shorter and would emit an expression the host
+// cannot index, so a parked program would fall back to polling, silently.
+
+/// `GetDeployment(name) -> workload`. Adds `.ready`, which `replicas` lacks.
+#[must_use]
+pub fn get_deployment(name: &str) -> Expr<Workload> {
+    Expr::new(format!("GetDeployment({})", lit(name)))
+}
+
+/// `GetStatefulSet(name) -> workload`.
+#[must_use]
+pub fn get_stateful_set(name: &str) -> Expr<Workload> {
+    Expr::new(format!("GetStatefulSet({})", lit(name)))
+}
+
+/// `GetDaemonSet(name) -> workload`.
+///
+/// Its desired count is `desiredNumberScheduled` - a function of which NODES
+/// match, not a number anybody set. Observe against it; reconciling toward it is
+/// a category error.
+#[must_use]
+pub fn get_daemon_set(name: &str) -> Expr<Workload> {
+    Expr::new(format!("GetDaemonSet({})", lit(name)))
+}
+
+/// `GetReplicaSet(name) -> workload`.
+///
+/// Usually owned by a Deployment, so writing to one fights the controller that
+/// will overwrite it. There is no effect symbol addressing replicasets.
+#[must_use]
+pub fn get_replica_set(name: &str) -> Expr<Workload> {
+    Expr::new(format!("GetReplicaSet({})", lit(name)))
+}
+
+/// `GetConfigMap(name) -> object`.
+#[must_use]
+pub fn get_config_map(name: &str) -> Expr<Object> {
+    Expr::new(format!("GetConfigMap({})", lit(name)))
+}
+
+/// `GetSecret(name) -> object`.
+///
+/// ***USABLE IN A STEP, REFUSED IN A RESUME, AND THAT IS ENFORCED RATHER THAN
+/// ADVISED.*** The host evaluates a wake condition WITHOUT running the step, so
+/// it cannot consult the guest's `spec.capabilities` and uses a fixed capability
+/// set instead (`reconcilehost.resumeCaps`). `secrets:read` is deliberately not
+/// in it, so `GetSecret(...)` does not RESOLVE in a resume at all.
+///
+/// That closes the leak this would otherwise be: a resume is rendered into
+/// `status.waitingFor`, which anyone with `get perseid` can read, so parking on
+/// a secret's value would publish a claim about it.
+///
+/// Read a Secret in the STEP, where `spec.capabilities` and radiant's RBAC both
+/// gate the call. To WAIT for one, park on something you may observe.
+#[must_use]
+pub fn get_secret(name: &str) -> Expr<Object> {
+    Expr::new(format!("GetSecret({})", lit(name)))
+}
+
+/// `.replicas` - what somebody ASKED FOR.
+///
+/// Named `desired` because `replicas` is already the symbol that reads a
+/// deployment's count directly; the emitted property is `.replicas` either way.
+#[must_use]
+pub fn desired(w: &Expr<Workload>) -> Expr<ObservedInt> {
+    Expr::new(format!("{w}.replicas"))
+}
+
+/// `.ready` - what the controller reports is actually serving.
+#[must_use]
+pub fn ready(w: &Expr<Workload>) -> Expr<ObservedInt> {
+    Expr::new(format!("{w}.ready"))
+}
+
+/// `.data["key"]` on a ConfigMap or Secret.
+///
+/// A SUBSCRIPT AND NEVER A BARE `.data`: naming the map would hand over every
+/// key. The key is a string literal in the grammar, so the readable key set is
+/// knowable at parse time and nobody can make an expression resolve differently
+/// by adding a key.
+#[must_use]
+pub fn data(o: &Expr<Object>, key: &str) -> Expr<Str> {
+    Expr::new(format!("{}.data[{}]", o, lit(key)))
 }
 
 // ---------------------------------------------------------------------------

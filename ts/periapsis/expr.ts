@@ -57,7 +57,16 @@ declare const exprOf: unique symbol
  * expression of that type PERFORMS something, so it belongs in an emit position
  * and never in a resume. That is `CheckPure`'s rule, mirrored as a type.
  */
-export type ApType = 'bool' | 'int' | 'observed-int' | 'string' | 'pod' | 'pods' | 'effect'
+export type ApType =
+  | 'bool'
+  | 'int'
+  | 'observed-int'
+  | 'string'
+  | 'pod'
+  | 'pods'
+  | 'workload'
+  | 'object'
+  | 'effect'
 
 /**
  * An aperture expression of type `T`.
@@ -77,7 +86,11 @@ export type Expr<T extends ApType> = string & { readonly [exprOf]: T }
 export type IntLike = Expr<'int'> | Expr<'observed-int'> | number
 
 /** Anything `.exists` can be asked of - i.e. anything actually OBSERVED. */
-export type Observed = Expr<'pod'> | Expr<'observed-int'>
+export type Observed =
+  | Expr<'pod'>
+  | Expr<'observed-int'>
+  | Expr<'workload'>
+  | Expr<'object'>
 
 const mk = <T extends ApType>(text: string): Expr<T> => text as Expr<T>
 
@@ -141,6 +154,96 @@ export const exists = (o: Observed): Expr<'bool'> => mk(`${o}.exists`)
 
 /** `.length` - how many. Only for a set. */
 export const length = (p: Expr<'pods'>): Expr<'int'> => mk(`${p}.length`)
+
+// ---------------------------------------------------------------------------
+// NATIVE KUBERNETES CONTROLLERS AND OBJECTS.
+//
+// One constructor per kind, because aperture types one SYMBOL per kind - and it
+// does that because `Addresses.Kind` is static and the wake index reads it. A
+// `get('statefulsets', name)` here would be shorter and would emit an expression
+// the host cannot index, so a parked program would silently fall back to polling.
+//
+// ***A CONTROLLER REDUCES TO TWO NUMBERS BEFORE THE LANGUAGE SEES IT*** - the
+// host narrows at the read surface, so there is no pod template, selector or
+// annotation to reach. The gap between `desired` and `ready` is the only
+// question worth asking about a controller, and it is the whole surface.
+
+/** `GetDeployment(name) -> workload`. Adds `.ready`, which `replicas` lacks. */
+export const getDeployment = (name: WorkloadName): Expr<'workload'> =>
+  mk(`GetDeployment(${lit(name)})`)
+
+/** `GetStatefulSet(name) -> workload`. */
+export const getStatefulSet = (name: WorkloadName): Expr<'workload'> =>
+  mk(`GetStatefulSet(${lit(name)})`)
+
+/**
+ * `GetDaemonSet(name) -> workload`.
+ *
+ * Its `desired` is `desiredNumberScheduled` - a function of which NODES match,
+ * not a number anybody set. Observe against it; reconciling toward it is a
+ * category error.
+ */
+export const getDaemonSet = (name: WorkloadName): Expr<'workload'> =>
+  mk(`GetDaemonSet(${lit(name)})`)
+
+/**
+ * `GetReplicaSet(name) -> workload`.
+ *
+ * Usually owned by a Deployment, so writing to one fights the controller that
+ * will overwrite it. There is no effect symbol addressing replicasets.
+ */
+export const getReplicaSet = (name: WorkloadName): Expr<'workload'> =>
+  mk(`GetReplicaSet(${lit(name)})`)
+
+/** `GetConfigMap(name) -> object`. `.exists`, and `data(o, key)`. */
+export const getConfigMap = (name: string): Expr<'object'> =>
+  mk(`GetConfigMap(${lit(name)})`)
+
+/**
+ * `GetSecret(name) -> object`. `.exists`, and `data(o, key)`.
+ *
+ * ***USABLE IN A STEP, REFUSED IN A RESUME, AND THAT IS ENFORCED RATHER THAN
+ * ADVISED.*** The host evaluates a wake condition WITHOUT running the step, so
+ * it cannot consult the guest's `spec.capabilities` and instead uses a fixed
+ * capability set (`reconcilehost.resumeCaps`). `secrets:read` is deliberately
+ * not in it, so `GetSecret(...)` does not RESOLVE in a resume at all.
+ *
+ * That is what closes the leak this would otherwise be: a resume is rendered
+ * into `status.waitingFor`, which anyone with `get perseid` can read, so parking
+ * on a secret's value would publish a claim about it and let an observer narrow
+ * the value by watching when the program woke.
+ *
+ * So: read a Secret in the STEP, where your own `spec.capabilities` gates the
+ * call and radiant's RBAC gates it again. To WAIT for one, park on something you
+ * may observe - the workload that consumes it - or on a deadline.
+ */
+export const getSecret = (name: string): Expr<'object'> => mk(`GetSecret(${lit(name)})`)
+
+/**
+ * `.replicas` - what somebody ASKED FOR.
+ *
+ * Named `desired` here because `replicas` is already the SYMBOL that reads a
+ * deployment's count directly; the emitted property is `.replicas` either way.
+ */
+export const desired = (w: Expr<'workload'>): Expr<'observed-int'> => mk(`${w}.replicas`)
+
+/** `.ready` - what the controller reports is actually serving. */
+export const ready = (w: Expr<'workload'>): Expr<'observed-int'> => mk(`${w}.ready`)
+
+/**
+ * `.data["key"]` on a ConfigMap or Secret.
+ *
+ * A SUBSCRIPT AND NEVER A BARE `.data`, because naming the map would hand over
+ * every key. The key is a string LITERAL in the grammar, so the readable key set
+ * stays knowable at parse time and nobody can make an expression resolve
+ * differently by adding a key.
+ *
+ * Yields a three-valued observation, not a string: "no such key" and "the key
+ * holds the empty string" are different facts, and for a Secret they call for
+ * opposite actions.
+ */
+export const data = (o: Expr<'object'>, key: string): Expr<'string'> =>
+  mk(`${o}.data[${lit(key)}]`)
 
 // ---------------------------------------------------------------------------
 // Comparison. Both operands must be integers - which is the rule the host does
