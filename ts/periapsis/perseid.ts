@@ -1441,49 +1441,53 @@ export function* select<T extends readonly Step<any, any>[]>(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// KINDED, TYPED OBJECT BUILDERS - THE FACADE OVER `create`.
+// THE GENERALIZED OBJECT BUILDER: ONE MECHANISM, KIND-BRANDED.
 //
-// engi, 2026-08-30: *"facaded kinded typed object builder"*.
+// engi, 2026-08-30: *"generalized object builder, pods, cms, etc"*, and *"by
+// kinded I mean Canonical and object kind"*.
 //
-// `create(path, body)` is the primitive and it is two loose arguments over an
-// untyped map:
+// A path and a body each carry their KIND in the brand, so the two cannot be
+// mismatched:
 //
-//	create(path.ns('default').deployments('api'), { spec: { replicas: 3 } })
+//	const o = objects.ns('default')
+//	get(o.pod('web').path, 'status.phase')             // a pod path, read-only
+//	create(o.deployment('api').with({ ... }))          // path AND body, paired
+//	ensure(o.configMap('cfg').path, 'data.mode', 'x')
 //
-// Nothing there stops you pairing a Deployment path with a ConfigMap body, or
-// spelling `replcas`, or putting `data` on a workload. The host would refuse
-// some of that and the apiserver the rest - at APPLY time, inside an obligation
-// the ledger has already recorded, with `create` returning nothing to the guest
-// by contract. So the failure arrives late and silently, which is the shape this
-// SDK exists to move to the compiler.
+// ***`Canonical<K, S>` IS THE SDK'S EXISTING BRAND AND THIS REUSES IT.*** An
+// `ApiPath` is `Canonical<'apiserver-path', ApiPathShape>` - a string that
+// cannot be written by hand. Adding the KIND to the brand makes a Deployment
+// path a different TYPE from a ConfigMap path, so pairing one with the other's
+// body is a compile error rather than an apiserver rejection nobody sees.
 //
-// # THE THREE WORDS
+// # ONE MECHANISM, NOT A METHOD PER KIND
 //
-//	FACADED  one scoping object holds the namespace, so it is stated once
-//	         rather than repeated per call - and it cannot drift between the
-//	         path and the body, because there is only one of it
-//	KINDED   a method per kind, which PAIRS the path and the body. They are
-//	         built together from one call, so they cannot disagree
-//	TYPED    the options are typed per kind, so a wrong field is a compile
-//	         error rather than an apiserver rejection nobody sees
+// `kinded()` below builds every entry. The well-known kinds are one line each
+// and exist for their TYPED bodies; `resource()` reaches anything else,
+// including a CRD the SDK has never heard of - which is the whole point of the
+// host taking paths rather than a capability per kind.
 //
-// # WHY THERE IS NO `pod(...)`, AND IT IS NOT AN OVERSIGHT
+// # WHY SOME KINDS HAVE NO `with(...)`
 //
-// ⛔ Pods are in the host's `unwritableKinds` and CREATE is the worse half of
-// that exclusion. An obligation is applied with RADIANT'S credential, and the
-// seam-binding admission policy exempts exactly that identity ON PODS - so a
-// program that could create a pod could bring one into existence with
-// `radiant.apsis/link` already set, through the one identity the policy lets
-// past. Patching a pod is that hole from the inside; creating one is it with the
-// door held open.
+// ⛔ A pod cannot be CREATED. It is in the host's `unwritableKinds`, and Create
+// is the worse half of that exclusion: an obligation is applied with RADIANT'S
+// credential, which the seam-binding policy exempts ON PODS, so a program that
+// could create one could bring it into existence with `radiant.apsis/link`
+// already set. `pod()` therefore yields a path and no body builder - the TYPE
+// says what the host would refuse, at the point of writing rather than the
+// point of applying.
 //
-// `podTemplate` below is a different thing and is legitimate: a pod TEMPLATE is
-// a FIELD of a Deployment or a Job, not a pod object, and those kinds are
-// writable.
+// `podTemplate` is a different thing and is legitimate: a pod TEMPLATE is a
+// FIELD of a Deployment or a Job, and those kinds are writable.
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** A path and the body that belongs with it, built together so they agree. */
-export type KindedObject = { readonly path: ApiPath; readonly body: E.StructValue }
+// The kind brand lives in expr.ts, because `create` has to see it - a path and
+// a body typed as bare `ApiPath`/`StructValue` never unify their kinds, and a
+// Deployment path pairs happily with a ConfigMap body. Re-exported here so a
+// caller has one import.
+export type KindedPath<K extends string> = E.KindedPath<K>
+export type KindedBody<K extends string> = E.KindedBody<K>
+export type KindedObject<K extends string> = E.KindedObject<K>
 
 /** Labels/annotations: a flat string map, which is what the apiserver accepts. */
 export type Meta = { labels?: Record<string, string>; annotations?: Record<string, string> }
@@ -1497,16 +1501,15 @@ const metaOf = (m?: Meta): E.StructShape | undefined => {
   return Object.keys(out).length > 0 ? out : undefined
 }
 
-const withMeta = (body: E.StructShape, m?: Meta): E.StructValue => {
+// ***NO metadata.name AND NO metadata.namespace, EVER.*** The host REFUSES a
+// create body that names its own identity: the path is the string spec.writes
+// was checked against, and a body that could name a different object would land
+// it outside the approved address. `Meta` offers labels and annotations and
+// nothing else, so the type is the reason a caller cannot try.
+const bodyWith = <K extends string>(shape: E.StructShape, m?: Meta): KindedBody<K> => {
   const meta = metaOf(m)
 
-  // ***NO metadata.name AND NO metadata.namespace, EVER.*** The host REFUSES a
-  // create body that names its own identity, because the path is the string
-  // spec.writes was checked against and a body that could name a different
-  // object would land it outside the approved address. `Meta` therefore offers
-  // labels and annotations and nothing else - the type is the reason a caller
-  // cannot try.
-  return E.asBody(meta ? { ...body, metadata: meta } : body)
+  return E.asBody(meta ? { ...shape, metadata: meta } : shape) as KindedBody<K>
 }
 
 /** A container, as a workload's pod template holds one. */
@@ -1521,102 +1524,110 @@ export type Container = {
 /**
  * `spec.template` for a workload - a pod TEMPLATE, not a pod.
  *
- * This is the legitimate half of what a "pod builder" would be: the template is
- * a field of a Deployment or a Job, both of which are writable, where a pod
- * OBJECT is refused by the host for the seam-binding reason above.
+ * The legitimate half of what a "pod builder" would be: the template is a field
+ * of a Deployment or a Job, both writable, where a pod OBJECT is refused.
  */
-export const podTemplate = (containers: Container[], m?: Meta): E.StructValue =>
-  withMeta(
-    {
-      spec: {
-        containers: containers.map((c) => {
-          const out: E.StructShape = { name: c.name, image: c.image }
-          if (c.command) out.command = [...c.command] as unknown as E.StructShape
-          if (c.args) out.args = [...c.args] as unknown as E.StructShape
-          if (c.env) {
-            out.env = c.env as unknown as E.StructShape
-          }
+export const podTemplate = (containers: Container[], m?: Meta): E.StructShape => {
+  const spec: E.StructShape = {
+    containers: containers.map((c) => {
+      const out: E.StructShape = { name: c.name, image: c.image }
+      if (c.command) out.command = [...c.command] as unknown as E.StructShape
+      if (c.args) out.args = [...c.args] as unknown as E.StructShape
+      if (c.env) out.env = c.env as unknown as E.StructShape
 
-          return out
-        }) as unknown as E.StructShape,
-      },
-    },
-    m,
-  )
+      return out
+    }) as unknown as E.StructShape,
+  }
+  const meta = metaOf(m)
+
+  return meta ? { spec, metadata: meta } : { spec }
+}
+
+/**
+ * ONE MECHANISM. Everything below is built from this.
+ *
+ * `with` is optional per kind: a kind the host cannot CREATE simply does not
+ * get one, so the absence is the type saying what the host would refuse.
+ */
+const kinded = <K extends string>(path: ApiPath) => ({
+  /** The path, branded with its kind. Usable for get / ensure / delete. */
+  path: path as KindedPath<K>,
+  /** Pair it with a body for `create`. */
+  with: (shape: E.StructShape, m?: Meta): KindedObject<K> => ({
+    path: path as KindedPath<K>,
+    body: bodyWith<K>(shape, m),
+  }),
+})
 
 export type DeploymentSpec = {
   replicas: number | E.Expr<'int'> | E.Expr<'observed-int'> | E.Expr<'value'>
   selector: Record<string, string>
   containers: Container[]
-  meta?: Meta
 }
 
-export type ConfigMapSpec = { data: Record<string, string>; meta?: Meta }
-
-export type SecretSpec = { stringData: Record<string, string>; meta?: Meta; type?: string }
-
 /**
- * The scoping facade. One namespace, stated once.
+ * The scoping facade: one namespace, stated once.
  *
- *     const k = kinds.ns('default')
- *     create(k.deployment('api', { replicas: 3, selector: {app: 'api'},
- *                                  containers: [{name: 'api', image: 'nginx'}] }))
- *
- * The namespace cannot drift between the path and the body because the body
- * never carries one - see `withMeta`.
+ * ⚠ The namespace is still written by the GUEST here, and the host still checks
+ * it against the grant. The strong form - the host resolving kind+name against
+ * the grant so a namespace is unforgeable - needs an expression that carries
+ * kind and name rather than a path, which changes what spec.writes, the wake
+ * index and TargetOf compare. `aperture.Facade.PathFor` is the host half of
+ * that, already in place; this is deliberately not pretending to be it.
  */
-export const kinds = {
-  ns: <NS extends Namespace>(namespace: NS) => ({
-    /** `apps/v1 Deployment`. */
-    deployment: <N extends WorkloadName>(name: N, s: DeploymentSpec): KindedObject => ({
-      path: path.ns(namespace).deployments(name),
-      body: withMeta(
-        {
-          spec: {
-            replicas: s.replicas,
-            selector: { matchLabels: { ...s.selector } },
-            template: podTemplate(s.containers, { labels: s.selector }),
-          },
-        },
-        s.meta,
-      ),
-    }),
+export const objects = {
+  ns: <NS extends Namespace>(namespace: NS) => {
+    const p = path.ns(namespace)
 
-    /** `v1 ConfigMap`. */
-    configMap: (name: string, s: ConfigMapSpec): KindedObject => ({
-      path: path.ns(namespace).core('v1', 'configmaps', name),
-      body: withMeta({ data: { ...s.data } }, s.meta),
-    }),
+    return {
+      /** `v1 Pod`. READ ONLY - see the header for why there is no `with`. */
+      pod: <N extends PodName>(name: N) => ({ path: p.pods(name) as KindedPath<'pods'> }),
 
-    /**
-     * `v1 Secret`.
-     *
-     * `stringData` rather than `data`, deliberately: `data` is base64 and a
-     * builder that took it would invite a caller to hand over plaintext in a
-     * field the apiserver decodes. The apiserver encodes `stringData` itself.
-     */
-    secret: (name: string, s: SecretSpec): KindedObject => ({
-      path: path.ns(namespace).core('v1', 'secrets', name),
-      body: withMeta(
-        s.type ? { stringData: { ...s.stringData }, type: s.type } : { stringData: { ...s.stringData } },
-        s.meta,
-      ),
-    }),
+      /** `v1 ConfigMap`. */
+      configMap: (name: string) => ({
+        ...kinded<'configmaps'>(p.core('v1', 'configmaps', name)),
+        data: (data: Record<string, string>, m?: Meta): KindedObject<'configmaps'> =>
+          kinded<'configmaps'>(p.core('v1', 'configmaps', name)).with({ data: { ...data } }, m),
+      }),
 
-    /**
-     * ***THE ESCAPE HATCH, AND IT IS UNTYPED ON PURPOSE.*** A CRD has no static
-     * type here - the point of `Get`/`Ensure`/`Create` taking paths is that a
-     * kind needs no entry anywhere - so this pairs an arbitrary GVR with an
-     * arbitrary body. What it still gives over raw `create` is the FACADE (one
-     * namespace) and the PAIRING (path and body from one call).
-     *
-     * When a CRD earns a typed builder, add one beside `deployment` above; this
-     * is what you use until then, not a thing to be avoided.
-     */
-    resource: (group: string, version: string, plural: string, name: string, body: E.StructShape):
-      KindedObject => ({
-      path: path.ns(namespace).resource(group, version, plural, name),
-      body: E.asBody(body),
-    }),
-  }),
+      /**
+       * `v1 Secret`.
+       *
+       * `stringData`, never `data`: `data` is base64, and a builder taking it
+       * would invite a caller to hand plaintext to a field the apiserver
+       * decodes. The apiserver encodes `stringData` itself.
+       */
+      secret: (name: string) => ({
+        ...kinded<'secrets'>(p.core('v1', 'secrets', name)),
+        stringData: (d: Record<string, string>, m?: Meta): KindedObject<'secrets'> =>
+          kinded<'secrets'>(p.core('v1', 'secrets', name)).with({ stringData: { ...d } }, m),
+      }),
+
+      /** `apps/v1 Deployment`. */
+      deployment: <N extends WorkloadName>(name: N) => ({
+        ...kinded<'deployments'>(p.deployments(name)),
+        spec: (s: DeploymentSpec, m?: Meta): KindedObject<'deployments'> =>
+          kinded<'deployments'>(p.deployments(name)).with(
+            {
+              spec: {
+                replicas: s.replicas,
+                selector: { matchLabels: { ...s.selector } },
+                template: podTemplate(s.containers, { labels: s.selector }),
+              },
+            },
+            m,
+          ),
+      }),
+
+      /**
+       * ***THE ESCAPE HATCH, AND IT IS THE SAME MECHANISM.*** A CRD has no
+       * static shape here - the point of the host taking paths is that a kind
+       * needs no entry anywhere - so this brands the path with the plural and
+       * leaves the body untyped. It still gives the FACADE (one namespace) and
+       * the PAIRING (path and body from one call).
+       */
+      resource: <K extends string>(group: string, version: string, plural: K, name: string) =>
+        kinded<K>(p.resource(group, version, plural, name)),
+    }
+  },
 }

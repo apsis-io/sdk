@@ -398,6 +398,56 @@ export type StructValue = StructShape & { readonly [bodyOf]: 'object-body' }
  */
 export const asBody = (s: StructShape): StructValue => s as StructValue
 
+declare const kindOf: unique symbol
+
+/**
+ * A path that knows what KIND of object it names.
+ *
+ * ***THE BRAND CARRIES THE KIND SO A MISMATCH IS A TYPE ERROR*** (engi,
+ * 2026-08-30: "by kinded I mean Canonical and object kind"). It lives HERE
+ * rather than beside the builders because `create` has to see it: if the path
+ * and the body are typed as a bare `ApiPath` and `StructValue`, the two kinds
+ * never meet and a Deployment path pairs happily with a ConfigMap body.
+ */
+export type KindedPath<K extends string> = ApiPath & { readonly [kindOf]: K }
+
+/** A body that knows what kind of object it belongs to. */
+export type KindedBody<K extends string> = StructValue & { readonly [kindOf]: K }
+
+/**
+ * A path and a body for the SAME kind.
+ *
+ * One type parameter, used twice - which is the whole mechanism. TypeScript
+ * unifies `K` across both fields, so pairing kinds that differ has no `K` to
+ * infer and the call does not typecheck.
+ */
+export type KindedObject<K extends string> = {
+  readonly path: KindedPath<K>
+  readonly body: KindedBody<K>
+}
+
+/**
+ * Block inference at a position, so `K` is decided by the OTHER one.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***WITHOUT THIS THE KIND BRAND DOES NOT BITE, AND IT LOOKS LIKE IT DOES.***
+ * Measured: with `K` inferrable from both `path` and `body`, TypeScript
+ * unifies a Deployment path and a ConfigMap body by widening to
+ * `'deployments' | 'configmaps'` - and each field IS assignable to the union,
+ * so the call typechecks. The mismatch the brand exists to catch passes.
+ *
+ * Caught only because the guard was written as `@ts-expect-error`, so the
+ * BUILD failed with "Unused '@ts-expect-error' directive" rather than the test
+ * quietly passing. A guard asserting a type error must fail loudly when it
+ * stops finding one.
+ *
+ * Declared here rather than using the built-in so the mechanism is visible: the
+ * conditional makes `T` appear in a non-inferrable position, and the indexed
+ * access collapses it back to `T`.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+type NoInferK<T> = [T][T extends unknown ? 0 : never]
+
 const isStruct = (v: EnsureValue | StructShape): v is StructShape =>
   typeof v === 'object' && v !== null && !(computedOf in (v as object))
 
@@ -434,8 +484,10 @@ const structText = (v: StructShape): string => {
  * the string `spec.writes` was checked against, and a body that could name a
  * different object would put it outside the approved address.
  */
-export const create = (o: { path: ApiPath; body: StructValue }): Expr<'effect'> =>
-  mk(`Create(${lit(o.path)}, ${structText(o.body)})`)
+export const create = <K extends string>(o: {
+  readonly path: KindedPath<K>
+  readonly body: KindedBody<NoInferK<K>>
+}): Expr<'effect'> => mk(`Create(${lit(o.path)}, ${structText(o.body)})`)
 
 /**
  * `Delete(path) -> effect`. Remove the object a path names.

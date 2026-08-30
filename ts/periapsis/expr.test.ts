@@ -26,7 +26,7 @@ import {
   create,
   setCondition,
 } from './expr'
-import { type Resume, quiesce, path, kinds } from './perseid'
+import { type Resume, quiesce, path, objects } from './perseid'
 
 const DEP = path.ns('default').deployments('api')
 const POD = path.ns('default').pods('web')
@@ -230,18 +230,44 @@ export const _aHandWrittenBodyIsRefused = () => {
 // `create` that refuses everything.
 export const _aBuiltObjectIsAccepted = (): Expr<'effect'> =>
   create(
-    kinds.ns('default').deployment('api', {
+    objects.ns('default').deployment('api').spec({
       replicas: 3,
       selector: { app: 'api' },
       containers: [{ name: 'api', image: 'nginx:alpine' }],
     }),
   )
 
+// ⭐ ***A PATH AND A BODY OF DIFFERENT KINDS DO NOT PAIR.*** The kind is in the
+// brand, so this is a compile error rather than an apiserver rejection at apply
+// time - inside an obligation the ledger has already recorded, with `create`
+// returning nothing to the guest by contract.
+export const _kindsDoNotMix = () => {
+  const o = objects.ns('default')
+
+  // @ts-expect-error a ConfigMap body cannot go to a Deployment path
+  create({ path: o.deployment('api').path, body: o.configMap('cfg').data({ a: 'b' }).body })
+}
+
+// ⛔ ***A POD HAS NO BODY BUILDER, AND THE TYPE IS WHERE THAT SHOWS UP.*** The
+// host refuses to CREATE a pod - radiant's credential is VAP-exempt on pods, so
+// a program that could create one could set radiant.apsis/link on it. The
+// absence of `with` says so at the point of writing rather than the point of
+// applying.
+export const _aPodCannotBeCreated = () => {
+  // @ts-expect-error `pod` yields a path only - there is no body builder
+  objects.ns('default').pod('web').with({ spec: {} })
+}
+
+// ...but a pod PATH is fine, because pods are readable.
+export const _aPodPathIsUsableForReads = () =>
+  objects.ns('default').pod('web').path
+
 // The untyped escape hatch still goes through the facade, so it is paired and
 // namespaced even though its body is not typed.
 export const _theEscapeHatchIsStillPaired = (): Expr<'effect'> =>
   create(
-    kinds
+    objects
       .ns('default')
-      .resource('acme.example', 'v1', 'widgets', 'w1', { spec: { size: 3 } }),
+      .resource('acme.example', 'v1', 'widgets', 'w1')
+      .with({ spec: { size: 3 } }),
   )
