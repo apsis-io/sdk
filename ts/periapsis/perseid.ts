@@ -732,7 +732,7 @@ export const after = (ms: number): Resume => {
       // in the one message that only ever fires at somebody already stuck. It is
       // a WIT import, deliberately: the clock is a capability, not a syscall.
       "`now` is imported from the world, not from this SDK: " +
-      "import { now } from 'periapsis:reconcile/observe@0.1.0'. " +
+      "import { now } from 'radiant:reconcile/observe@0.1.0'. " +
       'A bare delay needed a parkedAt travelling beside the expression, and that side-car is ' +
       'exactly what the expression form removes.'
   )
@@ -857,7 +857,7 @@ export function quiesce<R extends Resume>(resume: R extends '' ? never : R): Out
 }
 
 // ---------------------------------------------------------------------------
-// Conditions — the payload of `periapsis:reconcile/status@0.1.0`.
+// Conditions — the payload of `radiant:reconcile/status@0.1.0`.
 //
 // engi decided the vocabulary 2026-08-25: copy Kubernetes. This mirrors
 // `metav1.Condition` minus the two fields a guest cannot supply — the host owns
@@ -919,7 +919,7 @@ export type Condition = {
 // component's world. A misspelled interface derives a world naming an import no
 // host supplies, and the component then fails to INSTANTIATE — the failure is at
 // link time, far from the string that caused it. This file already records the
-// same class of defect: main.ts named `periapsis:reconcile/emit@0.1.0` for four
+// same class of defect: main.ts named `radiant:reconcile/emit@0.1.0` for four
 // days after that interface was deleted, and it built and passed its own tests
 // throughout.
 /**
@@ -931,11 +931,11 @@ export type Condition = {
  * world importing the cluster read also import the namespaced one, so a program
  * had to be granted a read it never calls.
  */
-export const WIT_TYPES = 'periapsis:reconcile/types@0.1.0'
-export const WIT_OBSERVE = 'periapsis:reconcile/observe@0.1.0'
-export const WIT_OBSERVE_CLUSTER = 'periapsis:reconcile/observe-cluster@0.1.0'
-export const WIT_WORKLOADS = 'periapsis:reconcile/workloads@0.1.0'
-export const WIT_STATUS = 'periapsis:reconcile/status@0.1.0'
+export const WIT_TYPES = 'radiant:reconcile/types@0.1.0'
+export const WIT_OBSERVE = 'radiant:reconcile/observe@0.1.0'
+export const WIT_OBSERVE_CLUSTER = 'radiant:reconcile/observe-cluster@0.1.0'
+export const WIT_WORKLOADS = 'radiant:reconcile/workloads@0.1.0'
+export const WIT_STATUS = 'radiant:reconcile/status@0.1.0'
 
 /** The interfaces this SDK knows. Autocompletion comes from this union. */
 export type KnownWit =
@@ -951,7 +951,7 @@ export type KnownWit =
  * ***THE ID IS TYPED, NOT MERELY OPEN*** (engi, 2026-08-29: "can you type wit
  * string, or make a builder"). This is the whole reason it is a template literal
  * type and not `(string & {})`: that idiom keeps the set open and validates
- * NOTHING, so `'observe'`, `'periapsis:reconcile/observe'` (no version) and
+ * NOTHING, so `'observe'`, `'radiant:reconcile/observe'` (no version) and
  * `'periapsis/reconcile:observe@0.1.0'` (separators swapped) are all accepted.
  *
  * ***AND A MALFORMED ID IS INVISIBLE UNTIL LINK TIME.*** It is data: it feeds
@@ -959,7 +959,7 @@ export type KnownWit =
  * A misspelled interface derives a world naming an import no host supplies, and
  * the component then fails to INSTANTIATE — far from the string that caused it,
  * with a message about an unsatisfied import rather than a typo. This tree has
- * already paid for that once: main.ts named `periapsis:reconcile/emit@0.1.0` for
+ * already paid for that once: main.ts named `radiant:reconcile/emit@0.1.0` for
  * four days after that interface was deleted, and it built and passed its own
  * tests throughout.
  *
@@ -1042,8 +1042,8 @@ export type Step<E extends AnyEffect, A = Outcome> = Generator<E, A, any>
  * Define an effect wrapper. Curried so the RESULT type is explicit and the
  * argument type is inferred:
  *
- *     const observe = defineEffect<string, Obs<number>>()('periapsis:reconcile/observe@0.1.0', 'get')
- *     const scale   = defineEffect<{path: string, n: number}, void>()('periapsis:reconcile/workloads@0.1.0', 'scale')
+ *     const observe = defineEffect<string, Obs<number>>()('radiant:reconcile/observe@0.1.0', 'get')
+ *     const scale   = defineEffect<{path: string, n: number}, void>()('radiant:reconcile/workloads@0.1.0', 'scale')
  *
  * `scale` rather than a generic `emit`: actions are TYPED WIT imports as of
  * 2026-08-21, so the effect names the function it calls. The old form passed an
@@ -1095,7 +1095,7 @@ export type ScaleArgs = {
 }
 
 /**
- * The `periapsis:reconcile` contract as ready-made effects.
+ * The `radiant:reconcile` contract as ready-made effects.
  *
  *     const observe = reconcile.observe<number>()
  *     const scale   = reconcile.scale()
