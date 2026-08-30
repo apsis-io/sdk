@@ -19,7 +19,6 @@ import {
   quiesce,
   fieldNe,
   path,
-  path,
 } from './perseid'
 
 const DEP = path.ns('default').deployments('api')
