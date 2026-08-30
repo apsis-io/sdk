@@ -22,7 +22,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { expect, test, describe } from 'bun:test'
-import { path, untilDrift, workloadOf, replicasNe, countNeReplicas, anyOf } from './perseid'
+import { path, untilDrift, workloadOf, fieldNe, countNeField, anyOf } from './perseid'
+
+const D = '/apis/apps/v1/namespaces/default/deployments/api'
 
 describe('workloadOf', () => {
   test('reads the name back out of the path that was observed', () => {
@@ -47,8 +49,8 @@ describe('untilDrift', () => {
   // wake behaviour changes silently on upgrade.
   test('emits exactly what the hand-written resume emitted', () => {
     const deployment = path.ns('default').deployments('api')
-    expect(untilDrift(deployment, 2)).toBe(replicasNe('api', 2))
-    expect(String(untilDrift(deployment, 2))).toBe('Replicas("api") != 2')
+    expect(untilDrift(deployment, 2)).toBe(fieldNe(deployment, 'spec.replicas', 2))
+    expect(String(untilDrift(deployment, 2))).toBe(`Get("${D}", "spec.replicas") != 2`)
   })
 
   // ***THE ARM THAT IS THE WHOLE POINT.*** Under the old shape the path moved
@@ -64,15 +66,15 @@ describe('untilDrift', () => {
     // And the control that shows the OLD shape really was broken: a resume
     // written against a stale name is unchanged by the path moving, which is
     // what made the defect invisible.
-    const handWritten = replicasNe('api', 2)
+    const handWritten = fieldNe(path.ns('default').deployments('api'), 'spec.replicas', 2)
     expect(handWritten).toBe(before)
     expect(handWritten).not.toBe(after)
   })
 
   test('parks on the value observed, not on a restated constant', () => {
     const deployment = path.ns('default').deployments('api')
-    expect(String(untilDrift(deployment, 5))).toBe('Replicas("api") != 5')
-    expect(String(untilDrift(deployment, 0))).toBe('Replicas("api") != 0')
+    expect(String(untilDrift(deployment, 5))).toBe(`Get("${D}", "spec.replicas") != 5`)
+    expect(String(untilDrift(deployment, 0))).toBe(`Get("${D}", "spec.replicas") != 0`)
   })
 })
 
@@ -84,10 +86,10 @@ describe('a derived resume composes with explicit clauses', () => {
   // output a regression test rather than a demo.
   test('matches the expression sugar.ts publishes', () => {
     const deployment = path.ns('default').deployments('api')
-    const composed = anyOf(untilDrift(deployment, 2), countNeReplicas('app=api', workloadOf(deployment)))
+    const composed = anyOf(untilDrift(deployment, 2), countNeField('app=api', deployment))
 
     expect(String(composed)).toBe(
-      '(Replicas("api") != 2) || (ListPods("app=api").length != Replicas("api"))',
+      `(Get("${D}", "spec.replicas") != 2) || (ListPods("app=api").length != Get("${D}", "spec.replicas"))`,
     )
   })
 })

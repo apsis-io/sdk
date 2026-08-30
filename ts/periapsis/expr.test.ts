@@ -10,9 +10,8 @@
 
 import {
   type Expr,
-  getPod,
+  get,
   listPods,
-  replicas,
   now,
   exists,
   length,
@@ -22,10 +21,21 @@ import {
   not,
   or,
   and,
-  setReplicas,
+  ensure,
+  computed,
   setCondition,
 } from './expr'
 import { type Resume, quiesce, path } from './perseid'
+
+const DEP = path.ns('default').deployments('api')
+const POD = path.ns('default').pods('web')
+const DEP_TEXT = '/apis/apps/v1/namespaces/default/deployments/api'
+const POD_TEXT = '/api/v1/namespaces/default/pods/web'
+
+// The two reads every guard below is built from. Named so the SHAPE under test
+// is what the line says, rather than a path literal repeated a dozen times.
+const podName = () => get(POD, 'metadata.name')
+const depReplicas = () => get(DEP, 'spec.replicas')
 
 type Assert<T extends true> = T
 type Same<A, B, MSG extends string> = [A] extends [B] ? ([B] extends [A] ? true : MSG) : MSG
@@ -37,7 +47,7 @@ type Same<A, B, MSG extends string> = [A] extends [B] ? ([B] extends [A] ? true 
 // by contract - so without this the failure is a refused park the guest never
 // learns about.
 export const _anEffectIsNotAResume = () => {
-  const scaleIt = setReplicas(path.ns('default').deployments('api'), 3)
+  const scaleIt = ensure(DEP, 'spec.replicas', 3)
 
   // @ts-expect-error an effect PERFORMS; a resume is evaluated on every wake check
   quiesce(scaleIt)
@@ -56,7 +66,7 @@ export type _EffectAndBoolAreDisjoint = Assert<
 
 // A resume built from the algebra IS a Resume - or the assertion above would
 // also pass for a brand nothing satisfies.
-export const _aBooleanExpressionIsAResume = (): Resume => ne(replicas('api'), 3)
+export const _aBooleanExpressionIsAResume = (): Resume => ne(depReplicas(), 3)
 
 export type _ResumeIsABooleanExpression = Assert<
   Same<Resume, Expr<'bool'>, 'Resume drifted from Expr<bool>'>
@@ -69,24 +79,38 @@ export type _ResumeIsABooleanExpression = Assert<
 // string is never equal, so a park on one either wakes forever or never wakes,
 // and the step cannot tell which.
 export const _theHostsSilentShapesAreRejectedHere = () => {
-  // @ts-expect-error `.length` is for a SET; GetPod returns one pod
-  length(getPod('web'))
+  // @ts-expect-error `.length` is for a SET; Get returns one field
+  length(podName())
   // @ts-expect-error `.exists` asks whether an observation resolved; Now() is a bare clock read
   exists(now())
-  // @ts-expect-error a pod is not an integer
-  ne(getPod('web'), 3)
   // @ts-expect-error an integer is not a boolean operand
-  and(replicas('api'), exists(getPod('web')))
+  and(depReplicas(), exists(podName()))
 }
+
+// ⚠ ***ONE ARM OF THAT BLOCK WAS RETIRED RATHER THAN CONVERTED, AND SAYING SO
+// IS THE POINT.*** `ne(getPod('web'), 3)` - a POD compared to an integer - was a
+// type error because `GetPod` returned `Expr<'pod'>`, a type nothing numeric
+// accepted. `Get` returns `Expr<'value'>`, which IS an `IntLike`, because a
+// field may hold a number and the SDK cannot know which field.
+//
+// So that comparison typechecks now. It is not silently wrong at RUNTIME: the
+// host is three-valued there and answers UNKNOWN for a comparison against a
+// non-number, so the failure is a program that never wakes rather than one that
+// wakes on a lie. But the SDK no longer catches it, and leaving a
+// `@ts-expect-error` that no longer errors would fail the build in a way that
+// reads as unrelated to the cause.
+//
+// ***THIS IS THE PRICE OF ONE SYMBOL READING EVERY KIND***, and it is written
+// where the guard used to be so nobody has to re-derive it from an absence.
 
 // …and each vocabulary accepts its own, so the block above cannot pass by
 // rejecting everything.
 export const _theCorrectShapesAreAccepted = () => {
-  const a = exists(getPod('web'))
+  const a = exists(podName())
   const b = ne(length(listPods('app=api')), 3)
   const c = ge(now(), 1788011630089)
-  const d = ne(length(listPods('app=api')), replicas('api'))
-  const e = ne(plus(length(listPods('app=api')), 2), replicas('api'))
+  const d = ne(length(listPods('app=api')), depReplicas())
+  const e = ne(plus(length(listPods('app=api')), 2), depReplicas())
 
   return or(a, and(b, c), not(d), e)
 }
@@ -95,26 +119,52 @@ export const _theCorrectShapesAreAccepted = () => {
 // the host, which resolves the property on a three-valued observation and
 // refuses it on the clock. This is the one place the SDK's types are finer than
 // aperture's `signatures` table, which gives both the same `TInt`.
-export const _existsIsValidOnAnObservedInt = (): Resume => not(exists(replicas('api')))
+export const _existsIsValidOnAnObservedInt = (): Resume => not(exists(depReplicas()))
 
 export function runtimeGuards(): void {
   const eq = (got: string, want: string, what: string) => {
     if (got !== want) throw new Error(`${what}: got ${got}, want ${want}`)
   }
 
-  eq(String(exists(getPod('web'))), 'GetPod("web").exists', 'exists')
+  eq(String(exists(podName())), `Get("${POD_TEXT}", "metadata.name").exists`, 'objectExists')
   eq(String(ne(length(listPods('app=api')), 3)), 'ListPods("app=api").length != 3', 'countNe')
-  eq(String(ne(replicas('api'), 3)), 'Replicas("api") != 3', 'replicasNe')
+  eq(String(ne(depReplicas(), 3)), `Get("${DEP_TEXT}", "spec.replicas") != 3`, 'fieldNe')
   eq(String(ge(now(), 1788011630089)), 'Now() >= 1788011630089', 'deadline')
   eq(
-    String(ne(length(listPods('app=api')), replicas('api'))),
-    'ListPods("app=api").length != Replicas("api")',
-    'countNeReplicas',
+    String(ne(length(listPods('app=api')), depReplicas())),
+    `ListPods("app=api").length != Get("${DEP_TEXT}", "spec.replicas")`,
+    'countNeField',
   )
   eq(
-    String(setReplicas(path.ns('default').deployments('api'), 3)),
-    'SetReplicas("/apis/apps/v1/namespaces/default/deployments/api", 3)',
-    'setReplicas',
+    String(ensure(DEP, 'spec.replicas', 3)),
+    `Ensure("${DEP_TEXT}", "spec.replicas", 3)`,
+    'ensure with a numeric literal',
+  )
+
+  // ⭐ ***THE LITERAL/EXPRESSION SPLIT, BOTH WAYS.*** An `Expr` is a plain
+  // string at runtime, so nothing can tell `'fast'` from `Get(...) + 1` by
+  // inspecting it - which is why a computed value is WRAPPED and a bare one is
+  // not. Deciding by the string's SHAPE was tried and thrown away: a ConfigMap
+  // value that happens to read `Now()` would be emitted bare and EVALUATED,
+  // writing the clock into the field instead of the five characters asked for.
+  //
+  // The middle case is the one that would have failed under that design, so it
+  // is here rather than left implied.
+  const cfg = path.ns('default').core('v1', 'configmaps', 'cfg')
+  eq(
+    String(ensure(cfg, 'data.mode', 'fast')),
+    'Ensure("/api/v1/namespaces/default/configmaps/cfg", "data.mode", "fast")',
+    'a bare string is QUOTED',
+  )
+  eq(
+    String(ensure(cfg, 'data.mode', 'Now()')),
+    'Ensure("/api/v1/namespaces/default/configmaps/cfg", "data.mode", "Now()")',
+    'a string that LOOKS like an expression is still quoted',
+  )
+  eq(
+    String(ensure(cfg, 'data.mode', computed(now()))),
+    'Ensure("/api/v1/namespaces/default/configmaps/cfg", "data.mode", Now())',
+    'a computed value is emitted BARE',
   )
   eq(
     String(setCondition('Ready', 'True', 'AtDesiredScale', '3 of 3')),

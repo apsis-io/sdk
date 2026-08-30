@@ -17,9 +17,12 @@ import {
   yieldStep,
   terminate,
   quiesce,
-  replicasNe,
+  fieldNe,
+  path,
   path,
 } from './perseid'
+
+const DEP = path.ns('default').deployments('api')
 
 type Assert<T extends true> = T
 type Same<A, B, MSG extends string> = [A] extends [B] ? ([B] extends [A] ? true : MSG) : MSG
@@ -36,7 +39,7 @@ const step = defineStep(function* () {
     absent: () => terminate,
     unknown: () => yieldStep,
     known: function* ({ v }) {
-      if (v === 2) return quiesce(replicasNe('api', 2))
+      if (v === 2) return quiesce(fieldNe(DEP, 'spec.replicas', 2))
       yield* scale({ path: target, n: 2 })
 
       return yieldStep
@@ -118,7 +121,7 @@ export function runtimeGuards(): void {
     }
   }
 
-  eq(drive(known(2)).outcome, { o: 'quiesce', resume: replicasNe('api', 2) }, 'at desired scale')
+  eq(drive(known(2)).outcome, { o: 'quiesce', resume: fieldNe(DEP, 'spec.replicas', 2) }, 'at desired scale')
   eq(drive(known(1)).acts, ['scale=2'], 'below desired scale emits one obligation')
   eq(drive(unknown).outcome, yieldStep, 'unknown yields')
   eq(drive({ t: 'absent' } as Obs<number>).outcome, terminate, 'absent terminates')
@@ -167,7 +170,7 @@ const guardedStep = defineStep(function* () {
     // `Outcome | Generator<…>` written out by hand, because inference could not
     // produce it.
     known: when(
-      [(o: KnownObs) => o.v === 2, () => quiesce(replicasNe('api', 2))],
+      [(o: KnownObs) => o.v === 2, () => quiesce(fieldNe(DEP, 'spec.replicas', 2))],
       [(o: KnownObs) => o.v < 0, () => terminate],
       function* () {
         yield* scale({ path: target, n: 2 })
@@ -268,13 +271,13 @@ export function extensionRuntimeGuards(): void {
   }
 
   // Clause ORDER is meaningful: first match wins.
-  eq(drive(known(2)).outcome, { o: 'quiesce', resume: replicasNe('api', 2) }, 'first clause wins')
+  eq(drive(known(2)).outcome, { o: 'quiesce', resume: fieldNe(DEP, 'spec.replicas', 2) }, 'first clause wins')
   eq(drive(known(-1)).outcome, terminate, 'second clause')
   eq(drive(known(1)).acts, ['scale=2'], 'fallback clause yields')
 
   eq(outcomeLabel(yieldStep), 'Yield', 'matchValue yield')
   eq(outcomeLabel(terminate), 'Terminate', 'matchValue terminate')
-  eq(outcomeLabel(quiesce(replicasNe('api', 2))), `Quiesce until ${replicasNe('api', 2)}`, 'matchValue quiesce')
+  eq(outcomeLabel(quiesce(fieldNe(DEP, 'spec.replicas', 2))), `Quiesce until ${fieldNe(DEP, 'spec.replicas', 2)}`, 'matchValue quiesce')
 
   console.log('match.test.ts: extension runtime guards pass')
 }

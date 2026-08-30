@@ -66,11 +66,13 @@ import {
   unknown,
   yieldStep,
   terminate,
-  replicasNe,
+  fieldNe,
   unsafeApiPath,
   WIT_OBSERVE,
   WIT_WORKLOADS,
 } from './perseid'
+
+const WEB = path.ns('default').deployments('web')
 
 // ---------------------------------------------------------------------------
 // The assertion vocabulary.
@@ -121,7 +123,7 @@ const step = defineStep(function* () {
         return yieldStep
       }
 
-      return quiesce(replicasNe('web', 2))
+      return quiesce(fieldNe(WEB, 'spec.replicas', 2))
     }
   }
 })
@@ -239,7 +241,7 @@ export const _aStepBodyMustReturnAnOutcome = () => {
 
 // A non-empty resume is of course fine - without this, the assertion above
 // would also pass if `quiesce` had been broken outright.
-export const _aRealResumeIsAccepted = (): Outcome => quiesce(replicasNe('web', 2))
+export const _aRealResumeIsAccepted = (): Outcome => quiesce(fieldNe(WEB, 'spec.replicas', 2))
 
 // ---------------------------------------------------------------------------
 // engi's ask 1: the wit set is OPEN. Both directions, because a closed union
@@ -546,8 +548,16 @@ export const _theThreeVocabulariesCannotBeSwapped = () => {
   obs('app=api')
   // @ts-expect-error a PATH where a SELECTOR goes - count(path), 239 asks / 119 resolved
   cnt('/apis/apps/v1/namespaces/default/deployments/api')
-  // @ts-expect-error a PATH where a NAME goes - the grant supplies the namespace
-  replicasNe('/apis/apps/v1/namespaces/default/deployments/api', 3)
+  // ⭐ ***THIS GUARD INVERTED ON 2026-08-30 AND IS KEPT RATHER THAN DELETED.***
+  // It read "a PATH where a NAME goes - the grant supplies the namespace",
+  // because the read symbol took a bare name. `Get(path, field)` replaced it, so
+  // a NAME is now the unresolvable thing and a path is required.
+  //
+  // The refusal still holds and by a BETTER mechanism: `ApiPath` is branded with
+  // no string constructor, so this is a type error with a message naming the
+  // brand rather than a guard-tuple error naming a phantom parameter.
+  // @ts-expect-error a NAME where a PATH goes - only path.ns(..) builds one
+  fieldNe('api', 'spec.replicas', 3)
 }
 
 // …and each accepts its own, or the block above would also pass for types that
@@ -556,7 +566,7 @@ export const _eachVocabularyAcceptsItsOwn = () => {
   reconcile.observe<number>()(path.ns('default').deployments('api'))
   reconcile.count<number>()('app=api')
 
-  return replicasNe('api', 3)
+  return fieldNe(path.ns('default').deployments('api'), 'spec.replicas', 3)
 }
 
 // ---------------------------------------------------------------------------
@@ -604,7 +614,7 @@ export function runtimeGuards(): void {
     return { outcome, acts }
   }
 
-  eq(drive(known(2)).outcome, { o: 'quiesce', resume: replicasNe('web', 2) }, 'at desired scale')
+  eq(drive(known(2)).outcome, { o: 'quiesce', resume: fieldNe(WEB, 'spec.replicas', 2) }, 'at desired scale')
   eq(drive(known(1)).acts.length, 1, 'below desired scale emits one obligation')
   eq(drive(unknown).outcome, yieldStep, 'unknown yields rather than concluding')
   eq(drive(absent).outcome, terminate, 'absent terminates')

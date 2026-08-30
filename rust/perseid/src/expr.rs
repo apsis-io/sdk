@@ -211,7 +211,6 @@ pub fn list_pods(selector: &str) -> Expr<Pods> {
     Expr::new(format!("ListPods({})", lit(selector)))
 }
 
-
 /// `Now() -> int`. Epoch milliseconds, UTC.
 ///
 /// Typed [`Int`] and not [`ObservedInt`] because the clock cannot be absent, and
@@ -619,11 +618,23 @@ mod tests {
     #[test]
     fn ensure_quotes_a_literal_and_emits_an_expression_bare() {
         let cfg = crate::path::ns("default").resource("", "v1", "configmaps", "cfg");
-        assert!(ensure(&cfg, "data.mode", "fast").as_str().ends_with(r#", "fast")"#));
+        assert!(
+            ensure(&cfg, "data.mode", "fast")
+                .as_str()
+                .ends_with(r#", "fast")"#)
+        );
         // A string that LOOKS like an expression is still a literal.
-        assert!(ensure(&cfg, "data.mode", "Now()").as_str().ends_with(r#", "Now()")"#));
+        assert!(
+            ensure(&cfg, "data.mode", "Now()")
+                .as_str()
+                .ends_with(r#", "Now()")"#)
+        );
         // ...and an actual expression is not quoted.
-        assert!(ensure(&cfg, "data.mode", &now()).as_str().ends_with(", Now())"));
+        assert!(
+            ensure(&cfg, "data.mode", &now())
+                .as_str()
+                .ends_with(", Now())")
+        );
         assert!(ensure(&cfg, "data.on", true).as_str().ends_with(", true)"));
     }
 

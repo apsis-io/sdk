@@ -298,7 +298,10 @@ mod tests {
     #[test]
     fn until_drift_emits_exactly_what_the_hand_written_resume_emitted() {
         let d = path::ns("default").deployments("api");
-        assert_eq!(until_drift(&d, 2).unwrap(), field_ne(&d, "spec.replicas", 2));
+        assert_eq!(
+            until_drift(&d, 2).unwrap(),
+            field_ne(&d, "spec.replicas", 2)
+        );
         assert_eq!(
             until_drift(&d, 2).unwrap().as_str(),
             format!(r#"Get("{DEP}", "spec.replicas") != 2"#)

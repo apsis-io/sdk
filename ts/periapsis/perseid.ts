@@ -451,39 +451,69 @@ export type RefusesAPath<N extends string> = N extends `/${string}`
   ? [ERROR_a_PATH_was_passed_where_a_NAME_goes_the_grant_supplies_the_namespace: never]
   : []
 
-export const exists = <N extends PodName>(
-  name: N,
-  ...___: RefusesAPath<N>
-): Resume => E.exists(E.getPod(name))
+// ═══════════════════════════════════════════════════════════════════════════
+// ***EVERY BUILDER BELOW TAKES A PATH, AND THAT IS AN INVERSION RATHER THAN A
+// WIDENING (2026-08-30).***
+//
+// They took bare NAMES, guarded by `RefusesAPath` so a path in a name position
+// was a compile error. `Get(path, field)` replaced the eight name-taking read
+// symbols, so the polarity flipped: a NAME is now the thing that cannot be
+// resolved, because there is no symbol left that borrows a namespace from the
+// grant.
+//
+// ***THE GUARD DID NOT SURVIVE AND DID NOT NEED TO.*** `ApiPath` is a branded
+// type with no string constructor - `path.ns(x).deployments(y)` is the only way
+// to make one - so a bare name in a path position is already a type error, and
+// with a BETTER message than the guard tuple produced. What the guard bought
+// (completions at the caret, measured: 3 vs 0) the builder buys too, and from
+// the same cluster vocabulary.
+//
+// ⚠ ***THIS IS A BREAKING CHANGE TO EVERY COMPONENT SOURCE.*** `replicasNe('api',
+// 3)` does not become `replicasNe(path, 3)` by accident: it fails to compile,
+// which is the outcome to want. A silently-accepted rename would have parked the
+// fleet on conditions that never fire.
+// ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Wake when a named pod is ABSENT.
+ * Wake when an object EXISTS — or, if it does, when it stops existing.
+ *
+ * ANY KIND: the path says which. The field is `metadata.name`, which every
+ * object has and which is therefore ABSENT exactly when the object is.
+ *
+ * Renamed from `exists`, which took a pod NAME and could only ever watch a pod.
+ */
+export const objectExists = (path: ApiPath): Resume =>
+  E.exists(E.get(path, 'metadata.name'))
+
+/**
+ * Wake when an object is GONE.
  *
  * *** A NEGATION, NOT A COMPARISON — AND FOR TWO REASONS. *** The grammar has no
  * boolean literals, so `== false` does not parse. And it is the correct form:
  * `exists` maps Known->true, Absent->false, Unknown->Unknown, and `!` propagates
- * a non-Known observation rather than flipping it. *** A pod that cannot be read
- * is not "missing" *** — treating it as missing would wake a program to tear
- * something down because the apiserver blipped.
+ * a non-Known observation rather than flipping it. *** An object that cannot be
+ * read is not "missing" *** — treating it as missing would wake a program to
+ * tear something down because the apiserver blipped.
+ *
+ * Renamed from `missing`, and it replaces `workloadMissing` too: those differed
+ * only in which kind their symbol named, and the path says that now.
  */
-export const missing = <N extends PodName>(
-  name: N,
-  ...___: RefusesAPath<N>
-): Resume => E.not(E.exists(E.getPod(name)))
+export const objectGone = (path: ApiPath): Resume =>
+  E.not(E.exists(E.get(path, 'metadata.name')))
 
 /** Wake when the pods matching a LABEL SELECTOR stop numbering n. */
 export const countNe = (selector: LabelSelector, n: number): Resume =>
   E.ne(E.length(E.listPods(selector)), n)
 
 /**
- * Wake when the pods matching a SELECTOR stop numbering what the DEPLOYMENT
- * asks for.
+ * Wake when the pods matching a SELECTOR stop numbering what the WORKLOAD asks
+ * for.
  *
  * ***NEWLY EXPRESSIBLE, AND ONLY BECAUSE aperture GREW A TYPE SYSTEM AND
  * ARITHMETIC ON 2026-08-29.*** Every other builder here compares an observation
- * to a LITERAL the guest already knows. This compares two OBSERVATIONS - both
- * `Int` - which the language could not express while a comparison's right-hand
- * side had to be a constant.
+ * to a LITERAL the guest already knows. This compares two OBSERVATIONS, which
+ * the language could not express while a comparison's right-hand side had to be
+ * a constant.
  *
  * It is the wake condition a level-triggered scaler actually wants. `countNe`
  * needs the guest to supply the desired count, so a park is stale the moment
@@ -495,15 +525,18 @@ export const countNe = (selector: LabelSelector, n: number): Resume =>
  * `TestSDKResumeExpressions_ParseAndTypecheck` in internal/aperture - the guest
  * builds these and cannot evaluate them, so "aperture accepts this" is a claim
  * that needs a test rather than a comment.
+ *
+ * Renamed from `countNeReplicas`: the right-hand side is a FIELD now, and
+ * naming it in the function meant a second name per field.
  */
-export const countNeReplicas = <N extends WorkloadName>(
+export const countNeField = (
   selector: LabelSelector,
-  workload: N,
-  ...___: RefusesAPath<N>
-): Resume => E.ne(E.length(E.listPods(selector)), E.replicas(workload))
+  workload: ApiPath,
+  field = 'spec.replicas',
+): Resume => E.ne(E.length(E.listPods(selector)), E.get(workload, field))
 
 /**
- * Wake when a DEPLOYMENT's desired replica count stops being n.
+ * Wake when a FIELD of an object stops being n.
  *
  * *** PREFER THIS TO countNe FOR A SCALER, AND THE DIFFERENCE IS NOT
  * COSMETIC. *** countNe observes PODS, which is a lagging, flapping proxy for
@@ -513,26 +546,22 @@ export const countNeReplicas = <N extends WorkloadName>(
  *     a crashlooping pod changes the count without the spec changing
  *     a spec change to the SAME count is invisible to a pod census
  *
- * `Replicas` reads `spec.replicas` — the desired count, the thing the program
- * writes with setReplicas. Parking on the field you maintain is what makes a
- * level-triggered program level-triggered.
+ * `spec.replicas` is the desired count, the thing the program writes with
+ * `Ensure`. Parking on the field you maintain is what makes a level-triggered
+ * program level-triggered.
  *
- * Requires the `workloads:read` capability, which every resume expression is
- * evaluated with (internal/reconcilehost/resume.go states the extent). The
- * grant's namespace and labels still apply: a deployment outside them reads
- * ABSENT, so this wakes on "not there" rather than on a permission error.
+ * The kind's read capability still applies, and every resume expression is
+ * evaluated with a FIXED capability set that excludes `secrets:read`
+ * (internal/reconcilehost/resume.go states the extent). The grant's namespace
+ * and labels still apply too: an object outside them reads ABSENT, so this wakes
+ * on "not there" rather than on a permission error.
+ *
+ * Renamed from `replicasNe`, and generalised with it - the field is a parameter
+ * because `Get` made every field reachable, so a builder per field would be the
+ * shape the collapse removed.
  */
-export const replicasNe = <N extends WorkloadName>(
-  name: N,
-  n: number,
-  ...___: RefusesAPath<N>
-): Resume => E.ne(E.replicas(name), n)
-
-/** Wake when a DEPLOYMENT is gone — or, until it exists, when it appears. */
-export const workloadMissing = <N extends WorkloadName>(
-  name: N,
-  ...___: RefusesAPath<N>
-): Resume => E.not(E.exists(E.replicas(name)))
+export const fieldNe = (path: ApiPath, field: string, n: number): Resume =>
+  E.ne(E.get(path, field), n)
 
 // ---------------------------------------------------------------------------
 // DERIVING A RESUME FROM WHAT THE STEP ACTUALLY OBSERVED.
@@ -616,8 +645,18 @@ export const workloadOf = (observed: ApiPath): WorkloadName => {
  * scaler writes - for the reasons `replicasNe` sets out at length: a pod census
  * lags, flaps during a rollout, and cannot see a spec change to the same count.
  */
-export const untilDrift = (observed: ApiPath, seen: number): Resume =>
-  E.ne(E.replicas(workloadOf(observed)), seen)
+export const untilDrift = (observed: ApiPath, seen: number): Resume => {
+  // ***THE NAME IS DISCARDED AND THAT IS THE POINT.*** `workloadOf` exists to
+  // pull a NAME out of a path, because the read symbol took a bare name and a
+  // park therefore had to be re-addressed in a second vocabulary. `Get` takes
+  // the path, so the round trip is gone - what is left of that call here is its
+  // VALIDATION, which still matters: it refuses a path that does not address a
+  // deployment, and refuses a subresource (`.../scale`), which is a different
+  // object than the one this parks on.
+  workloadOf(observed)
+
+  return fieldNe(observed, 'spec.replicas', seen)
+}
 
 /**
  * Wake at an ABSOLUTE deadline, in epoch millis.
