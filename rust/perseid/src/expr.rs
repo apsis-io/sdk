@@ -462,6 +462,27 @@ pub fn set_replicas(path: &crate::path::ApiPath, n: impl IntLike) -> Expr<Effect
     ))
 }
 
+/// `Ensure(path, field, value) -> effect`. Sets ONE key on a ConfigMap.
+///
+/// ***THE WRITE BOUNDARY IS FIELD-SCOPED FOR THIS ONE, AND A BARE PATH GRANTS
+/// NOTHING.*** `spec.writes` must declare `path#field`. `spec.writes` is an
+/// OBJECT boundary and was safe only because every verb was narrow - a declared
+/// Deployment path granted "set one integer". A field-writing verb would, on the
+/// same declaration, grant whatever that field is worth, and every path already
+/// declared would gain it with no CR edited.
+///
+/// ConfigMap keys only: a key is inert data, where a pod-template field would be
+/// arbitrary code execution under that workload's identity.
+#[must_use]
+pub fn ensure(path: &crate::path::ApiPath, field: &str, value: &str) -> Expr<Effect> {
+    Expr::new(format!(
+        "Ensure({}, {}, {})",
+        lit(path.as_str()),
+        lit(field),
+        lit(value)
+    ))
+}
+
 /// The three spellings the Kubernetes CRD enumerates for a condition status.
 ///
 /// An enum and not a string: the CRD accepts exactly these, and a lower-cased

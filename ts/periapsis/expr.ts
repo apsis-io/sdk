@@ -320,6 +320,28 @@ export const setReplicas = (path: ApiPath, n: IntLike): Expr<'effect'> =>
   mk(`SetReplicas(${lit(path)}, ${intText(n)})`)
 
 /**
+ * `Ensure(path, field, value) -> effect`. Sets ONE key on a ConfigMap.
+ *
+ * ***THE WRITE BOUNDARY IS FIELD-SCOPED FOR THIS ONE, AND A BARE PATH GRANTS
+ * NOTHING.*** `spec.writes` must declare `path#field`:
+ *
+ *     writes:
+ *       - /api/v1/namespaces/default/configmaps/cfg#mode
+ *
+ * That is not ceremony. `spec.writes` is an OBJECT boundary and was safe only
+ * because every verb was narrow - a declared Deployment path granted "set one
+ * integer". A verb that writes a FIELD would, on the same declaration, grant
+ * whatever that field is worth, and every path already declared in the cluster
+ * would gain it with no CR edited. So the field is declared or the write is
+ * refused.
+ *
+ * ConfigMap keys only, deliberately: a key is inert data, where a pod-template
+ * field would be arbitrary code execution under that workload's identity.
+ */
+export const ensure = (path: ApiPath, field: string, value: string): Expr<'effect'> =>
+  mk(`Ensure(${lit(path)}, ${lit(field)}, ${lit(value)})`)
+
+/**
  * `SetCondition(type, status, reason, message) -> effect`. SELF-TARGETED.
  *
  * ***IT TAKES NO PATH, AND THAT IS THE POINT.*** The subject is the grant's own
