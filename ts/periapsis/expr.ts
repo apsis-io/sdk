@@ -364,9 +364,41 @@ function valueText(v: EnsureValue): string {
  *
  * Values are scalars, `computed(...)` expressions, or nested `StructValue`s.
  */
-export type StructValue = { [k: string]: EnsureValue | StructValue }
+export type StructShape = { [k: string]: EnsureValue | StructShape }
 
-const isStruct = (v: EnsureValue | StructValue): v is StructValue =>
+declare const bodyOf: unique symbol
+
+/**
+ * An object body, CANONICAL BY CONSTRUCTION.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***BRANDED, SO ONLY A KINDED BUILDER CAN MAKE ONE*** (engi, 2026-08-30:
+ * "deprecate structured value"). This is the same discipline `ApiPath` uses and
+ * for the same reason: a hand-written value is exactly the thing that goes
+ * wrong.
+ *
+ * A raw `create(path, {spec: {...}})` let a caller pair a Deployment path with a
+ * ConfigMap body, spell `replcas`, or put `data` on a workload. The host refuses
+ * some of that and the apiserver the rest - at APPLY time, inside an obligation
+ * the ledger has already recorded, with `create` returning nothing to the guest
+ * by contract. Late and silent, which is what this SDK exists to move to the
+ * compiler.
+ *
+ * The wire form is unchanged: the host still parses `Create(path, {...})`, and
+ * it must, because that IS the obligation. What changed is that no guest writes
+ * one by hand.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export type StructValue = StructShape & { readonly [bodyOf]: 'object-body' }
+
+/**
+ * Brand a shape as a body. NOT EXPORTED FROM THE PACKAGE INDEX: this is how a
+ * kinded builder produces one, and handing it to a caller would retire the
+ * brand's whole purpose.
+ */
+export const asBody = (s: StructShape): StructValue => s as StructValue
+
+const isStruct = (v: EnsureValue | StructShape): v is StructShape =>
   typeof v === 'object' && v !== null && !(computedOf in (v as object))
 
 /**
@@ -380,7 +412,7 @@ const isStruct = (v: EnsureValue | StructValue): v is StructValue =>
  * ledger would see a new obligation every pass, re-applying a create it had
  * already performed, forever, with nothing erroring.
  */
-const structText = (v: StructValue): string => {
+const structText = (v: StructShape): string => {
   const parts = Object.keys(v)
     .sort()
     .map((k) => {
@@ -402,8 +434,8 @@ const structText = (v: StructValue): string => {
  * the string `spec.writes` was checked against, and a body that could name a
  * different object would put it outside the approved address.
  */
-export const create = (path: ApiPath, body: StructValue): Expr<'effect'> =>
-  mk(`Create(${lit(path)}, ${structText(body)})`)
+export const create = (o: { path: ApiPath; body: StructValue }): Expr<'effect'> =>
+  mk(`Create(${lit(o.path)}, ${structText(o.body)})`)
 
 /**
  * `Delete(path) -> effect`. Remove the object a path names.

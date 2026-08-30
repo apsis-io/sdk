@@ -23,9 +23,10 @@ import {
   and,
   ensure,
   computed,
+  create,
   setCondition,
 } from './expr'
-import { type Resume, quiesce, path } from './perseid'
+import { type Resume, quiesce, path, kinds } from './perseid'
 
 const DEP = path.ns('default').deployments('api')
 const POD = path.ns('default').pods('web')
@@ -198,3 +199,49 @@ export function runtimeGuards(): void {
 
   console.log('expr.test.ts: runtime guards pass')
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ***A HAND-WRITTEN BODY IS NOT ASSIGNABLE*** (engi, 2026-08-30: "deprecate
+// structured value").
+//
+// `StructValue` is branded, so only a kinded builder can produce one - the same
+// discipline `ApiPath` uses. The raw two-argument `create(path, {...})` let a
+// caller pair a Deployment path with a ConfigMap body, misspell a field, or put
+// `data` on a workload; the host refuses some of that and the apiserver the
+// rest, at APPLY time, inside an obligation the ledger has already recorded,
+// with `create` returning nothing to the guest.
+//
+// These are `@ts-expect-error`, so the BUILD is the assertion: if the brand ever
+// stops refusing, tsgo fails on the unused directive rather than passing
+// quietly. That is the only instrument in the tree that can see a type that
+// should not exist.
+// ═══════════════════════════════════════════════════════════════════════════
+export const _aHandWrittenBodyIsRefused = () => {
+  const p = path.ns('default').deployments('api')
+
+  // @ts-expect-error a bare object literal is not a StructValue - only a builder makes one
+  create({ path: p, body: { spec: { replicas: 3 } } })
+
+  // @ts-expect-error and neither is an empty one
+  create({ path: p, body: {} })
+}
+
+// ...and the builder's output IS accepted, or the block above would pass for a
+// `create` that refuses everything.
+export const _aBuiltObjectIsAccepted = (): Expr<'effect'> =>
+  create(
+    kinds.ns('default').deployment('api', {
+      replicas: 3,
+      selector: { app: 'api' },
+      containers: [{ name: 'api', image: 'nginx:alpine' }],
+    }),
+  )
+
+// The untyped escape hatch still goes through the facade, so it is paired and
+// namespaced even though its body is not typed.
+export const _theEscapeHatchIsStillPaired = (): Expr<'effect'> =>
+  create(
+    kinds
+      .ns('default')
+      .resource('acme.example', 'v1', 'widgets', 'w1', { spec: { size: 3 } }),
+  )

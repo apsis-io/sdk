@@ -1440,3 +1440,183 @@ export function* select<T extends readonly Step<any, any>[]>(
   return (yield { op: '@select', args: steps } as SelectEff) as any
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// KINDED, TYPED OBJECT BUILDERS - THE FACADE OVER `create`.
+//
+// engi, 2026-08-30: *"facaded kinded typed object builder"*.
+//
+// `create(path, body)` is the primitive and it is two loose arguments over an
+// untyped map:
+//
+//	create(path.ns('default').deployments('api'), { spec: { replicas: 3 } })
+//
+// Nothing there stops you pairing a Deployment path with a ConfigMap body, or
+// spelling `replcas`, or putting `data` on a workload. The host would refuse
+// some of that and the apiserver the rest - at APPLY time, inside an obligation
+// the ledger has already recorded, with `create` returning nothing to the guest
+// by contract. So the failure arrives late and silently, which is the shape this
+// SDK exists to move to the compiler.
+//
+// # THE THREE WORDS
+//
+//	FACADED  one scoping object holds the namespace, so it is stated once
+//	         rather than repeated per call - and it cannot drift between the
+//	         path and the body, because there is only one of it
+//	KINDED   a method per kind, which PAIRS the path and the body. They are
+//	         built together from one call, so they cannot disagree
+//	TYPED    the options are typed per kind, so a wrong field is a compile
+//	         error rather than an apiserver rejection nobody sees
+//
+// # WHY THERE IS NO `pod(...)`, AND IT IS NOT AN OVERSIGHT
+//
+// ⛔ Pods are in the host's `unwritableKinds` and CREATE is the worse half of
+// that exclusion. An obligation is applied with RADIANT'S credential, and the
+// seam-binding admission policy exempts exactly that identity ON PODS - so a
+// program that could create a pod could bring one into existence with
+// `radiant.apsis/link` already set, through the one identity the policy lets
+// past. Patching a pod is that hole from the inside; creating one is it with the
+// door held open.
+//
+// `podTemplate` below is a different thing and is legitimate: a pod TEMPLATE is
+// a FIELD of a Deployment or a Job, not a pod object, and those kinds are
+// writable.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** A path and the body that belongs with it, built together so they agree. */
+export type KindedObject = { readonly path: ApiPath; readonly body: E.StructValue }
+
+/** Labels/annotations: a flat string map, which is what the apiserver accepts. */
+export type Meta = { labels?: Record<string, string>; annotations?: Record<string, string> }
+
+const metaOf = (m?: Meta): E.StructShape | undefined => {
+  if (!m) return undefined
+  const out: E.StructShape = {}
+  if (m.labels) out.labels = { ...m.labels }
+  if (m.annotations) out.annotations = { ...m.annotations }
+
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+const withMeta = (body: E.StructShape, m?: Meta): E.StructValue => {
+  const meta = metaOf(m)
+
+  // ***NO metadata.name AND NO metadata.namespace, EVER.*** The host REFUSES a
+  // create body that names its own identity, because the path is the string
+  // spec.writes was checked against and a body that could name a different
+  // object would land it outside the approved address. `Meta` therefore offers
+  // labels and annotations and nothing else - the type is the reason a caller
+  // cannot try.
+  return E.asBody(meta ? { ...body, metadata: meta } : body)
+}
+
+/** A container, as a workload's pod template holds one. */
+export type Container = {
+  name: string
+  image: string
+  command?: string[]
+  args?: string[]
+  env?: Record<string, string>
+}
+
+/**
+ * `spec.template` for a workload - a pod TEMPLATE, not a pod.
+ *
+ * This is the legitimate half of what a "pod builder" would be: the template is
+ * a field of a Deployment or a Job, both of which are writable, where a pod
+ * OBJECT is refused by the host for the seam-binding reason above.
+ */
+export const podTemplate = (containers: Container[], m?: Meta): E.StructValue =>
+  withMeta(
+    {
+      spec: {
+        containers: containers.map((c) => {
+          const out: E.StructShape = { name: c.name, image: c.image }
+          if (c.command) out.command = [...c.command] as unknown as E.StructShape
+          if (c.args) out.args = [...c.args] as unknown as E.StructShape
+          if (c.env) {
+            out.env = c.env as unknown as E.StructShape
+          }
+
+          return out
+        }) as unknown as E.StructShape,
+      },
+    },
+    m,
+  )
+
+export type DeploymentSpec = {
+  replicas: number | E.Expr<'int'> | E.Expr<'observed-int'> | E.Expr<'value'>
+  selector: Record<string, string>
+  containers: Container[]
+  meta?: Meta
+}
+
+export type ConfigMapSpec = { data: Record<string, string>; meta?: Meta }
+
+export type SecretSpec = { stringData: Record<string, string>; meta?: Meta; type?: string }
+
+/**
+ * The scoping facade. One namespace, stated once.
+ *
+ *     const k = kinds.ns('default')
+ *     create(k.deployment('api', { replicas: 3, selector: {app: 'api'},
+ *                                  containers: [{name: 'api', image: 'nginx'}] }))
+ *
+ * The namespace cannot drift between the path and the body because the body
+ * never carries one - see `withMeta`.
+ */
+export const kinds = {
+  ns: <NS extends Namespace>(namespace: NS) => ({
+    /** `apps/v1 Deployment`. */
+    deployment: <N extends WorkloadName>(name: N, s: DeploymentSpec): KindedObject => ({
+      path: path.ns(namespace).deployments(name),
+      body: withMeta(
+        {
+          spec: {
+            replicas: s.replicas,
+            selector: { matchLabels: { ...s.selector } },
+            template: podTemplate(s.containers, { labels: s.selector }),
+          },
+        },
+        s.meta,
+      ),
+    }),
+
+    /** `v1 ConfigMap`. */
+    configMap: (name: string, s: ConfigMapSpec): KindedObject => ({
+      path: path.ns(namespace).core('v1', 'configmaps', name),
+      body: withMeta({ data: { ...s.data } }, s.meta),
+    }),
+
+    /**
+     * `v1 Secret`.
+     *
+     * `stringData` rather than `data`, deliberately: `data` is base64 and a
+     * builder that took it would invite a caller to hand over plaintext in a
+     * field the apiserver decodes. The apiserver encodes `stringData` itself.
+     */
+    secret: (name: string, s: SecretSpec): KindedObject => ({
+      path: path.ns(namespace).core('v1', 'secrets', name),
+      body: withMeta(
+        s.type ? { stringData: { ...s.stringData }, type: s.type } : { stringData: { ...s.stringData } },
+        s.meta,
+      ),
+    }),
+
+    /**
+     * ***THE ESCAPE HATCH, AND IT IS UNTYPED ON PURPOSE.*** A CRD has no static
+     * type here - the point of `Get`/`Ensure`/`Create` taking paths is that a
+     * kind needs no entry anywhere - so this pairs an arbitrary GVR with an
+     * arbitrary body. What it still gives over raw `create` is the FACADE (one
+     * namespace) and the PAIRING (path and body from one call).
+     *
+     * When a CRD earns a typed builder, add one beside `deployment` above; this
+     * is what you use until then, not a thing to be avoided.
+     */
+    resource: (group: string, version: string, plural: string, name: string, body: E.StructShape):
+      KindedObject => ({
+      path: path.ns(namespace).resource(group, version, plural, name),
+      body: E.asBody(body),
+    }),
+  }),
+}
