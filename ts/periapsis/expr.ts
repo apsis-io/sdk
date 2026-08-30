@@ -322,21 +322,20 @@ export const setReplicas = (path: ApiPath, n: IntLike): Expr<'effect'> =>
 /**
  * `Ensure(path, field, value) -> effect`. Sets ONE key on a ConfigMap.
  *
- * ***THE WRITE BOUNDARY IS FIELD-SCOPED FOR THIS ONE, AND A BARE PATH GRANTS
- * NOTHING.*** `spec.writes` must declare `path#field`:
+ * ***THE DECLARATION IS THE OBJECT.*** `spec.writes` names the ConfigMap and
+ * that is complete access to it - which key you write is not a second grant:
  *
  *     writes:
- *       - /api/v1/namespaces/default/configmaps/cfg#mode
+ *       - /api/v1/namespaces/default/configmaps/cfg
  *
- * That is not ceremony. `spec.writes` is an OBJECT boundary and was safe only
- * because every verb was narrow - a declared Deployment path granted "set one
- * integer". A verb that writes a FIELD would, on the same declaration, grant
- * whatever that field is worth, and every path already declared in the cluster
- * would gain it with no CR edited. So the field is declared or the write is
- * refused.
+ * A field-scoped boundary was tried and removed: enumerating keys does not
+ * scale, and `spec.writes` exists for admission-time CONFLICT DETECTION, which
+ * reasons about objects - so field-scoping would have made two programs writing
+ * one object stop looking like a conflict.
  *
- * ConfigMap keys only, deliberately: a key is inert data, where a pod-template
- * field would be arbitrary code execution under that workload's identity.
+ * What bounds this instead is the KIND (configmaps, refused at emit for any
+ * other path), its OWN capability (`radiant:reconcile/ensure`, so no existing
+ * scaler gains it), and the grant's namespace.
  */
 export const ensure = (path: ApiPath, field: string, value: string): Expr<'effect'> =>
   mk(`Ensure(${lit(path)}, ${lit(field)}, ${lit(value)})`)

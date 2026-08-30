@@ -464,15 +464,15 @@ pub fn set_replicas(path: &crate::path::ApiPath, n: impl IntLike) -> Expr<Effect
 
 /// `Ensure(path, field, value) -> effect`. Sets ONE key on a ConfigMap.
 ///
-/// ***THE WRITE BOUNDARY IS FIELD-SCOPED FOR THIS ONE, AND A BARE PATH GRANTS
-/// NOTHING.*** `spec.writes` must declare `path#field`. `spec.writes` is an
-/// OBJECT boundary and was safe only because every verb was narrow - a declared
-/// Deployment path granted "set one integer". A field-writing verb would, on the
-/// same declaration, grant whatever that field is worth, and every path already
-/// declared would gain it with no CR edited.
+/// ***THE DECLARATION IS THE OBJECT.*** `spec.writes` names the ConfigMap and
+/// that is complete access to it; which key you write is not a second grant. A
+/// field-scoped boundary was tried and removed - enumerating keys does not
+/// scale, and `spec.writes` exists for admission-time CONFLICT DETECTION, which
+/// reasons about objects.
 ///
-/// ConfigMap keys only: a key is inert data, where a pod-template field would be
-/// arbitrary code execution under that workload's identity.
+/// What bounds this instead is the KIND (configmaps, refused at emit for any
+/// other path), its OWN capability (`radiant:reconcile/ensure`), and the grant's
+/// namespace.
 #[must_use]
 pub fn ensure(path: &crate::path::ApiPath, field: &str, value: &str) -> Expr<Effect> {
     Expr::new(format!(
