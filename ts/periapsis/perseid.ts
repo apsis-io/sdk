@@ -971,11 +971,19 @@ export function retry<W extends string>(why: W extends '' ? never : W): Finalize
  * contract around it, which is why this is a distinct export rather than a flag:
  * the two must not be reachable from one another by accident.
  */
-export function runFinalize<E extends AnyEffect, A>(
-  finalize: () => Step<E, A>,
+export function runFinalize<E extends AnyEffect>(
+  finalize: () => Step<E, FinalizeOutcome>,
   handler: HandlerArg<E>,
-): A {
-  return runStep(finalize, handler)
+): FinalizeOutcome {
+  // ***THE OUTCOME TYPE IS PINNED HERE TOO, NOT LEFT GENERIC.*** It was `<E, A>`
+  // for one commit, which typechecked a finalizer returning ANYTHING - including
+  // a step's `Outcome`, which is the one wrong value most likely to be passed by
+  // someone adapting an existing program. The entrypoint would then hand the
+  // component model a `{o: 'yield'}` where a variant was declared.
+  return (runStep as unknown as (f: () => Step<E, FinalizeOutcome>, h: HandlerArg<E>) => FinalizeOutcome)(
+    finalize,
+    handler,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -1310,6 +1318,35 @@ export const reconcile = {
  * the program runs, which is the point.
  */
 export function defineStep<E extends AnyEffect>(body: () => Step<E, Outcome>): () => Step<E, Outcome> {
+  return body
+}
+
+/**
+ * `defineStep` for the deletion path: the same inference, a different outcome.
+ *
+ * ***A SEPARATE FUNCTION RATHER THAN MAKING `defineStep` GENERIC IN ITS
+ * OUTCOME.*** The whole value of `defineStep` is that it PINS the return type -
+ * a generator whose outcome is inferred would accept a step that falls off the
+ * end returning `undefined`, or one that returns a bare string, and the error
+ * would surface at the entrypoint as a shape mismatch rather than at the
+ * `return` that caused it. Widening it to `A` to serve two callers would give
+ * that up for both.
+ *
+ * ***AND KEEPING THEM APART IS WHAT MAKES THE TWO CONTRACTS UNCONFUSABLE.*** A
+ * step may park, a finalizer may not; a finalizer may `retry`, a step may not.
+ * Because the two definers pin different outcome types, `quiesce(...)` inside a
+ * finalizer is a compile error at the return statement, and `retry(...)` inside
+ * a step is too. One generic function would accept both in either place and the
+ * host would refuse it at runtime - on the deletion path, against an object that
+ * cannot be deleted while you find out.
+ *
+ * This existed as a gap for exactly one commit: `runFinalize` shipped in
+ * eb751d377 with no way to DEFINE the generator it drives, so the first program
+ * to try one did not compile. Found by writing that program.
+ */
+export function defineFinalize<E extends AnyEffect>(
+  body: () => Step<E, FinalizeOutcome>,
+): () => Step<E, FinalizeOutcome> {
   return body
 }
 
