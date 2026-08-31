@@ -1066,6 +1066,13 @@ export const WIT_OBSERVE = 'radiant:reconcile/observe@0.1.0'
 export const WIT_OBSERVE_CLUSTER = 'radiant:reconcile/observe-cluster@0.1.0'
 export const WIT_WORKLOADS = 'radiant:reconcile/workloads@0.1.0'
 export const WIT_STATUS = 'radiant:reconcile/status@0.1.0'
+// ***THE INTERFACE IS THE GRANT, WHICH IS WHY THESE ARE SEPARATE IDS.***
+// `internal/aperture/effects.go` scopes WIT_WORKLOADS to the single field
+// `spec.replicas`; WIT_ENSURE writes ANY field, and WIT_DELETE removes the
+// object outright. A program that may scale a Deployment must not thereby be
+// able to rewrite its image or delete it, so they cannot share an id.
+export const WIT_ENSURE = 'radiant:reconcile/ensure@0.1.0'
+export const WIT_DELETE = 'radiant:reconcile/delete@0.1.0'
 
 /** The interfaces this SDK knows. Autocompletion comes from this union. */
 export type KnownWit =
@@ -1074,6 +1081,8 @@ export type KnownWit =
   | typeof WIT_OBSERVE_CLUSTER
   | typeof WIT_WORKLOADS
   | typeof WIT_STATUS
+  | typeof WIT_ENSURE
+  | typeof WIT_DELETE
 
 /**
  * The SHAPE of a WIT interface id: `namespace:package/interface@major.minor.patch`.
@@ -1236,6 +1245,26 @@ export type ScaleArgs = {
  * `Obs<number>` depends on what its handler converts to. Fixing it here would
  * force a cast at exactly the boundary that exists to prevent one.
  */
+/**
+ * What `reconcile.ensure` takes.
+ *
+ * ***THE VALUE MIRRORS THE WIT VARIANT RATHER THAN BEING A BARE UNION OF
+ * PRIMITIVES.*** `{ text: '3' }` and `{ num: 3 }` are different writes, and a
+ * plain `string | number | boolean` would make them indistinguishable the moment
+ * a caller passed a value whose type came from somewhere else - which is exactly
+ * how a numeric field ends up holding a string.
+ */
+export type EnsureValue =
+  | { readonly text: string }
+  | { readonly num: number }
+  | { readonly flag: boolean }
+
+export type EnsureArgs = {
+  readonly path: ApiPath
+  readonly field: string
+  readonly value: EnsureValue
+}
+
 export const reconcile = {
   /** `observe.get(path) -> obs`. The path is an apiserver path, not a field name. */
   observe: <T = string>() => defineEffect<ApiPath, Obs<T>>()(WIT_OBSERVE, 'get'),
@@ -1267,6 +1296,37 @@ export const reconcile = {
 
   /** `observe.now() -> u64`. EPOCH MILLISECONDS, UTC. */
   now: () => defineEffect<void, number>()(WIT_OBSERVE, 'now'),
+
+  /**
+   * Write ANY field of any object the aperture allows.
+   *
+   * ***THE VALUE IS TYPED BECAUSE THE EXPRESSION LANGUAGE IS.*** `Ensure(p,
+   * "spec.replicas", 3)` sets a NUMBER; `Ensure(p, "data.x", "3")` sets the
+   * one-character STRING. Both parse and both apply, so a mistyped value is a
+   * field set to the wrong thing rather than an error - which is why this
+   * mirrors the WIT variant instead of taking a `string`.
+   *
+   * ***A `text` VALUE IS NEVER EVALUATED.*** `text: 'Now()'` writes those five
+   * characters. That is the same decision `expr.ts` records for `ensure`'s bare
+   * literal: deciding by the string's SHAPE was tried and thrown away, because a
+   * ConfigMap value that happens to read like an expression would be evaluated
+   * instead of stored.
+   */
+  ensure: () => defineEffect<EnsureArgs, void>()(WIT_ENSURE, 'ensure'),
+
+  /**
+   * Remove an object.
+   *
+   * SEPARATE FROM `ensure` BECAUSE THE INTERFACE IS THE GRANT - editing a
+   * ConfigMap's data and deleting it are different authorities, and
+   * `internal/aperture` keeps `IfaceEnsure` and `IfaceDelete` apart for that
+   * reason.
+   *
+   * IDEMPOTENT BY CONTRACT: the applier treats NotFound as success. That matters
+   * most in a FINALIZER, which runs on a fresh instance every attempt and so
+   * must re-declare its cleanup each time with no memory of the last.
+   */
+  del: () => defineEffect<ApiPath, void>()(WIT_DELETE, 'delete'),
 
   /** `workloads.scale(path, replicas)`. Returns nothing on purpose — see the WIT. */
   scale: () => defineEffect<ScaleArgs, void>()(WIT_WORKLOADS, 'scale'),
