@@ -1294,6 +1294,14 @@ export type EnsureValue =
 // handler tried to lower a value — the only place the two shapes meet.
 
 
+/** One field of a create body: a DOTTED path and a typed value. */
+export type CreateField = { readonly path: string; readonly value: EnsureValue }
+
+export type CreateArgs = {
+  readonly path: ApiPath
+  readonly body: readonly CreateField[]
+}
+
 export type EnsureArgs = {
   readonly path: ApiPath
   readonly field: string
@@ -1362,6 +1370,7 @@ export const reconcile = {
    * must re-declare its cleanup each time with no memory of the last.
    */
   del: () => defineEffect<ApiPath, void>()(WIT_DELETE, 'delete'),
+
 
   /** `workloads.scale(path, replicas)`. Returns nothing on purpose — see the WIT. */
   /**
