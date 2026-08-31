@@ -896,6 +896,89 @@ export function quiesce<R extends Resume>(resume: R extends '' ? never : R): Out
 }
 
 // ---------------------------------------------------------------------------
+// FINALIZE — the deletion path (engi, 2026-08-30: "finalizers can be a
+// different entrypoint").
+//
+// ***A DIFFERENT OUTCOME TYPE, AND THE ABSENCES ARE THE CONTRACT.*** There is no
+// `quiesce` here and no failure case, and neither is an oversight:
+//
+//	NO PARK      a finalizer runs while an object is UNDELETABLE. A park that
+//	             held one would be indistinguishable from a correct wait, and
+//	             both render as a `waitingFor`. `quiesce` is not in this union,
+//	             so it is UNSPELLABLE rather than refused.
+//	NO FAILURE   a terminal failure leaves an object undeletable with no path
+//	             forward - the exact outcome the split entrypoint exists to
+//	             prevent. `retry(reason)` is the honest encoding: either it
+//	             eventually completes, or an operator reads why it has not.
+//
+// The host bounds the retrying (a deadline from `metadata.deletionTimestamp`),
+// so a finalizer that never succeeds costs a delayed delete and a Warning Event,
+// never a wedged object.
+//
+// ***A VARIANT RATHER THAN JSON, WHICH IS WHERE THIS DIFFERS FROM `step`.***
+// `step.run` returns a string because its outcome carries a resume EXPRESSION -
+// open-ended text the type system cannot check. A finalize outcome is closed and
+// tiny, so `wit/reconcile/reconcile.wit` declares it as a variant and the
+// component model carries the shape. `tag`/`val` is the jco lowering.
+export type FinalizeOutcome =
+  | { readonly tag: 'done' }
+  | { readonly tag: 'retry'; readonly val: string }
+
+/** Cleanup is complete; the host may remove the finalizer and the object goes. */
+export const cleanupDone: FinalizeOutcome = { tag: 'done' }
+
+/**
+ * Not yet - the host will call again, bounded by its deadline.
+ *
+ * ***AN EMPTY REASON IS A COMPILE ERROR, THE SAME MECHANISM `quiesce` USES AND
+ * FOR A SHARPER REASON.*** A retry HOLDS AN OBJECT UNDELETABLE, so the reason is
+ * the only thing an operator can act on - and `reconcilehost.finalizeFromReply`
+ * already refuses a blank one at runtime ("finalize asked to RETRY with no
+ * reason"). This changes nothing about whether it works; it changes when you
+ * find out, from a live delete that will not complete to the build.
+ *
+ * The mechanism is the parameter type, not the doc: when `W` infers as the
+ * literal `''` the parameter resolves to `never`, which is uninhabited.
+ *
+ * ***THE REASON MUST ALSO BE STABLE ACROSS ATTEMPTS, AND NOTHING CAN ENFORCE
+ * THAT.*** The host emits it as a Kubernetes Event on every held tick, and the
+ * apiserver aggregates repeated Events only when the text matches EXACTLY - so a
+ * reason carrying a timestamp, an elapsed duration or an attempt counter
+ * produces one Event row per tick and the apiserver then drops the message
+ * entirely in favour of "(combined from similar events)". Measured on
+ * 2026-08-31: 58 rows for one object, message discarded. Say WHAT you are
+ * waiting for, not HOW LONG you have waited - the Event's own count and
+ * timestamps carry the duration.
+ */
+export function retry<W extends string>(why: W extends '' ? never : W): FinalizeOutcome {
+  if ((why as string) === '') {
+    throw new Error(
+      'retry: empty reason. A retry holds the object undeletable, so the reason is the ' +
+        'only thing an operator can act on - the host refuses this ("finalize asked to ' +
+        'RETRY with no reason") and the object would be held with a blank explanation.',
+    )
+  }
+
+  return { tag: 'retry', val: why }
+}
+
+/**
+ * Drive a finalizer generator, exactly as `runStep` drives a step.
+ *
+ * ***THE SAME DRIVER ON PURPOSE.*** A finalizer observes and declares like any
+ * other pass - it is usually mostly writes - so it is the same effect vocabulary
+ * and the same interpreter. What differs is the OUTCOME and the host-side
+ * contract around it, which is why this is a distinct export rather than a flag:
+ * the two must not be reachable from one another by accident.
+ */
+export function runFinalize<E extends AnyEffect, A>(
+  finalize: () => Step<E, A>,
+  handler: HandlerArg<E>,
+): A {
+  return runStep(finalize, handler)
+}
+
+// ---------------------------------------------------------------------------
 // Conditions — the payload of `radiant:reconcile/status@0.1.0`.
 //
 // engi decided the vocabulary 2026-08-25: copy Kubernetes. This mirrors

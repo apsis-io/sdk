@@ -44,6 +44,7 @@ import {
   type Handler,
   type Obs,
   type Outcome,
+  type FinalizeOutcome,
   type Step,
   type EffectsOf,
   type YieldOf,
@@ -55,6 +56,8 @@ import {
   type Canonical,
   type Wit,
   type ScaleArgs,
+  cleanupDone,
+  retry,
   defineEffect,
   defineStep,
   path,
@@ -619,5 +622,68 @@ export function runtimeGuards(): void {
   eq(drive(unknown).outcome, yieldStep, 'unknown yields rather than concluding')
   eq(drive(absent).outcome, terminate, 'absent terminates')
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // FINALIZE - the deletion path's outcome vocabulary.
+  // ═══════════════════════════════════════════════════════════════════════
+  eq(cleanupDone, { tag: 'done' }, 'cleanupDone')
+  eq(retry('pvc still bound'), { tag: 'retry', val: 'pvc still bound' }, 'retry carries its reason')
+
+  // ⚠ ***A RETRY WITH NO REASON THROWS, AND THE TYPE ALREADY REFUSED IT.***
+  // This is the runtime half of a guard whose primary arm is the parameter
+  // type - it catches a reason that is only empty at RUNTIME, which no type can
+  // see. The alternative is an object held undeletable with a blank
+  // explanation, which reads as a host bug rather than as the program's
+  // decision.
+  let retryThrew = false
+  try {
+    // A value merely TYPED string passes the compile-time guard, which is
+    // exactly the case this arm exists for.
+    const computed: string = ''
+    retry(computed)
+  } catch {
+    retryThrew = true
+  }
+  if (!retryThrew) {
+    throw new Error('retry accepted an empty reason computed at runtime, so an object would ' +
+      'be held undeletable with nothing an operator can act on')
+  }
+
   console.log('perseid.test.ts: runtime guards pass')
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ***THE FINALIZE OUTCOME CANNOT SPELL A PARK, AND THAT IS THE WHOLE TYPE.***
+//
+// A finalizer runs while an object is UNDELETABLE. A park that held one would be
+// indistinguishable from a correct wait - both render as a `waitingFor` - so
+// `quiesce` is absent from the union rather than refused at runtime.
+//
+// These are `@ts-expect-error`, so the BUILD is the assertion: if the union ever
+// grows a park, tsgo fails on the unused directive rather than passing quietly.
+// ═══════════════════════════════════════════════════════════════════════════
+export const _aFinalizerCannotPark = () => {
+  // @ts-expect-error a finalizer has no park - `quiesce` is not in FinalizeOutcome
+  const _parked: FinalizeOutcome = { o: 'quiesce', resume: 'x' }
+
+  // @ts-expect-error nor a yield: there is no next pass to yield to
+  const _yielded: FinalizeOutcome = { o: 'yield' }
+
+  // @ts-expect-error and no terminal failure - that is what leaves an object undeletable
+  const _failed: FinalizeOutcome = { tag: 'failed', val: 'nope' }
+}
+
+// ...and the two it CAN spell are accepted, or the block above would pass for a
+// type nothing satisfies.
+export const _theTwoFinalizeOutcomesAreAccepted = (): FinalizeOutcome[] => [
+  cleanupDone,
+  retry('waiting for the volume to detach'),
+]
+
+// ⭐ ***AN EMPTY RETRY REASON IS A COMPILE ERROR.*** Same mechanism `quiesce('')`
+// uses: the literal `''` makes the parameter resolve to `never`. The host
+// refuses it at runtime too ("finalize asked to RETRY with no reason"); this
+// moves the discovery from a live delete that will not complete to the build.
+export const _anEmptyRetryReasonIsRefused = () => {
+  // @ts-expect-error a retry must say what it is waiting for
+  retry('')
 }
