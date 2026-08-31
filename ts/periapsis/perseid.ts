@@ -840,6 +840,34 @@ export const anyOf = (...of: Resume[]): Resume => E.or(...of)
  */
 export const allOf = (...of: Resume[]): Resume => E.and(...of)
 
+/**
+ * Park until the BACKSTOP. Nothing but time will wake this.
+ *
+ * ***THE PRINCIPLED SPELLING OF WHAT `quiesce('')` REFUSES.*** An empty resume
+ * is a compile error because "a park must say what would change its mind" - and
+ * a backstop-only park is a legitimate thing to want, so until boolean literals
+ * entered the grammar there was no way to SAY it. An empty resume meant both "I
+ * forgot" and "nothing will"; now empty means you forgot and this means you
+ * meant it.
+ *
+ * ⚠ ***IT IS ONLY BOUNDED IF A BACKSTOP IS SET.*** With
+ * `-perseid-backstop=off` a program parked on this waits forever and the only
+ * symptom is that its passes counter stops climbing - which is precisely what
+ * ADR-0075 invariant 5 exists to prevent. Reach for a real condition unless the
+ * wake is genuinely time-only.
+ */
+export const untilBackstop: Resume = 'false' as Resume
+
+/**
+ * Re-run at the next poll: a yield that is PACED rather than immediate.
+ *
+ * Differs from `yieldStep` in who decides the interval. A yield says "run me
+ * again now" and the driver's own spin guard is what stops it burning; this
+ * parks properly and comes back at the poll interval, so the pacing is the
+ * host's configuration rather than a floor the driver has to enforce.
+ */
+export const nextPoll: Resume = 'true' as Resume
+
 // ---------------------------------------------------------------------------
 // Outcome. `quiesce` REQUIRES a resume expression — there is no way to say "I am
 // done for now" without saying what would change your mind. The host is expected
@@ -1257,12 +1285,13 @@ export type ScaleArgs = {
 export type EnsureValue =
   | { readonly text: string }
   | { readonly num: number }
-// ⛔ ***NO BOOLEAN ARM — IT MIRRORS THE WIT, WHICH MIRRORS THE GRAMMAR.***
-// `Ensure(p, "d", true)` DOES NOT PARSE, and neither does `Get(p,"d") != true`:
-// the expression language has string and number literals and nothing else. A
-// `{ flag: boolean }` arm survived here for one commit after being removed from
-// the WIT, and the compiler found it the first time a handler tried to lower a
-// value — which is the only place the two shapes meet.
+  | { readonly flag: boolean }
+// ***THE BOOLEAN ARM MIRRORS THE WIT, WHICH MIRRORS THE GRAMMAR — AND ALL THREE
+// MOVED IN ONE DAY.*** It was removed on 2026-08-31 because `Ensure(p,"d",true)`
+// did not parse, and restored hours later when boolean literals were added to
+// the grammar. The intervening commit is the lesson: it survived HERE for one
+// commit after leaving the WIT, and the compiler found it the first time a
+// handler tried to lower a value — the only place the two shapes meet.
 
 
 export type EnsureArgs = {
