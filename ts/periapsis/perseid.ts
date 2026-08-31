@@ -1101,6 +1101,7 @@ export const WIT_STATUS = 'radiant:reconcile/status@0.1.0'
 // able to rewrite its image or delete it, so they cannot share an id.
 export const WIT_ENSURE = 'radiant:reconcile/ensure@0.1.0'
 export const WIT_DELETE = 'radiant:reconcile/delete@0.1.0'
+export const WIT_CREATE = 'radiant:reconcile/create@0.1.0'
 
 /** The interfaces this SDK knows. Autocompletion comes from this union. */
 export type KnownWit =
@@ -1111,6 +1112,7 @@ export type KnownWit =
   | typeof WIT_STATUS
   | typeof WIT_ENSURE
   | typeof WIT_DELETE
+  | typeof WIT_CREATE
 
 /**
  * The SHAPE of a WIT interface id: `namespace:package/interface@major.minor.patch`.
@@ -1370,6 +1372,27 @@ export const reconcile = {
    * must re-declare its cleanup each time with no memory of the last.
    */
   del: () => defineEffect<ApiPath, void>()(WIT_DELETE, 'delete'),
+
+  /**
+   * Create an object.
+   *
+   * ***THE BODY IS A FLAT LIST OF DOTTED PATHS, AND THAT IS A SECURITY
+   * DECISION.*** A JSON object is already valid struct-literal syntax in the
+   * host's grammar, so the tempting shape is a JSON string passed through — an
+   * injection surface: a body of `{"a":1}, Delete("/…/victim")` yields an
+   * expression that PARSES, as a three-argument Create. It is refused today only
+   * because effect symbols do not resolve in argument position, which is defence
+   * by accident. Every token is rendered by the host from typed data instead.
+   *
+   * ⚠ ***KEYS RENDER SORTED AT EVERY LEVEL.*** The ledger keys on the
+   * obligation's bytes, so a body whose order varied between passes would make
+   * an unchanged Create look new every time — applied forever, retired never.
+   *
+   * ⛔ ***NO ARRAYS: A ConfigMap OR A Secret YES, A Deployment NO.*** The
+   * grammar's `[` is postfix indexing, not an array literal. Measured; the
+   * remedy is the grammar, as it was for booleans.
+   */
+  create: () => defineEffect<CreateArgs, void>()(WIT_CREATE, 'create'),
 
 
   /** `workloads.scale(path, replicas)`. Returns nothing on purpose — see the WIT. */
