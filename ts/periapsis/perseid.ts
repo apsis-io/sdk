@@ -1257,7 +1257,13 @@ export type ScaleArgs = {
 export type EnsureValue =
   | { readonly text: string }
   | { readonly num: number }
-  | { readonly flag: boolean }
+// ⛔ ***NO BOOLEAN ARM — IT MIRRORS THE WIT, WHICH MIRRORS THE GRAMMAR.***
+// `Ensure(p, "d", true)` DOES NOT PARSE, and neither does `Get(p,"d") != true`:
+// the expression language has string and number literals and nothing else. A
+// `{ flag: boolean }` arm survived here for one commit after being removed from
+// the WIT, and the compiler found it the first time a handler tried to lower a
+// value — which is the only place the two shapes meet.
+
 
 export type EnsureArgs = {
   readonly path: ApiPath
@@ -1329,6 +1335,24 @@ export const reconcile = {
   del: () => defineEffect<ApiPath, void>()(WIT_DELETE, 'delete'),
 
   /** `workloads.scale(path, replicas)`. Returns nothing on purpose — see the WIT. */
+  /**
+   * @deprecated Use {@link reconcile.ensure} — `ensure(path, 'spec.replicas',
+   * { num: n })` renders the identical obligation, `Ensure(path,
+   * "spec.replicas", n)`. (engi, 2026-08-31: "we deprecated workloads.scale and
+   * status.set".)
+   *
+   * ***STILL LINKED AND STILL CORRECT.*** Deprecated is not removed: components
+   * on the fleet import this interface, and a world's imports are what the host
+   * supplies, so dropping it strands every one of them until rebuilt.
+   *
+   * ⚠ ***ITS GRANT IS NARROWER THAN THE REPLACEMENT'S, WHICH IS THE ONE THING
+   * MIGRATING COSTS.*** `internal/aperture/effects.go` scopes
+   * `radiant:reconcile/workloads@0.1.0` to the single field `spec.replicas`;
+   * `radiant:reconcile/ensure@0.1.0` writes ANY field. A program that only ever
+   * scales is strictly better bounded holding the old capability, so a
+   * migration widens its authority unless the narrowing is replaced by
+   * something. Worth knowing before a sweep.
+   */
   scale: () => defineEffect<ScaleArgs, void>()(WIT_WORKLOADS, 'scale'),
 
   /** `status.set(condition)`. `type` is an IDENTITY: a second set REPLACES. */
