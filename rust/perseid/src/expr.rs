@@ -521,6 +521,24 @@ pub fn create(path: impl PathArg, body: &Struct) -> Expr<Effect> {
     Expr::new(format!("Create({}, {})", path.path_text(), body.render()))
 }
 
+/// `EnsureAll(path, body) -> effect`. SEVERAL fields of one object, ONE apiserver
+/// patch, so a reader can never observe the new value of one beside the old
+/// value of another.
+///
+/// **`ensure` IS ONE FIELD PER OBLIGATION AND OBLIGATIONS APPLY ONE AT A TIME.** A
+/// step writing `data.v` and a `data.t` stamp as two ensures produced a durable
+/// torn pair - 3 of 6 convergences observed with new `v` beside old `t`
+/// (overhead-bench, 2026-09-01). Same body type and renderer as [`create`], so
+/// keys are SORTED: the expression is the ledger identity.
+///
+/// **`spec.replicas` ON AN apps KIND IS REFUSED BY THE HOST** - it goes through the
+/// `/scale` subresource and the apiserver has no write atomic across that
+/// boundary. Use [`ensure`] for the count.
+#[must_use]
+pub fn ensure_all(path: impl PathArg, body: &Struct) -> Expr<Effect> {
+    Expr::new(format!("EnsureAll({}, {})", path.path_text(), body.render()))
+}
+
 /// A structured value: an object body for [`create`].
 ///
 /// **A BUILDER RATHER THAN A MAP LITERAL, SO THE RENDERING IS CANONICAL BY

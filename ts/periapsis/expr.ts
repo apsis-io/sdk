@@ -533,6 +533,27 @@ export const create = <K extends string>(o: {
 }): Expr<'effect'> => mk(`Create(${lit(o.path)}, ${structText(o.body)})`)
 
 /**
+ * `EnsureAll(path, body) -> effect`. SEVERAL fields of one object, ONE apiserver
+ * patch - so a reader can never observe the new value of one field beside the
+ * old value of another.
+ *
+ * ***`ensure` IS ONE FIELD PER OBLIGATION, AND OBLIGATIONS APPLY ONE AT A TIME.***
+ * A step writing `data.v` and a `data.t` stamp as two ensures produced a durable
+ * torn pair: 3 of 6 convergences observed with new `v` beside old `t`
+ * (overhead-bench, 2026-09-01). The body here is the same shape `create` takes and
+ * renders through the same `structText`, so keys are SORTED - the expression is
+ * the ledger identity, and two orderings of one write would be two obligations.
+ *
+ * ⚠ ***`spec.replicas` ON AN apps KIND IS REFUSED BY THE HOST.*** That field goes
+ * through the `/scale` subresource for least privilege, and the apiserver has no
+ * write that is atomic across a subresource boundary. Use `ensure` for the count.
+ */
+export const ensureAll = <K extends string>(o: {
+  readonly path: KindedPath<K>
+  readonly body: KindedBody<NoInferK<K>>
+}): Expr<'effect'> => mk(`EnsureAll(${lit(o.path)}, ${structText(o.body)})`)
+
+/**
  * `Delete(path) -> effect`. Remove the object a path names.
  *
  * ***THE ONLY IRREVERSIBLE VERB IN THIS LANGUAGE.*** Everything else converges

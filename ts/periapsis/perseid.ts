@@ -1310,6 +1310,16 @@ export type EnsureArgs = {
   readonly value: EnsureValue
 }
 
+/**
+ * Arguments to `ensureAll`: several fields of ONE object, applied as ONE write.
+ * Same field shape as `create`, because it is the same thing - a dotted path and
+ * a value - and the host lowers both through the same code.
+ */
+export type EnsureAllArgs = {
+  readonly path: ApiPath
+  readonly fields: readonly CreateField[]
+}
+
 export const reconcile = {
   /** `observe.get(path) -> obs`. The path is an apiserver path, not a field name. */
   observe: <T = string>() => defineEffect<ApiPath, Obs<T>>()(WIT_OBSERVE, 'get'),
@@ -1358,6 +1368,23 @@ export const reconcile = {
    * instead of stored.
    */
   ensure: () => defineEffect<EnsureArgs, void>()(WIT_ENSURE, 'ensure'),
+
+  /**
+   * `ensureAll`: SEVERAL fields of one object in ONE apiserver write, so a reader
+   * can never observe the new value of one field beside the old value of another.
+   *
+   * ***`ensure` IS ONE FIELD PER OBLIGATION, AND OBLIGATIONS APPLY ONE AT A
+   * TIME.*** A relay writing `data.v` and a `data.t` stamp as two `ensure`s had
+   * 3 of 6 convergences observed TORN - new `v` beside old `t`, durably, until the
+   * next pass (overhead-bench, 2026-09-01). Same grant as `ensure`
+   * (`radiant:reconcile/ensure@0.1.0`), same WIT interface, a second function on it.
+   *
+   * ⚠ ***`spec.replicas` ON AN apps KIND IS REFUSED BY THE HOST, WITH THE
+   * REASON.*** That field is written through the `/scale` subresource for least
+   * privilege, and no apiserver write is atomic across a subresource boundary.
+   * `ensure` for the count, `ensureAll` for the rest.
+   */
+  ensureAll: () => defineEffect<EnsureAllArgs, void>()(WIT_ENSURE, 'ensure-all'),
 
   /**
    * Remove an object.
