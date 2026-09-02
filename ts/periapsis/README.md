@@ -9,9 +9,10 @@ for components built with [dwarf](https://github.com/apsis-io/dwarf)
 hand-copied `src/periapsis.ts` per `examples/wasm/*` example into one shared
 module, plus two new pieces (`exec`, `magic`) that had no wrapper before.
 
-Not an npm package - just TypeScript source, imported by relative path (dwarf
-componentizes each consumer's own Vite bundle, so there's nothing to publish
-or install). From an example three levels down (`examples/wasm/<name>/src/`):
+Published as `@apsis-io/periapsis-sdk`. It ships TypeScript SOURCE rather than
+built output - dwarf componentizes each consumer's own Vite bundle, so there is
+nothing to compile here - and its `exports` map resolves `./x.js` to `./x.ts`,
+which is why the imports below carry a `.js` suffix that no `.js` file has:
 
 ```ts
 import { identity } from "@apsis-io/periapsis-sdk/identity.js";
@@ -22,13 +23,18 @@ import { exec } from "@apsis-io/periapsis-sdk/exec.js";
 import { definePlugProvider } from "@apsis-io/periapsis-sdk/magic.js";
 ```
 
-**Building outside this monorepo?** The relative-import path above only
-resolves from inside `apsis-io/periapsis` itself - there's no npm package to
-install. Vendor a local snapshot instead, the same way WIT consumers already
-vendor `periapsis:component` (`wit/sync-consumer.sh`):
+**Cannot install it from a registry?** Vendor a snapshot instead - which is what
+periapsis itself does, because npm and bun cannot resolve a git dependency that
+lives in a subdirectory of a private repo:
 
 ```sh
-../../../ts/sync-consumer.sh vendor/periapsis-sdk   # path relative to your project
+<path-to-this-repo>/sync-consumer.sh ts/periapsis vendor/periapsis-sdk
+```
+
+Then depend on the copy by NAME, so imports do not change:
+
+```json
+"@apsis-io/periapsis-sdk": "file:vendor/periapsis-sdk"
 ```
 
 Copies the whole SDK (every module, `types/`, `fetch-provider/`) into

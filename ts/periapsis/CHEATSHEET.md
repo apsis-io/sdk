@@ -3,7 +3,7 @@
 Quick reference for `ts/periapsis/*.ts`. See [README.md](README.md) for
 full explanations, world-shape constraints, and the stories behind the
 non-obvious bits; this is the fast-lookup version. See
-[`wit/CHEATSHEET.md`](../../../wit/CHEATSHEET.md) for the raw WIT contracts
+periapsis's own `wit/CHEATSHEET.md` for the raw WIT contracts
 these wrap.
 
 **Import per-module, never the barrel** (`index.ts`) — an unused `external`
