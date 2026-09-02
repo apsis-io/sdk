@@ -1,5 +1,5 @@
 // Copyright (C) 2025-2026 Malformed C. All rights reserved.
-// SPDX-License-Identifier: BUSL-1.1
+// SPDX-License-Identifier: Apache-2.0
 //
 // Ergonomic wrappers over the wit-bindgen-generated `trail-host` bindings. See
 // periapsis.h for the public contract and memory rules. The pattern throughout:

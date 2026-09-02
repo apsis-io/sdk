@@ -1,8 +1,17 @@
 [package]
-name = "perseid"
+# Namespaced for the registry, bare for the compiler - the same split
+# apsis-seamwire's Cargo.toml records, and for the same reason: `perseid` is far
+# too generic a global claim, while `use perseid::` is the spelling guests are
+# written against. See [lib] below.
+name = "apsis-perseid"
 version = "0.1.0"
 edition = "2024"
 description = "The Perseid vocabulary for Rust guests: canonical apiserver paths, the aperture expression language, and resume conditions."
+# Apache, not BUSL: this is the GUEST side - what a program links against to run
+# on Periapsis. See the repo's LICENSE for the split.
+license = "Apache-2.0"
+repository = "https://github.com/apsis-io/sdk"
+readme = false
 
 # std-only, and deliberately so - the same call seamwire's Cargo.toml records.
 # This crate is the half every Rust Perseid needs and no guest's runtime should
@@ -11,6 +20,9 @@ description = "The Perseid vocabulary for Rust guests: canonical apiserver paths
 # would be inherited by all of them. What this crate knows is the LANGUAGE, and
 # the language has no runtime.
 [dependencies]
+
+[lib]
+name = "perseid"
 
 [lints.rust]
 missing_docs = "warn"

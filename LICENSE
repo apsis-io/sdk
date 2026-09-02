@@ -1,0 +1,31 @@
+This repository is licensed in TWO PARTS, split along what the code is for.
+Every published package states its own license in its manifest, and every tree
+below carries a copy of the license that governs it. This file only says which
+is which.
+
+## The seam is BUSL-1.1 - see LICENSE-BUSL
+
+    c/magicseam
+    go/magicseam
+    rust/seamwire
+    ts/magicseam
+    zig/magicseam
+
+These implement the magic-seam wire protocol itself - the opcodes, the
+capability negotiation, the mTLS QUIC transport. rust/seamwire is in this list
+despite its name: it IS the magic-seam vocabulary, shared by trail and the comet
+agent rather than by guests.
+
+Change Date and Additional Use Grant are in LICENSE-BUSL; NOTICE summarises
+them.
+
+## The guest side is Apache-2.0 - see LICENSE-APACHE
+
+    c/periapsis
+    rust/perseid
+    ts/periapsis
+
+These are what a program you write links against to run ON Periapsis - the
+periapsis:* WASI interfaces, the Perseid vocabulary, the aperture expression
+language. A guest SDK that restricted its own consumers would defeat its
+purpose, so this half is permissive.

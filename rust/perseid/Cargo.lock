@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "perseid"
+name = "apsis-perseid"
 version = "0.1.0"

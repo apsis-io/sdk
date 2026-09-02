@@ -1,8 +1,18 @@
 [package]
-name = "seamwire"
+# The REGISTRY name is namespaced; the LIB name below is not. crates.io has no
+# scopes, so a bare `seamwire` is a global claim this crate has no business
+# making - but `use seamwire::` is written across trail and cmd/comet/agent and
+# means the same thing it always did. [lib] name keeps that spelling intact, so
+# the rename is invisible to every call site.
+name = "apsis-seamwire"
 version = "0.1.0"
 edition = "2024"
 description = "The magic-seam wire vocabulary: opcodes, capability tokens and capability negotiation."
+# BUSL, not Apache: this crate is the SEAM ITSELF, not the guest side. The split
+# and its reasoning are in the repo's LICENSE.
+license = "BUSL-1.1"
+repository = "https://github.com/apsis-io/sdk"
+readme = false
 
 # std-only, and deliberately so. This crate is the SHARED HALF of the seam that
 # every Rust speaker needs and no speaker's runtime should dictate: trail is
@@ -11,4 +21,5 @@ description = "The magic-seam wire vocabulary: opcodes, capability tokens and ca
 [dependencies]
 
 [lib]
+name = "seamwire"
 path = "src/lib.rs"

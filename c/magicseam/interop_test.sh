@@ -22,7 +22,15 @@
 # you are then not testing this.
 set -u
 
-ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+# PERIAPSIS_SRC, not a relative walk: trail is the reference implementation and
+# it lives in periapsis, which stopped being this SDK's own repo on 2026-09-02.
+# There is no correct number of `..` to write here any more - where a periapsis
+# checkout sits relative to this one is a property of the machine, not the tree.
+#
+# Unset is treated exactly like a missing binary below, which is the whole point:
+# the "cannot run is NOT a pass" rule above already says what to do about absent
+# prerequisites, and the repo split just added one more prerequisite to it.
+ROOT="${PERIAPSIS_SRC:-}"
 TRAIL="$ROOT/cmd/trail/target/release/trail"
 CONSUMER="$ROOT/examples/wasm/magic-consumer/target/wasm32-wasip2/release/magic_consumer.wasm"
 PORT="${INTEROP_PORT:-19590}"
@@ -30,16 +38,17 @@ ALLOW_SKIP=0
 [ "${1:-}" = "--allow-skip" ] && ALLOW_SKIP=1
 
 missing=""
-[ -x "$TRAIL" ] || missing="$missing\n  trail binary:  $TRAIL  (cd cmd/trail && cargo build --release)"
-[ -f "$CONSUMER" ] || missing="$missing\n  consumer wasm: $CONSUMER  (cd examples/wasm/magic-consumer && cargo build --release --target wasm32-wasip2)"
+[ -n "$ROOT" ] || missing="$missing\n  PERIAPSIS_SRC: unset  (point it at a periapsis checkout - trail lives there, not here)"
+[ -x "$TRAIL" ] || missing="$missing\n  trail binary:  $TRAIL  (cd \$PERIAPSIS_SRC/cmd/trail && cargo build --release)"
+[ -f "$CONSUMER" ] || missing="$missing\n  consumer wasm: $CONSUMER  (cd $PERIAPSIS_SRC/examples/wasm/magic-consumer && cargo build --release --target wasm32-wasip2)"
 command -v openssl >/dev/null 2>&1 || missing="$missing\n  openssl"
 if [ -n "$missing" ]; then
   printf '\n*** INTEROP TEST CANNOT RUN - this is NOT a pass ***\nmissing:%b\n\n' "$missing" >&2
   if [ "$ALLOW_SKIP" = "1" ]; then
-    echo "--allow-skip given: skipping. sdk/c is UNVERIFIED against trail's wire." >&2
+    echo "--allow-skip given: skipping. c/magicseam is UNVERIFIED against trail's wire." >&2
     exit 0
   fi
-  echo "Re-run with --allow-skip only if you accept leaving sdk/c unverified." >&2
+  echo "Re-run with --allow-skip only if you accept leaving c/magicseam unverified." >&2
   exit 2
 fi
 

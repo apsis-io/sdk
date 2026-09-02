@@ -1,5 +1,5 @@
 // Copyright (C) 2025-2026 Malformed C. All rights reserved.
-// SPDX-License-Identifier: BUSL-1.1
+// SPDX-License-Identifier: Apache-2.0
 //
 // Minimal example guest exercising every capability of sdk/c/periapsis. Built
 // as a wasm32-wasip3 component that imports the periapsis:component host caps

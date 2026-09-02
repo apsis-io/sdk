@@ -28,3 +28,23 @@ declare const wit: {
     U8: number;
   };
 };
+
+// wasi:sockets/types@0.3.0 - declared here rather than imported, because there
+// is no published .d.ts for a WASI 0.3 world and dwarf generates bindings per
+// component rather than shipping one.
+//
+// ***DELIBERATELY ONLY WHAT sockets.ts TOUCHES.*** A fuller transcription of
+// the WIT would be a second, unverified copy of an interface this package does
+// not implement - and a wrong member here type-checks just as happily as a
+// right one. What is written down is the part that is exercised: send(), and
+// the fact that it returns a FUTURE rather than a promise.
+declare module "wasi:sockets/types@0.3.0" {
+  // send: func(data: stream<u8>) -> future<result<_, error-code>>
+  //
+  // NOT async: the return is a future value that must be .read() explicitly.
+  // TcpSender's constructor documents at length what awaiting it directly
+  // costs, because that was a real bug - the send silently never waited.
+  export interface TcpSocket {
+    send(data: StreamReadableU8): { read(): Promise<unknown> };
+  }
+}

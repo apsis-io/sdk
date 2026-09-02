@@ -1,0 +1,25 @@
+# Repo-wide build artifacts. The per-SDK .gitignore files still stand and are
+# the specific ones (c/magicseam names its own .a, zig/magicseam its zig-out);
+# this file carries only what EVERY language tree here can produce, so a new SDK
+# under a new directory is covered before anyone remembers to add its own.
+#
+# rust/perseid had no .gitignore at all until the extraction - it inherited
+# nothing, because in the monorepo nothing above it needed to say `target/`.
+
+# Rust
+target/
+
+# Go - the module lives at go/, but binaries can land anywhere
+*.test
+*.out
+
+# TypeScript
+node_modules/
+
+# Zig
+.zig-cache/
+zig-out/
+
+# C
+*.o
+*.a

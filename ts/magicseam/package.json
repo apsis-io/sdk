@@ -1,12 +1,26 @@
 {
-  "name": "periapsis-magicseam",
+  "name": "@apsis-io/magicseam",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
-  "description": "Magic-seam (ADR-0028) provider/consumer for a genuinely non-WASM TypeScript program (Node.js/Bun) - the revived MSK1 protocol (magicseam.ts) or the mTLS QUIC transport (quic.ts, ADR-0043), mirroring sdk/go/magicseam. NOT for use inside a dwarf/WASM component - see ../periapsis/magic.ts for that.",
+  "license": "BUSL-1.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apsis-io/sdk.git",
+    "directory": "ts/magicseam"
+  },
+  "files": [
+    "*.ts",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "Magic-seam (ADR-0028) provider/consumer for a genuinely non-WASM TypeScript program (Node.js/Bun) - the revived MSK1 protocol (magicseam.ts) or the mTLS QUIC transport (quic.ts, ADR-0043), mirroring go/magicseam. NOT for use inside a dwarf/WASM component - see ../periapsis/magic.ts for that.",
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "typescript": "7.0.1-rc"
+    "typescript": "7.0.1-rc",
+    "@types/bun": "latest"
   },
   "scripts": {
     "test": "bun test"

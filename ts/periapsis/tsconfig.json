@@ -3,15 +3,20 @@
     "target": "esnext",
     "module": "esnext",
     "moduleResolution": "bundler",
+    "lib": [
+      "esnext",
+      "dom"
+    ],
     "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
     "types": [
       "node",
       "bun"
-    ],
-    "skipLibCheck": true,
-    "noEmit": true
+    ]
   },
   "include": [
-    "*.ts"
+    "*.ts",
+    "types/**/*.d.ts"
   ]
 }

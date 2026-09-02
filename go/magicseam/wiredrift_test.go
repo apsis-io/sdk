@@ -92,6 +92,11 @@ func TestWireCapabilityTokenAgreesWithTrail(t *testing.T) {
 // sdk/rust/seamwire/src/lib.rs when it was extracted into a crate, so trail and
 // cmd/comet/agent link one copy instead of each carrying their own.
 //
+// MOVED AGAIN 2026-09-02, when the SDK left periapsis for its own repo. The
+// vocabulary crate came WITH it, so this read stays in-repo and merely loses a
+// `..` - the drift check it powers is as strong as it was. The SERVED half did
+// not come along, and that one genuinely crossed a repo boundary; see trailSrc.
+//
 // ***THIS TEST CAUGHT THAT MOVE AND THAT IS WHY THE PATH IS STILL WRITTEN OUT.***
 // The extraction shipped green - cargo test, go vet and comettest all passed,
 // because this is a GO test reading RUST source and no build anywhere can see
@@ -111,13 +116,13 @@ func TestWireCapabilityTokenAgreesWithTrail(t *testing.T) {
 // a missing CAP_CONVERSE and a missing byte constant all directed the reader to
 // a file that no longer existed. Each was correct when written. Repointing three
 // string literals would have re-armed exactly that, so the literal exists once.
-const rustWirePath = "sdk/rust/seamwire/src/lib.rs"
+const rustWirePath = "rust/seamwire/src/lib.rs"
 
 func rustStreamWire(t *testing.T) []byte {
 	t.Helper()
-	// Relative to sdk/go/magicseam. Written out rather than searched so a MOVED
+	// Relative to go/magicseam. Written out rather than searched so a MOVED
 	// file fails here instead of being silently not-found somewhere else.
-	path := filepath.Join("..", "..", "..", filepath.FromSlash(rustWirePath))
+	path := filepath.Join("..", "..", filepath.FromSlash(rustWirePath))
 	src, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("cannot read %s, so the two sides are UNCHECKED rather than in "+
@@ -243,8 +248,47 @@ func rustByteConst(t *testing.T, src []byte, name string) byte {
 // present is the finished state. ***One without the other is the bug, in either
 // direction*** - advertising without serving hangs a caller, serving without
 // advertising means nobody ever calls it.
+// trailSrc locates trail's Rust sources, which stopped being a sibling directory
+// on 2026-09-02 when this SDK was extracted into its own repo.
+//
+// ***THE ADVERTISED HALF CAME WITH US AND THE SERVED HALF DID NOT.*** seamwire
+// is a vocabulary and belongs to every speaker, so it moved into this repo;
+// trail's dispatch is an implementation and stayed in periapsis. The pair
+// invariant therefore now reads across a repo boundary, and no repo-relative
+// path can express that - which is exactly what the const above refuses to be
+// used for.
+//
+// ***SO THIS IS A SKIP AND NOT A FATAL, AND THAT IS A REAL WEAKENING.*** Every
+// other unreadable-file path in this file is fatal on the stated principle that
+// an unreadable file must not read as agreement. That principle assumed the file
+// was always THERE - true in a monorepo, false now: a clone of this SDK alone
+// has no periapsis to read, and failing it would mean this repo's own test suite
+// cannot pass on its own. A skip is the honest report of UNCHECKED; a green
+// fatal-free run that never looked would not be.
+//
+// Point PERIAPSIS_SRC at a periapsis checkout to arm it - `PERIAPSIS_SRC=../periapsis
+// go test ./...`, or in CI wherever the two repos are checked out together. Set
+// but unreadable stays FATAL: asking for the check and silently not getting it
+// is the failure mode the whole file exists to prevent.
+func trailSrc(t *testing.T) (string, bool) {
+	t.Helper()
+	root := os.Getenv("PERIAPSIS_SRC")
+	if root == "" {
+		t.Skip("PERIAPSIS_SRC unset, so the advertised/served pair is UNCHECKED " +
+			"rather than clean - trail's dispatch lives in periapsis and this SDK " +
+			"no longer ships beside it. Set PERIAPSIS_SRC to a periapsis checkout " +
+			"to arm this test.")
+		return "", false
+	}
+
+	return filepath.Join(root, "cmd", "trail", "src"), true
+}
+
 func TestWireDrift_ConverseIsAdvertisedIfAndOnlyIfServed(t *testing.T) {
-	dir := filepath.Join("..", "..", "..", "cmd", "trail", "src")
+	dir, ok := trailSrc(t)
+	if !ok {
+		return
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("cannot read %s, so this is UNCHECKED rather than clean: %v", dir, err)

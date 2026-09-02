@@ -107,7 +107,7 @@ describe("serve", () => {
   });
 
   test("rejects an address that is neither unix: nor tcp:", () => {
-    expect(() => serve("bogus:whatever", "0.1.0", (r) => r)).toThrow();
+    expect(() => serve("bogus:whatever", "0.1.0", (_c, request) => request)).toThrow();
   });
 
   test("multiple calls reuse one connection", async () => {
