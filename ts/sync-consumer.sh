@@ -23,13 +23,13 @@
 #   <package>  is periapsis or magicseam.
 #   <dest-dir> is where that package's files land DIRECTLY, not nested under a
 #   subdirectory of its own name - e.g.
-#       ts/sync-consumer.sh periapsis third_party/periapsis-sdk
-#   produces third_party/periapsis-sdk/{package.json,identity.ts,types/,...}.
+#       ts/sync-consumer.sh periapsis sdk/ts/periapsis
+#   produces sdk/ts/periapsis/{package.json,identity.ts,types/,...}.
 #   Resolved relative to the CALLER's cwd.
 #
 # The copy keeps its package.json, so a consumer depends on it BY NAME through a
 # path rather than rewriting imports:
-#   "@apsis-io/periapsis-sdk": "file:../../third_party/periapsis-sdk"
+#   "@apsis-io/periapsis-sdk": "file:../../../sdk/ts/periapsis"
 # which is what lets the same `import ... from "@apsis-io/periapsis-sdk/log.js"`
 # serve a vendored copy today and a published package later.
 #
