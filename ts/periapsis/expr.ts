@@ -131,6 +131,26 @@ function lit(s: string): string {
 const intText = (v: IntLike): string => (typeof v === 'number' ? String(Math.trunc(v)) : v)
 
 // ---------------------------------------------------------------------------
+// The language version.
+
+/**
+ * The expression language this SDK emits, as an integer radiant compares against
+ * the one it speaks. ***PUT IT IN THE PERSEID: `spec.language: 1`.*** Admission
+ * refuses a program whose declared language is newer than the evaluating radiant -
+ * BEFORE a pod, before a pass - instead of the program failing at its first park
+ * with `unknown symbol`. Undeclared is not refused; it is unchecked, and the
+ * failure moves to runtime.
+ *
+ * WHY THE SDK CARRIES IT AND THE ARTIFACT CANNOT: a resume is assembled at
+ * runtime from the constructors in this file, so what a component CAN emit is a
+ * property of the SDK it was built with, not of its bytes. Held equal to
+ * `aperture.LanguageVersion` by a guard in the host's tests; bump it there first.
+ *
+ *     1  2026-09-02  ADR-0101: list, fields
+ */
+export const LANGUAGE_VERSION = 1
+
+// ---------------------------------------------------------------------------
 // Symbols. One per entry in aperture's `signatures` table.
 
 /** `ListPods(selector) -> pods`. A LABEL SELECTOR, never a path. */

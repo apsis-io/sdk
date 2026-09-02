@@ -275,6 +275,26 @@ pub fn now() -> Expr<Int> {
 }
 
 // ---------------------------------------------------------------------------
+// The language version.
+
+/// The expression language this SDK emits, as an integer radiant compares
+/// against the one it speaks. **Put it in the Perseid: `spec.language: 1`.**
+/// Admission refuses a program whose declared language is newer than the
+/// evaluating radiant - before a pod, before a pass - instead of the program
+/// failing at its first park with `unknown symbol`. Undeclared is not refused;
+/// it is unchecked, and the failure moves to runtime.
+///
+/// The SDK carries it because the artifact cannot: a resume is assembled at
+/// runtime from the constructors in this file, so what a component CAN emit is
+/// a property of the SDK it was built with. Held equal to
+/// `aperture.LanguageVersion` by a guard in the host's tests; bump it there first.
+///
+/// ```text
+/// 1  2026-09-02  ADR-0101: list, fields
+/// ```
+pub const LANGUAGE_VERSION: u32 = 1;
+
+// ---------------------------------------------------------------------------
 // Properties.
 
 /// Anything `.exists` may be asked of - i.e. anything actually OBSERVED.
