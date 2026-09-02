@@ -15,7 +15,7 @@
 # retires their half of this without changing a single import, because consumers
 # depend on them BY NAME through the copied package.json.
 #
-# Usage: sync-consumer.sh <tree> <dest-dir>
+# Usage: sync-consumer.sh <tree> <dest-dir> [--exclude PATTERN]...
 #   <tree>     is a path in THIS repo - ts/periapsis, ts/magicseam, c/magicseam.
 #   <dest-dir> is where that tree's files land DIRECTLY, not nested under a
 #              subdirectory of their own name - e.g.
@@ -29,13 +29,29 @@
 # which is what lets the same `import ... from "@apsis-io/periapsis-sdk/log.js"`
 # serve a vendored copy today and a published package later.
 #
+# ***AN EXCLUSION MUST BE PASSED ON EVERY RE-SYNC, NOT APPLIED ONCE.*** This
+# copies with `rsync --delete`, so a consumer that deletes a file by hand gets it
+# back the next time anyone syncs - silently, because the whole point of --delete
+# is that the destination equals the source. A consumer omitting something has to
+# say so HERE, every time, and record in its own tree that it does. periapsis
+# omits fetch-provider/*.wasm on that basis: 1.6M it never reads, not derivable
+# from anything tracked, and covered by its own no-binaries rule.
+#
+# ***AN EXCLUSION PREVENTS ADDING, IT DOES NOT REMOVE.*** `--delete` PROTECTS
+# excluded files that are already in the destination - measured, not assumed:
+# plant the file in the destination, re-sync with the exclusion, and it survives.
+# So a consumer that once synced WITHOUT its exclusion keeps the file until
+# someone deletes it by hand; adding the flag afterwards is silently not enough.
+# `--delete-excluded` would remove it and would also remove the consumer's own
+# node_modules from the destination, which is why it is not the default here.
+#
 # Re-run any time the tree changes upstream - this is a snapshot copy, not a
 # symlink or live reference. A snapshot CAN go stale and nothing here detects
 # that; the consumer is expected to record which SDK commit it vendored.
 set -euo pipefail
 
-if [ "$#" -ne 2 ]; then
-  echo "usage: $0 <tree> <dest-dir>" >&2
+if [ "$#" -lt 2 ]; then
+  echo "usage: $0 <tree> <dest-dir> [--exclude PATTERN]..." >&2
   echo "  <tree> is a path in this repo, e.g. ts/periapsis or c/magicseam" >&2
   exit 2
 fi
@@ -43,6 +59,8 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TREE="$1"
 DEST_DIR="$2"
+shift 2
+EXTRA=("$@")          # passed straight to rsync, e.g. --exclude '*.wasm'
 SRC="$SCRIPT_DIR/$TREE"
 
 # ***REFUSES A TREE THAT SHOULD BE A DEPENDENCY INSTEAD.*** go/ and rust/ are
@@ -82,6 +100,7 @@ rsync -a --delete \
   --exclude target/ \
   --exclude .zig-cache/ \
   --exclude zig-out/ \
+  "${EXTRA[@]}" \
   "$SRC/" "$DEST_DIR/"
 
 echo "vendored $TREE -> $DEST_DIR"
