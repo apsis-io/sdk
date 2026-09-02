@@ -19,36 +19,67 @@
 # build, a toolchain that insists on a physical directory it controls, or pinning
 # an exact tree in-repo rather than through a lockfile.
 #
-# Usage: ts/sync-consumer.sh <dest-dir>
-#   <dest-dir> is where the SDK's files land directly (not nested under a
-#   "periapsis" subdir) - e.g. `ts/sync-consumer.sh vendor/periapsis-sdk`
-#   produces vendor/periapsis-sdk/identity.ts, vendor/periapsis-sdk/types/, etc.
+# Usage: ts/sync-consumer.sh <package> <dest-dir>
+#   <package>  is periapsis or magicseam.
+#   <dest-dir> is where that package's files land DIRECTLY, not nested under a
+#   subdirectory of its own name - e.g.
+#       ts/sync-consumer.sh periapsis third_party/periapsis-sdk
+#   produces third_party/periapsis-sdk/{package.json,identity.ts,types/,...}.
 #   Resolved relative to the CALLER's cwd.
 #
-# After syncing, point your imports at <dest-dir> instead of the package name:
-#   import { identity } from "../vendor/periapsis-sdk/identity.js"
+# The copy keeps its package.json, so a consumer depends on it BY NAME through a
+# path rather than rewriting imports:
+#   "@apsis-io/periapsis-sdk": "file:../../third_party/periapsis-sdk"
+# which is what lets the same `import ... from "@apsis-io/periapsis-sdk/log.js"`
+# serve a vendored copy today and a published package later.
 #
-# Re-run any time ts/periapsis changes upstream - this is a snapshot copy, not a
+# Re-run any time the package changes upstream - this is a snapshot copy, not a
 # symlink or live reference (JS/TS toolchains need a physical directory, not a
-# registry fetch).
+# registry fetch). A snapshot CAN go stale, and nothing here detects that; the
+# consumer is expected to record which SDK commit it vendored.
 set -euo pipefail
 
-if [ "$#" -ne 1 ]; then
-  echo "usage: $0 <dest-dir>" >&2
+if [ "$#" -ne 2 ]; then
+  echo "usage: $0 <package> <dest-dir>" >&2
+  echo "  <package> is periapsis or magicseam" >&2
   exit 2
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC="$SCRIPT_DIR/periapsis"
-DEST_DIR="$1"
+PKG="$1"
+DEST_DIR="$2"
+SRC="$SCRIPT_DIR/$PKG"
+
+# NAMED, NOT GLOBBED. There are two TS packages now and a consumer wants one of
+# them; an unrecognised name is a typo that must not silently vendor nothing.
+case "$PKG" in
+  periapsis|magicseam) ;;
+  *) echo "$0: unknown package '$PKG' - expected periapsis or magicseam" >&2; exit 2 ;;
+esac
+[ -d "$SRC" ] || { echo "$0: $SRC does not exist" >&2; exit 2; }
 
 mkdir -p "$DEST_DIR"
-# --delete keeps a re-sync honest (a file removed upstream disappears from
-# the vendor copy too, instead of silently lingering) - safe here since the
-# whole point of this directory is "exactly what periapsis/ contains right
-# now", nothing hand-edited belongs in it.
-rsync -a --delete "$SRC/" "$DEST_DIR/"
+# --delete keeps a re-sync honest (a file removed upstream disappears from the
+# vendor copy too, instead of silently lingering) - safe here since the whole
+# point of this directory is "exactly what $PKG contains right now", nothing
+# hand-edited belongs in it.
+#
+# ***THE EXCLUDES ARE NOT TIDINESS.*** This script used to copy the source tree
+# verbatim, which was harmless when the SDK lived in a monorepo nobody ran
+# `bun install` inside. It is its own repo now and its packages have real
+# dependencies, so an unfiltered rsync copies node_modules - tens of megabytes,
+# a nested dependency tree, and with --delete it would fight the consumer's own
+# installer over the same directory on every re-sync.
+rsync -a --delete \
+  --exclude node_modules/ \
+  --exclude .git/ \
+  --exclude bun.lock \
+  --exclude '*.tsbuildinfo' \
+  "$SRC/" "$DEST_DIR/"
 
-echo "vendored ts/periapsis -> $DEST_DIR"
-echo "update your imports to point at this directory relative to your own"
-echo "source files, e.g.: import { identity } from \"../$DEST_DIR/identity.js\""
+echo "vendored ts/$PKG -> $DEST_DIR"
+echo "add it as a dependency by path, e.g. in the consumer's package.json:"
+case "$PKG" in
+  periapsis) echo "  \"@apsis-io/periapsis-sdk\": \"file:<path-to>/$DEST_DIR\"" ;;
+  magicseam) echo "  \"@apsis-io/magicseam\": \"file:<path-to>/$DEST_DIR\"" ;;
+esac
