@@ -9,7 +9,10 @@ for components built with [dwarf](https://github.com/apsis-io/dwarf)
 hand-copied `src/periapsis.ts` per `examples/wasm/*` example into one shared
 module, plus two new pieces (`exec`, `magic`) that had no wrapper before.
 
-Published as `@apsis-io/periapsis-sdk`. It ships TypeScript SOURCE rather than
+Published as `@apsis-io/periapsis-sdk`. It ships no `.wasm`: `fetch()` needs a
+separate component that the package deliberately does not carry, only the recipe
+to build it (`fetch-provider/build.sh`, which needs a dwarf checkout). Every
+other module works from the package alone. It ships TypeScript SOURCE rather than
 built output - dwarf componentizes each consumer's own Vite bundle, so there is
 nothing to compile here - and its `exports` map resolves `./x.js` to `./x.ts`,
 which is why the imports below carry a `.js` suffix that no `.js` file has:
