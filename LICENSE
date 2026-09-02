@@ -22,6 +22,7 @@ them.
 ## The guest side is Apache-2.0 - see LICENSE-APACHE
 
     c/periapsis
+    go/gazer
     rust/perseid
     ts/periapsis
 
@@ -29,3 +30,12 @@ These are what a program you write links against to run ON Periapsis - the
 periapsis:* WASI interfaces, the Perseid vocabulary, the aperture expression
 language. A guest SDK that restricted its own consumers would defeat its
 purpose, so this half is permissive.
+
+go/gazer joined them on 2026-09-02 and is the one that was not always here. It
+is the Gazer identity vocabulary - a naming convention, its parser and its
+builder, stdlib only - and it left go/magicseam because periapsis-CE is GPLv3
+and depended on exactly those four symbols. BUSL's production-use conditions and
+GPLv3 section 10 cannot both hold for a downstream recipient, so the half that
+never touched the seam became permissive. go/magicseam keeps GazerPrincipal,
+which needs the seam's own Caller type, and imports go/gazer: the dependency
+runs BUSL -> Apache and must never run the other way.
