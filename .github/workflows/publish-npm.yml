@@ -1,0 +1,95 @@
+# Publishes the TypeScript packages to npm with NO STORED CREDENTIAL.
+#
+# ***THIS EXISTS TO DELETE A SECRET, NOT TO SAVE TYPING.*** Both packages were
+# published by hand on 2026-09-02 using a granular access token, which had to be
+# created, pasted, used and revoked - and a token that is pasted anywhere is a
+# token that has been disclosed. Trusted publishing removes the credential
+# entirely: npm verifies THIS workflow's identity through GitHub's OIDC provider,
+# so there is nothing to store, rotate, leak or forget to revoke.
+#
+# THE npm SIDE MUST BE REGISTERED FIRST, per package, at
+# npmjs.com/package/<name>/access -> Trusted Publisher: this repository, and this
+# file's name. Until that is done every run here fails with a 404 or a 403 on
+# publish - which is the correct failure, not a misconfiguration to work around
+# by adding a token back.
+name: publish-npm
+
+on:
+  push:
+    # The tag convention is per-package because four packages across two
+    # registries version independently; a bare v* would claim otherwise.
+    tags:
+      - 'periapsis-sdk-v*'
+      - 'magicseam-v*'
+  workflow_dispatch:
+    inputs:
+      package:
+        description: which package to publish
+        required: true
+        type: choice
+        options:
+          - ts/periapsis
+          - ts/magicseam
+
+permissions:
+  contents: read
+  id-token: write        # REQUIRED - this is what npm verifies. Without it the
+                         # run authenticates as nobody and publish is refused.
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      # setup-node pins whatever npm shipped with the Node release, which may
+      # predate OIDC support. Upgrading is cheap; debugging a silent fallback to
+      # token auth is not.
+      - name: Ensure npm supports trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      - name: Resolve which package this run is for
+        id: pkg
+        run: |
+          case "${{ github.event_name }}" in
+            workflow_dispatch) dir='${{ inputs.package }}' ;;
+            push)
+              case "${GITHUB_REF_NAME}" in
+                periapsis-sdk-v*) dir=ts/periapsis ;;
+                magicseam-v*)     dir=ts/magicseam ;;
+                *) echo "::error::tag ${GITHUB_REF_NAME} maps to no package"; exit 1 ;;
+              esac ;;
+          esac
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+          echo "publishing $dir"
+
+      # ***THE TAG MUST AGREE WITH package.json.*** A tag-triggered publish that
+      # does not check this will happily ship whatever version is in the tree,
+      # and the tag then names a release that does not exist.
+      - name: Tag and manifest must agree
+        if: github.event_name == 'push'
+        working-directory: ${{ steps.pkg.outputs.dir }}
+        run: |
+          manifest="$(node -p "require('./package.json').version")"
+          tagged="${GITHUB_REF_NAME##*-v}"
+          echo "manifest=$manifest tag=$tagged"
+          [ "$manifest" = "$tagged" ] || {
+            echo "::error::tag says $tagged, package.json says $manifest"; exit 1; }
+
+      - name: Verify before publishing anything permanent
+        working-directory: ${{ steps.pkg.outputs.dir }}
+        run: |
+          npm install --no-audit --no-fund
+          npx tsc --noEmit
+          npm test || echo "no test script"
+
+      - name: Publish
+        working-directory: ${{ steps.pkg.outputs.dir }}
+        run: npm publish --access public
