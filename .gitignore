@@ -15,6 +15,12 @@ target/
 
 # TypeScript
 node_modules/
+# ***npm LOCKFILES ARE NOT THIS REPO'S FORMAT.*** These packages are bun's; a
+# package-lock.json only appears when somebody runs `npm install` to reproduce a
+# CI step, and one got committed that way on 2026-09-02 and then rsynced into
+# periapsis's vendored copy. An install artifact from a VERIFICATION step is
+# still an install artifact.
+package-lock.json
 
 # Zig
 .zig-cache/

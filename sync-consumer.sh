@@ -94,6 +94,7 @@ rsync -a --delete \
   --exclude node_modules/ \
   --exclude .git/ \
   --exclude bun.lock \
+  --exclude package-lock.json \
   --exclude '*.tsbuildinfo' \
   --exclude '*.o' \
   --exclude '*.a' \
