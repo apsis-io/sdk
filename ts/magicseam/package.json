@@ -17,6 +17,13 @@
     "access": "public"
   },
   "description": "Magic-seam (ADR-0028) provider/consumer for a genuinely non-WASM TypeScript program (Node.js/Bun) - the revived MSK1 protocol (magicseam.ts) or the mTLS QUIC transport (quic.ts, ADR-0043), mirroring go/magicseam. NOT for use inside a dwarf/WASM component - see ../periapsis/magic.ts for that.",
+  "keywords": [
+    "periapsis",
+    "magic-seam",
+    "rpc",
+    "quic",
+    "mtls"
+  ],
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "7.0.1-rc",

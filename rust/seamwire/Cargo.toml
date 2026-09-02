@@ -12,6 +12,8 @@ description = "The magic-seam wire vocabulary: opcodes, capability tokens and ca
 # and its reasoning are in the repo's LICENSE.
 license = "BUSL-1.1"
 repository = "https://github.com/apsis-io/sdk"
+keywords = ["magic-seam", "rpc", "wire-protocol", "capability", "periapsis"]
+categories = ["network-programming", "api-bindings"]
 readme = false
 
 # std-only, and deliberately so. This crate is the SHARED HALF of the seam that

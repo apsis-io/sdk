@@ -11,6 +11,8 @@ description = "The Perseid vocabulary for Rust guests: canonical apiserver paths
 # on Periapsis. See the repo's LICENSE for the split.
 license = "Apache-2.0"
 repository = "https://github.com/apsis-io/sdk"
+keywords = ["periapsis", "kubernetes", "wasm", "expression", "operator"]
+categories = ["api-bindings", "wasm"]
 readme = false
 
 # std-only, and deliberately so - the same call seamwire's Cargo.toml records.
