@@ -51,9 +51,17 @@ nothing: it is read from `rust/seamwire/src/lib.rs` directly.
 
 ## Vendoring the TS SDK
 
-`ts/sync-consumer.sh <dest>` snapshots `ts/periapsis` into a consumer tree, for
-toolchains that want a physical directory rather than a registry fetch. See
-[`ts/periapsis/README.md`](ts/periapsis/README.md).
+`sync-consumer.sh <tree> <dest>` snapshots one tree into a consumer's repo:
+
+```sh
+sync-consumer.sh ts/periapsis sdk/ts/periapsis
+sync-consumer.sh c/magicseam  sdk/c/magicseam
+```
+
+It is for the two ecosystems that cannot pin a version — npm/bun cannot resolve a
+private git subdirectory, and C has no package manager at all. It **refuses**
+`go/` and `rust/`, which are reachable by version and whose copies would be a
+second source of truth no lockfile pins.
 
 ## License
 
