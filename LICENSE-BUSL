@@ -3,7 +3,7 @@ License text copyright © 2024 MariaDB plc, All Rights Reserved. “Business Sou
 
 Parameters
 Licensor: Malformed C
-Licensed Work: Periapsis magic-seam SDKs (c/magicseam, go/magicseam, rust/seamwire, ts/magicseam, zig/magicseam)
+Licensed Work: Periapsis magic-seam SDKs (c/magicseam, go/magicseam, ts/magicseam, zig/magicseam)
 Additional Use Grant:
 You are granted the additional right to make production use of the Licensed Work for internal infrastructure purposes, including running workloads on your own hardware or cloud resources, provided that your production use strictly complies with all of the following conditions (these conditions do not apply to non-production use):
 

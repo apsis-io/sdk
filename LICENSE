@@ -7,29 +7,52 @@ is which.
 
     c/magicseam
     go/magicseam
-    rust/seamwire
     ts/magicseam
     zig/magicseam
 
-These implement the magic-seam wire protocol itself - the opcodes, the
-capability negotiation, the mTLS QUIC transport. rust/seamwire is in this list
-despite its name: it IS the magic-seam vocabulary, shared by trail and the comet
-agent rather than by guests.
+These IMPLEMENT the magic-seam wire protocol - the framing, the mTLS QUIC
+transport, the connection handling. That is the distinction this list now draws,
+and it is the one rust/seamwire failed: see below.
 
 Change Date and Additional Use Grant are in LICENSE-BUSL; NOTICE summarises
 them.
 
-## The guest side is Apache-2.0 - see LICENSE-APACHE
+## The guest side and the vocabularies are Apache-2.0 - see LICENSE-APACHE
 
     c/periapsis
     go/gazer
     rust/perseid
+    rust/seamwire
     ts/periapsis
 
-These are what a program you write links against to run ON Periapsis - the
+Two kinds of thing, permissive for one reason.
+
+Most are what a program you write links against to run ON Periapsis - the
 periapsis:* WASI interfaces, the Perseid vocabulary, the aperture expression
-language. A guest SDK that restricted its own consumers would defeat its
-purpose, so this half is permissive.
+language. A guest SDK that restricted its own consumers would defeat its purpose.
+
+The rest are VOCABULARIES: they name things without implementing them. go/gazer
+names a principal format; rust/seamwire names opcodes and capability tokens. A
+vocabulary that restricts its speakers prevents the interoperation that writing
+one down is for. Same reason, one level out.
+
+***rust/seamwire MOVED HERE ON 2026-09-02, AND IT IS A RECLASSIFICATION RATHER
+THAN A CARVE-OUT.*** It was in the BUSL list because it is the magic-seam
+vocabulary and the seam is the product. But it IMPLEMENTS nothing: 461 lines, one
+file, an EMPTY dependency table - measured with `cargo tree`, which reports a
+single node - and no transport symbol anywhere in it. A crate that implemented an
+mTLS QUIC transport could not have zero dependencies. The other four trees in the
+BUSL list do implement; this one defines what the bytes mean.
+
+A wire vocabulary that restricts its own speakers prevents exactly the
+interoperation that publishing a protocol is for, which is the same principle
+already stated below for the guest side.
+
+THE ORDER OF THIS DECISION IS PART OF IT. The same reclassification was
+CONSIDERED AND REFUSED four hours earlier, while periapsis-CE still needed the
+answer to be yes - a definition following a convenience. It was made once nothing
+turned on it: CE no longer depends on this crate at all. Same edit, opposite
+motive, and only the second is a categorisation.
 
 go/gazer joined them on 2026-09-02 and is the one that was not always here. It
 is the Gazer identity vocabulary - a naming convention, its parser and its
