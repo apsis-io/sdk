@@ -1,6 +1,6 @@
 # periapsis SDK Cheat Sheet
 
-Quick reference for `sdk/ts/periapsis/*.ts`. See [README.md](README.md) for
+Quick reference for `ts/periapsis/*.ts`. See [README.md](README.md) for
 full explanations, world-shape constraints, and the stories behind the
 non-obvious bits; this is the fast-lookup version. See
 [`wit/CHEATSHEET.md`](../../../wit/CHEATSHEET.md) for the raw WIT contracts
@@ -11,7 +11,7 @@ import still forces your `world.wit` to declare it, and `--host-caps` fails
 closed on any declared-but-unlisted interface.
 
 ```ts
-import { identity } from "../../../../sdk/ts/periapsis/identity.js";
+import { identity } from "@apsis-io/periapsis-sdk/identity.js";
 ```
 
 ## Module → WIT → world shape
@@ -160,9 +160,9 @@ concatBytes(chunks: Uint8Array[]): Uint8Array
 
 ```ts
 // Minimal component: identity + structured logging + health
-import { identity } from "../../../../sdk/ts/periapsis/identity.js";
-import { info, warn } from "../../../../sdk/ts/periapsis/log.js";
-import { reportStatus } from "../../../../sdk/ts/periapsis/status.js";
+import { identity } from "@apsis-io/periapsis-sdk/identity.js";
+import { info, warn } from "@apsis-io/periapsis-sdk/log.js";
+import { reportStatus } from "@apsis-io/periapsis-sdk/status.js";
 
 reportStatus("starting");
 const id = identity();
@@ -170,7 +170,7 @@ info("component starting", { component: id.component, instance: id.instance });
 reportStatus("ready", "listening");
 
 // p3 command component doing structured logging (must await)
-import { consoleP3 } from "../../../../sdk/ts/periapsis/console.js";
+import { consoleP3 } from "@apsis-io/periapsis-sdk/console.js";
 export const run = {
   async run() {
     await consoleP3.log("hello from run()");
@@ -178,11 +178,11 @@ export const run = {
 };
 
 // Allowlisted child process (p3, needs --exec-with foo=/path/to/foo.wasm)
-import { exec } from "../../../../sdk/ts/periapsis/exec.js";
+import { exec } from "@apsis-io/periapsis-sdk/exec.js";
 const { exitCode, stdout } = await exec("foo", ["--flag"], "stdin input\n");
 
 // Server-side socket, sending multiple messages on one connection (p3)
-import { TcpSender, readExact } from "../../../../sdk/ts/periapsis/sockets.js";
+import { TcpSender, readExact } from "@apsis-io/periapsis-sdk/sockets.js";
 const sender = new TcpSender(conn);
 try {
   await sender.send(new TextEncoder().encode("first\n"));

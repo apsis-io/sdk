@@ -31,7 +31,7 @@ func TestGazerPrincipal_NeverFallsBackToTheAssertedFields(t *testing.T) {
 		Namespace: "team-a",
 		PodName:   "phone-7",
 		PodUID:    "uid-1",
-		PeerAddr:  "10.0.0.1:5000",
+		PeerAddr:  "192.0.2.1:5000",
 		// VerifiedPrincipal deliberately empty.
 	}
 	ns, name, err := GazerPrincipal(who)
@@ -78,7 +78,7 @@ func TestGazerPrincipal_RefusesMalformedAndHostileSubjects(t *testing.T) {
 		{"whitespace", "apsis:gazer:team a:phone-7"},
 		{"wrong prefix", "apsis:node:team-a:phone-7"},
 		{"prefix only", "apsis:gazer:"},
-		{"kubelet masquerade", "system:node:engix99"},
+		{"kubelet masquerade", "system:node:node-1"},
 		{"the fleet-shared subject", TrailQUICSNI},
 		{"nul byte", "apsis:gazer:team-a:phone\x007"},
 	} {

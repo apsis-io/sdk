@@ -1,5 +1,5 @@
 //! Zig magic-seam SDK (ADR-0028/0043): an idiomatic Zig wrapper over
-//! sdk/c/magicseam's own QUIC implementation (mutual TLS against the
+//! c/magicseam's own QUIC implementation (mutual TLS against the
 //! cluster's self-managed trail CA, one persistent connection, a version
 //! handshake on the first bidirectional stream, then every call opens its
 //! own stream). This module owns no protocol logic of its own - see
@@ -13,7 +13,7 @@ const c = @cImport({
 });
 
 /// The fixed CommonName/DNS-SAN every trail-CA-signed QUIC leaf carries -
-/// mirrors sdk/c/magicseam/magicseam_quic.h's MAGICSEAM_QUIC_SNI exactly.
+/// mirrors c/magicseam/magicseam_quic.h's MAGICSEAM_QUIC_SNI exactly.
 pub const sni: [:0]const u8 = c.MAGICSEAM_QUIC_SNI;
 
 /// Mirrors magicseam_status's non-OK values (magicseam_quic.h) - the wire's

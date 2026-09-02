@@ -1,13 +1,13 @@
-# sdk/c/magicseam
+# c/magicseam
 
 The C **host-side** magic-seam SDK (ADR-0028 / ADR-0043) - a QUIC wire-transport
 client and server for a genuinely non-WASM C program that wants to act as a
-magic-seam provider or consumer, mirroring `sdk/go/magicseam/quic.go` and
-`sdk/ts/magicseam/quic.ts`'s own wire protocol exactly (mutual TLS against the
+magic-seam provider or consumer, mirroring `go/magicseam/quic.go` and
+`ts/magicseam/quic.ts`'s own wire protocol exactly (mutual TLS against the
 cluster's self-managed trail CA, one persistent connection, a version handshake
 on the first bidirectional stream, then every call opens its own stream).
 
-Distinct from `sdk/c/periapsis`, which is the in-component **guest**-side SDK
+Distinct from `c/periapsis`, which is the in-component **guest**-side SDK
 for the ordinary `periapsis:component/*` host capabilities. This package never
 runs inside a WASM component - it's a plain dynamically-linked C library and
 binary, built on `libngtcp2` + `libngtcp2_crypto_ossl` + OpenSSL.
@@ -28,9 +28,9 @@ server) drives its own dedicated background I/O thread servicing ngtcp2's
 timers continuously (`io.c`'s own doc comment explains why this is required -
 ngtcp2 owns no socket/timer/thread itself).
 
-TLS material: `peri.apsis/tls-quic` (`internal/podlaunch/builder.go`)
+TLS material: `peri.apsis/tls-quic` (`periapsis's pod builder`)
 bind-mounts a fresh cert/key/CA-bundle triple into the pod at
-`internal/podlaunch.TLSQuicMountDir` - point `magicseam_quic_dial`/`_serve` at
+`periapsis's TLS QUIC mount dir` - point `magicseam_quic_dial`/`_serve` at
 those three files directly when running as a pod (see
 `examples/c/magic-echo-c` for the pattern).
 
@@ -61,7 +61,7 @@ mapping.
 - `io.c` / `io_internal.h` - the per-connection background I/O thread (the
   actual ngtcp2 driving loop) - this is where flow-control credit
   (`ngtcp2_conn_extend_max_streams_bidi`/`_max_stream_offset`/`_max_offset`)
-  gets replenished; see `done/2026-07-16_c-sdk-live-validation.md` if
+  gets replenished; see periapsis's internal notes if
   touching this file.
 - `client.c` - `magicseam_quic_dial`/`_call`/`_close`.
 - `server.c` - `magicseam_quic_serve`/`_server_close` + the worker pool.
@@ -69,7 +69,7 @@ mapping.
 
 ## Other-language bindings that wrap this SDK instead of re-implementing it
 
-`sdk/zig/magicseam` links straight into `libmagicseam_quic.a` via `@cImport`
+`zig/magicseam` links straight into `libmagicseam_quic.a` via `@cImport`
 rather than re-porting the ngtcp2 handling a third time - see its own README
 for why that's the right call there (Zig has first-class C interop; Go/TS
 don't, hence their native re-implementations).

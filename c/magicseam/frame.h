@@ -4,7 +4,7 @@
  * Wire framing shared by client.c and server.c - a plain in-memory codec
  * (no I/O of its own; io.c owns the actual stream reads/writes and calls
  * into this only to encode/decode the bytes it already has). Mirrors
- * sdk/go/magicseam/magicseam.go's writeFrame/readFrame/tagFor exactly.
+ * go/magicseam/magicseam.go's writeFrame/readFrame/tagFor exactly.
  */
 #ifndef MAGICSEAM_FRAME_H
 #define MAGICSEAM_FRAME_H
@@ -17,7 +17,7 @@
  * remote_quic.rs/magicseam.go's own MAX_FRAME (64 MiB). */
 #define MAGICSEAM_MAX_FRAME (64u << 20)
 
-/* Wire result tags - see cmd/trail/src/remote_quic.rs's module doc
+/* Wire result tags - see trail's QUIC transport's module doc
  * comment for the authoritative protocol description. */
 #define MAGICSEAM_TAG_OK 0
 #define MAGICSEAM_TAG_UNAVAILABLE 1

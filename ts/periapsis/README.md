@@ -14,12 +14,12 @@ componentizes each consumer's own Vite bundle, so there's nothing to publish
 or install). From an example three levels down (`examples/wasm/<name>/src/`):
 
 ```ts
-import { identity } from "../../../../sdk/ts/periapsis/identity.js";
-import { config } from "../../../../sdk/ts/periapsis/config.js";
-import { info } from "../../../../sdk/ts/periapsis/log.js";
-import { reportStatus } from "../../../../sdk/ts/periapsis/status.js";
-import { exec } from "../../../../sdk/ts/periapsis/exec.js";
-import { definePlugProvider } from "../../../../sdk/ts/periapsis/magic.js";
+import { identity } from "@apsis-io/periapsis-sdk/identity.js";
+import { config } from "@apsis-io/periapsis-sdk/config.js";
+import { info } from "@apsis-io/periapsis-sdk/log.js";
+import { reportStatus } from "@apsis-io/periapsis-sdk/status.js";
+import { exec } from "@apsis-io/periapsis-sdk/exec.js";
+import { definePlugProvider } from "@apsis-io/periapsis-sdk/magic.js";
 ```
 
 **Building outside this monorepo?** The relative-import path above only
@@ -28,7 +28,7 @@ install. Vendor a local snapshot instead, the same way WIT consumers already
 vendor `periapsis:component` (`wit/sync-consumer.sh`):
 
 ```sh
-../../../sdk/ts/sync-consumer.sh vendor/periapsis-sdk   # path relative to your project
+../../../ts/sync-consumer.sh vendor/periapsis-sdk   # path relative to your project
 ```
 
 Copies the whole SDK (every module, `types/`, `fetch-provider/`) into
@@ -95,7 +95,7 @@ import it never called).
   All six wrap `periapsis:component/*` - plain sync functions, usable from
   any world (p2 or p3).
 - **`exec.ts`** - `exec(name, args?, input?)` and the lower-level `spawn`/`drainStdout`.
-  Wraps `periapsis:host/exec@0.1.0` (ADR: the exec seam, `cmd/trail/src/exec.rs`) -
+  Wraps `periapsis:host/exec@0.1.0` (ADR: the exec seam, `trail's exec implementation`) -
   allowlisted child-component spawning. **p3-only** (`stream<u8>` + an `async
   func` need trail's `--p3` launch path); a guest may only spawn a name
   declared at pod launch via `--exec-with <name>=<path>`.
@@ -237,7 +237,7 @@ composed in as a separate component at build time:
    then compose `fetch-provider.wasm` in via `wac plug`:
    ```bash
    dwarf --wit wit --js dist/main.js -o my-app.wasm --polyfill fetch-classes
-   wac plug --plug .../sdk/ts/periapsis/fetch-provider/fetch-provider.wasm my-app.wasm -o my-app.composed.wasm
+   wac plug --plug .@apsis-io/periapsis-sdk/fetch-provider/fetch-provider.wasm my-app.wasm -o my-app.composed.wasm
    ```
    Run the COMPOSED output, not the plain one - the plain one has an
    unsatisfied `dwarf:fetch/client` import and fails to instantiate.

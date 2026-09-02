@@ -32,7 +32,7 @@ import (
 // quicheal.rs; the Go SDK never did.
 //
 // Today's Go consumers are short-lived probes (tools/seamstatus,
-// internal/trailop's probers) that dial, ask, and exit, so they mostly do not
+// periapsis's trail operator's probers) that dial, ask, and exit, so they mostly do not
 // live long enough to notice. That is a property of the current callers, not of
 // the SDK, and it stops being true the first time anything long-lived dials from
 // Go.

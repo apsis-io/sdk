@@ -25,7 +25,7 @@
 // instrument that cannot distinguish those is the single most repeated defect
 // in this codebase's history: it appears in the product (foldAbsentGone, the
 // absence-convergence work) and appeared three separate times in ONE DAY inside
-// the kubelet-benchmark harness (done/2026-08-11_perigeos-vs-kubelet-same-board.md
+// the kubelet-benchmark harness (periapsis's internal notes
 // — `pgrep -c` printing 0 while exiting non-zero, `shim_pss` returning 0 for an
 // unreadable smaps, a settle check that could not tell drained from
 // never-started). Collapsing the two into `undefined` reintroduces that whole
@@ -85,7 +85,7 @@ export const unknown: Obs<never> = { t: 'unknown' }
 // - a write nobody asked for, on the wake path, for as long as the program
 // stays parked.
 //
-// Every builder below is pure by construction; `internal/aperture`'s
+// Every builder below is pure by construction; `periapsis's aperture`'s
 // TestSDKResumeExpressions_ParseAndTypecheck runs each one's output through the
 // host's own `Parse`/`CheckArity`/`CheckPure`, because the guest builds these
 // strings and cannot evaluate them. That test also carries the negative control:
@@ -556,7 +556,7 @@ export const countNe = (selector: LabelSelector, n: number): Resume =>
  * parked on a target nobody wants any more.
  *
  * Verified against the host's own parser and checks by
- * `TestSDKResumeExpressions_ParseAndTypecheck` in internal/aperture - the guest
+ * `TestSDKResumeExpressions_ParseAndTypecheck` in periapsis's aperture - the guest
  * builds these and cannot evaluate them, so "aperture accepts this" is a claim
  * that needs a test rather than a comment.
  *
@@ -586,7 +586,7 @@ export const countNeField = (
  *
  * The kind's read capability still applies, and every resume expression is
  * evaluated with a FIXED capability set that excludes `secrets:read`
- * (internal/reconcilehost/resume.go states the extent). The grant's namespace
+ * (periapsis's reconcile host states the extent). The grant's namespace
  * and labels still apply too: an object outside them reads ABSENT, so this wakes
  * on "not there" rather than on a permission error.
  *
@@ -1129,7 +1129,7 @@ export const WIT_OBSERVE_CLUSTER = 'radiant:reconcile/observe-cluster@0.1.0'
 export const WIT_WORKLOADS = 'radiant:reconcile/workloads@0.1.0'
 export const WIT_STATUS = 'radiant:reconcile/status@0.1.0'
 // ***THE INTERFACE IS THE GRANT, WHICH IS WHY THESE ARE SEPARATE IDS.***
-// `internal/aperture/effects.go` scopes WIT_WORKLOADS to the single field
+// `periapsis's aperture/effects.go` scopes WIT_WORKLOADS to the single field
 // `spec.replicas`; WIT_ENSURE writes ANY field, and WIT_DELETE removes the
 // object outright. A program that may scale a Deployment must not thereby be
 // able to rewrite its image or delete it, so they cannot share an id.
@@ -1425,7 +1425,7 @@ export const reconcile = {
    *
    * SEPARATE FROM `ensure` BECAUSE THE INTERFACE IS THE GRANT - editing a
    * ConfigMap's data and deleting it are different authorities, and
-   * `internal/aperture` keeps `IfaceEnsure` and `IfaceDelete` apart for that
+   * `periapsis's aperture` keeps `IfaceEnsure` and `IfaceDelete` apart for that
    * reason.
    *
    * IDEMPOTENT BY CONTRACT: the applier treats NotFound as success. That matters
@@ -1468,7 +1468,7 @@ export const reconcile = {
    * supplies, so dropping it strands every one of them until rebuilt.
    *
    * ⚠ ***ITS GRANT IS NARROWER THAN THE REPLACEMENT'S, WHICH IS THE ONE THING
-   * MIGRATING COSTS.*** `internal/aperture/effects.go` scopes
+   * MIGRATING COSTS.*** `periapsis's aperture/effects.go` scopes
    * `radiant:reconcile/workloads@0.1.0` to the single field `spec.replicas`;
    * `radiant:reconcile/ensure@0.1.0` writes ANY field. A program that only ever
    * scales is strictly better bounded holding the old capability, so a

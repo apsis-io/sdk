@@ -1,12 +1,12 @@
-# sdk/c/periapsis
+# c/periapsis
 
 The C (WASM **guest**) SDK for the Periapsis host capabilities — the C
-counterpart to `sdk/ts/periapsis`. A guest compiled with this SDK is an ordinary
+counterpart to `ts/periapsis`. A guest compiled with this SDK is an ordinary
 `wasi:cli` command (exports `wasi:cli/run@0.3.0`) that imports the
 `periapsis:component/*` host caps and calls them through a clean C API instead of
 the raw component-model bindings.
 
-Distinct from **`sdk/c/magicseam`**, which is a *host-side* QUIC wire-transport
+Distinct from **`c/magicseam`**, which is a *host-side* QUIC wire-transport
 wrapper (native C, not a WASM guest). This package is the in-component guest side.
 
 ## What it covers
@@ -35,7 +35,7 @@ matching `_free`/`periapsis_free`; passed-in data is borrowed for the call only)
 The magic seam (`periapsis:magic/handler`) is out of scope: its `handle()` is
 `async func`, and no non-Rust toolchain (C/`wit-bindgen`, TinyGo, jco) can bind
 an async component-model export/import today (see
-`done/2026-07-16_tinygo-sdk-blocked.md`). Every interface in *this* SDK is
+periapsis's internal notes). Every interface in *this* SDK is
 synchronous, so — unlike the seam — it binds cleanly and this SDK is complete,
 not a scaffold. If the seam gains a sync guest-facing variant, a `handler`
 wrapper drops in beside these.

@@ -14,14 +14,14 @@
 // revived MSK1 protocol directly over a real socket.
 //
 // *** TRAIL NO LONGER SPEAKS THIS PROTOCOL. *** This cited
-// cmd/trail/src/remote_simple.rs until 2026-08-27; ADR-0044 (commit 5fe956bf1)
+// trail's MSK1 transport until 2026-08-27; ADR-0044 (commit 5fe956bf1)
 // removed MSK1 and its --plug-remote-simple consumer flag from trail, so that
 // file has not existed for some time. For a provider a trail consumer can bind
 // to today use quic.ts. Trail's unix-socket rung (--ipc) exists again but
 // speaks a DIFFERENT wire - see docs/ipc-wire.md, which leads with that
 // warning.
 //
-// Same protocol, same wire bytes, as sdk/go/magicseam - see
+// Same protocol, same wire bytes, as go/magicseam - see
 // that package's doc comment for the fuller rationale (why MSK1 instead of
 // the wRPC-based --plug-remote: wRPC's generality buys nothing for this
 // seam's actual interface, a single list<u8> -> result<list<u8>, error>
@@ -31,14 +31,14 @@
 // *** VERSION GATING IS ENFORCED HERE, AS OF 2026-08-27. *** serve() compares
 // the consumer's required version against the one it serves and refuses an
 // incompatible handshake with accept = 0. `versionCompatible` mirrors
-// cmd/trail/src/plug.rs's version_compatible and sdk/go/magicseam's copy
+// trail's plug negotiation's version_compatible and go/magicseam's copy
 // exactly, 0.x rules included.
 //
 // It previously always accepted, which was CORRECT while trail's
 // --plug-remote-simple gate sat on the other end - ADR-0044 deleted that gate
 // with the transport, and the comment went on delegating to a counterparty that
 // no longer existed. The delegation rotted, not the code. Same note, same
-// reason, in sdk/go/magicseam.
+// reason, in go/magicseam.
 
 import net from "node:net";
 import fs from "node:fs";
@@ -63,7 +63,7 @@ export interface Caller {
   component: string;
 }
 
-/** Tab-separated, matching cmd/trail/src/remote_quic.rs's encode_caller. */
+/** Tab-separated, matching trail's QUIC transport's encode_caller. */
 export function encodeCaller(c: Caller): Uint8Array {
   return Buffer.from([c.namespace, c.podName, c.podUid, c.component].join("\t"), "utf8");
 }
@@ -82,24 +82,24 @@ export function decodeCaller(b: Uint8Array): Caller {
 /**
  * Thrown by a Handler to signal the seam's `rejected` error variant, instead
  * of the transport-neutral `unavailable` default every other thrown error
- * maps to. Mirrors sdk/go/magicseam's ErrRejected.
+ * maps to. Mirrors go/magicseam's ErrRejected.
  */
 export class SeamRejectedError extends Error {}
 /** Thrown by a Handler to signal the seam's `too-large` error variant. */
 export class SeamTooLargeError extends Error {}
 
 // Wire constants. These are AUTHORITATIVE now, not a mirror: this pointed at
-// cmd/trail/src/remote_simple.rs's module doc comment "for the authoritative
+// trail's MSK1 transport's module doc comment "for the authoritative
 // protocol description this mirrors exactly" until 2026-08-27, and ADR-0044
-// removed that file. sdk/go/magicseam carries the same values and the same
+// removed that file. go/magicseam carries the same values and the same
 // note.
 const PREAMBLE = "MSK1";
-// Matches cmd/trail/src/remote_quic.rs's own MAX_FRAME (64 MiB, the seam's own
+// Matches trail's QUIC transport's own MAX_FRAME (64 MiB, the seam's own
 // too-large rejection ballpark) - bounds a single frame so a hostile/
 // garbled peer can't make this process allocate unbounded. That equality is
 // ENFORCED across all five speakers by
 // TestEverySeamSpeakerSharesOneFrameBound in
-// cmd/comet/comettest/seamframebound_test.go, which is why this one citation
+// periapsis's cross-language seam tests, seamframebound_test.go, which is why this one citation
 // could be repointed at a live file when parseAddr's below could not.
 export const MAX_FRAME = 64 << 20;
 
@@ -123,8 +123,8 @@ function parseVersion(v: string): [number, number, number] | null {
  * Whether a provider serving `served` satisfies a consumer requiring
  * `required`.
  *
- * *** MIRRORS cmd/trail/src/plug.rs's version_compatible EXACTLY, and
- * sdk/go/magicseam's versionCompatible line for line. *** The 0.x rules are not
+ * *** MIRRORS trail's plug negotiation's version_compatible EXACTLY, and
+ * go/magicseam's versionCompatible line for line. *** The 0.x rules are not
  * plain semver and are where three implementations would silently diverge:
  *
  *   major differs   never compatible
@@ -155,13 +155,13 @@ type ParsedAddr = { path: string } | { host: string; port: number };
 // Accepts "unix:<path>" or "tcp:<host:port>", nothing else.
 //
 // *** DO NOT REPOINT THIS AT A FILE THAT EXISTS. *** It read "mirrors
-// cmd/trail/src/remote_simple.rs's parse_addr exactly" until 2026-08-27.
+// trail's MSK1 transport's parse_addr exactly" until 2026-08-27.
 // `fn parse_addr` is now in no trail source file at all. Trail SPLIT that
 // grammar rather than moving it - `--ipc unix:<path>[#tier]` takes unix only,
 // `--remote tcp:<host:port>[#tier]` takes tcp only and refuses unix outright -
 // and both carry a #tier suffix this function does not know. Pointing at
 // either would be a wrong citation that RESOLVES, which stops the next reader
-// checking. See sdk/go/magicseam's parseAddr for the same note.
+// checking. See go/magicseam's parseAddr for the same note.
 function parseAddr(addr: string): ParsedAddr {
   if (addr.startsWith("unix:")) {
     const path = addr.slice("unix:".length);
@@ -320,7 +320,7 @@ export function serve(addr: string, version: string, handler: Handler): Promise<
   if ("path" in parsed) {
     // A stale socket file from a prior run would make bind() fail; clear it.
     // Ported from the pre-wRPC Rust serve_provider, which ADR-0044 removed;
-    // sdk/go/magicseam's Serve is now the only other implementation.
+    // go/magicseam's Serve is now the only other implementation.
     fs.rmSync(parsed.path, { force: true });
   }
 

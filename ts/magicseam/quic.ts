@@ -1,8 +1,8 @@
 // QUIC transport (ADR-0043) for a genuinely non-WASM TS/Bun magic-seam
-// provider/consumer - mirrors cmd/trail/src/remote_quic.rs's wire
+// provider/consumer - mirrors trail's QUIC transport's wire
 // protocol EXACTLY (see that file's own module doc comment, the
 // authoritative spec this was ported from, also mirrored in
-// sdk/go/magicseam/quic.go): mutual TLS against the cluster's self-managed
+// go/magicseam/quic.go): mutual TLS against the cluster's self-managed
 // trail CA, one persistent connection, a version handshake on the first
 // bidirectional stream, then every subsequent call opens its OWN stream (so
 // unrelated calls never queue behind each other - unlike serve()/MSK1's
@@ -13,7 +13,7 @@
 // it is not present in the currently-installed Bun release) was not
 // available to build against.
 //
-// TLS material: peri.apsis/tls-quic (internal/podlaunch/builder.go)
+// TLS material: peri.apsis/tls-quic (periapsis's pod builder)
 // bind-mounts a fresh cert/key/CA-bundle triple, signed by the trail CA,
 // into the pod - callers running as a pod should point dialQUIC/serveQUIC
 // at those three files directly.
@@ -46,8 +46,8 @@ import {
 
 /**
  * The fixed CommonName/DNS-SAN every trail-CA-signed QUIC leaf carries -
- * must match internal/podlaunch/trailtls.go's TrailQuicSNI and
- * cmd/trail/src/remote_quic.rs's SERVER_NAME exactly.
+ * must match periapsis's pod-launch TLS wiring's TrailQuicSNI and
+ * trail's QUIC transport's SERVER_NAME exactly.
  */
 export const TRAIL_QUIC_SNI = "trail-quic-peer";
 
@@ -148,7 +148,7 @@ export type Ask = (question: Uint8Array) => Promise<Uint8Array>
  * THE RETURNED BYTES BECOME THE FINAL CONV_DONE PAYLOAD. Throwing is also a
  * complete conversation - the error text is sent as CONV_DONE rather than by
  * closing the stream, so the caller can tell "I heard you, and no" from "you are
- * talking to nothing". Matching cmd/trail's serve_conversation exactly.
+ * talking to nothing". Matching trail's serve_conversation exactly.
  */
 export type ConverseHandler = (request: Uint8Array, ask: Ask) => Promise<Uint8Array>
 
@@ -172,7 +172,7 @@ export class QUICSeamClient {
     /**
      * Announced on every call. The all-empty value means UNATTRIBUTED and is the
      * honest default for a consumer with nothing to declare - the frame is
-     * written either way, mirroring sdk/go/magicseam's `Caller` field. A
+     * written either way, mirroring go/magicseam's `Caller` field. A
      * provider decodes a short or absent frame to empty fields rather than
      * throwing, so an unattributed caller is a value and not a special case.
      */

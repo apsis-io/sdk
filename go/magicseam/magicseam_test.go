@@ -78,7 +78,7 @@ func TestTagFor(t *testing.T) {
 // by this test.
 //
 // *** ITS JUSTIFICATION HAS INVERTED, WHICH IS WORTH MORE THAN THE DEAD PATH
-// IT CITED. *** This read "mirroring cmd/trail/src/remote_simple.rs's Client
+// IT CITED. *** This read "mirroring trail's MSK1 transport's Client
 // exactly ... the real client lives in Rust/trail; this proves Serve's
 // server-side wire behavior independently of it" until 2026-08-27. ADR-0044
 // removed that Client. There is no real client any more, in Rust or anywhere:
@@ -242,7 +242,7 @@ func TestFrameLengthPrefixIsLittleEndian(t *testing.T) {
 
 // TestVersionCompatible_MirrorsTrailExactly.
 //
-// *** THE TABLE IS LIFTED FROM cmd/trail/src/plug.rs's version_compatible, AND
+// *** THE TABLE IS LIFTED FROM trail's plug negotiation's version_compatible, AND
 // THE 0.x ROWS ARE THE WHOLE POINT. *** A plain "served >= required" would pass
 // every 1.x row here and get all four 0.x rows wrong - and 0.x is what the seam
 // actually ships (periapsis:magic/handler@0.1.0). A divergence means one end

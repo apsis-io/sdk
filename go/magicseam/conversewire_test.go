@@ -25,7 +25,7 @@ import (
 //
 //	CONVERSE_ADDR=tcp:127.0.0.1:9500 \
 //	CONVERSE_CERT=/path/cert.pem CONVERSE_KEY=/path/key.pem CONVERSE_CA=/path/ca.pem \
-//	go test ./sdk/go/magicseam/ -run WireAgainstALiveCallee -v
+//	go test ./go/magicseam/ -run WireAgainstALiveCallee -v
 //
 // WHAT IT PROVES AND WHAT IT DOES NOT: it proves the two implementations agree
 // on the FRAMING - opcode, caller frame, request frame, tagged callee frames,

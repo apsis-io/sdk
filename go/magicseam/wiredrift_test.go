@@ -88,9 +88,9 @@ func TestWireCapabilityTokenAgreesWithTrail(t *testing.T) {
 // rustStreamWire reads the Rust side's wire definitions. FATAL on any failure:
 // an unreadable file must not read as agreement.
 //
-// MOVED 2026-08-26: the vocabulary left cmd/trail/src/streamwire.rs for
-// sdk/rust/seamwire/src/lib.rs when it was extracted into a crate, so trail and
-// cmd/comet/agent link one copy instead of each carrying their own.
+// MOVED 2026-08-26: the vocabulary left trail's wire vocabulary for
+// rust/seamwire/src/lib.rs when it was extracted into a crate, so trail and
+// the comet agent link one copy instead of each carrying their own.
 //
 // MOVED AGAIN 2026-09-02, when the SDK left periapsis for its own repo. The
 // vocabulary crate came WITH it, so this read stays in-repo and merely loses a
@@ -300,7 +300,7 @@ func TestWireDrift_ConverseIsAdvertisedIfAndOnlyIfServed(t *testing.T) {
 	// anywhere else is the dispatch reaching for it.
 	//
 	// The qualified path below is still `crate::streamwire::` and that is NOT
-	// stale: cmd/trail/src/main.rs carries `pub(crate) use seamwire as
+	// stale: trail's entry point carries `pub(crate) use seamwire as
 	// streamwire`, so trail's dispatch reads the same after the extraction as
 	// before. Deleting that LINE while call sites still say `crate::streamwire::`
 	// is a compile error (E0433), which is why it is not dead code.
@@ -325,8 +325,8 @@ func TestWireDrift_ConverseIsAdvertisedIfAndOnlyIfServed(t *testing.T) {
 	served := map[string]bool{}
 	// ***THE TWO HALVES NOW LIVE IN DIFFERENT PLACES, AND THAT SPLIT IS WHAT
 	// BROKE THIS TEST.*** Until the 2026-08-26 extraction both were under
-	// cmd/trail/src, so one directory scan answered both questions. Caps::ours()
-	// moved to sdk/rust/seamwire; the dispatch that SERVES an op did not. Reading
+	// trail's sources, so one directory scan answered both questions. Caps::ours()
+	// moved to rust/seamwire; the dispatch that SERVES an op did not. Reading
 	// only the old directory finds served=true, advertised=false, and reports a
 	// broken pair for a codebase that is fine.
 	//

@@ -36,7 +36,7 @@ import (
 // ***THIS STRING IS DUPLICATED IN deploy/gazer-vap.yaml'S CEL EXPRESSION***, and
 // it must be, because a ValidatingAdmissionPolicy cannot import a Go constant.
 // Two things that must agree with nothing enforcing it is exactly what a comment
-// cannot fix, so internal/trailop/gazeradmission_test.go reads the VAP and fails
+// cannot fix, so periapsis's trail operator/gazeradmission_test.go reads the VAP and fails
 // when the two spellings drift.
 //
 // NOT `system:node:` and not any `system:` prefix: periapsis never masquerades
@@ -49,7 +49,7 @@ const GazerPrincipalPrefix = "apsis:gazer:"
 //
 // ***THIS HAD THREE COPIES AND NO GO CONSTANT UNTIL 2026-08-25*** -
 // deploy/gazer-rbac.yaml's ClusterRoleBinding subject, deploy/gazer-vap.yaml's
-// matchCondition, and cmd/comet/agent's CSR generator - with nothing making any
+// matchCondition, and the comet agent's CSR generator - with nothing making any
 // of them agree.
 //
 // IT IS THE FAIL-OPEN DIRECTION, which is why the missing constant mattered
@@ -62,7 +62,7 @@ const GazerPrincipalPrefix = "apsis:gazer:"
 // So a typo here does not produce a refusal anybody sees. It produces a device
 // outside the admission rule, looking healthy.
 //
-// cmd/comet/comettest/gazercsr_test.go pins this against the two manifests and
+// periapsis's cross-language seam tests, gazercsr_test.go pins this against the two manifests and
 // against the Rust constant, which is the only form the agreement can take
 // across three languages.
 const GazerOrganisation = "apsis:gazers"
@@ -105,7 +105,7 @@ func GazerPrincipal(who Caller) (namespace, name string, err error) {
 // MINTS a device leaf validates with the identical code that later reads it.
 //
 // THE PRODUCER AND THE CONSUMER OF THIS SUBJECT MUST AGREE FOREVER, and the way
-// they stop agreeing is a second copy of the rules. internal/pki's
+// they stop agreeing is a second copy of the rules. periapsis's PKI
 // SignGazerTrailCSR calls this before it will sign anything, so a subject that
 // cannot be parsed cannot be issued in the first place - the failure moves from
 // a device that authenticates as nobody to a signer that refuses.

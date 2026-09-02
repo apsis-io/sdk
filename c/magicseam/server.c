@@ -100,7 +100,7 @@ static void wake_fd(int fd) {
 /* TEMPORARY diagnostic (MAGICSEAM_NGTCP2_LOG env-gated): dumps ngtcp2's own
  * internal debug log (PTO firing, congestion window, stream flow control,
  * loss detection) to stderr - see
- * done/2026-07-16_c-sdk-live-validation.md's "residual issue" section for
+ * periapsis's internal notes's "residual issue" section for
  * why plain printf instrumentation in this SDK's own callbacks wasn't
  * enough to pin down the sustained-volume degradation. */
 static void dbg_ngtcp2_log(void *user_data, char *msg, size_t len) {
@@ -339,7 +339,7 @@ static magicseam_conn *accept_new_conn(magicseam_quic_server *s, const ngtcp2_pk
  * WITHOUT IT A SERVER CONNECTION IS IMMORTAL. magicseam_conn_free is called
  * only on accept-time setup failures, so every connection that ever SUCCEEDED
  * kept its conn_entry AND its per-connection io_thread forever - a thread per
- * connection ever accepted, for the life of the process. Measured on engix99
+ * connection ever accepted, for the life of the process. Measured on node-1
  * 2026-08-15: magic-echo-c, up 27h, 74 finished connections still holding
  * threads, none blocked in the kernel, together burning ~4 cores. The peer in
  * every case was radiant's reachability prober, which dials each QUIC

@@ -1,29 +1,36 @@
 #!/usr/bin/env bash
-# Copy the canonical sdk/ts/periapsis TS SDK into a consumer's own tree - the
-# TS-SDK equivalent of wit/sync-consumer.sh (same idea, different artifact).
+# Copy the canonical ts/periapsis TS SDK into a consumer's own tree - the
+# TS-SDK equivalent of periapsis's wit/sync-consumer.sh (same idea, different
+# artifact).
 #
-# The SDK has no package.json and isn't published anywhere (see its own
-# README) - every in-repo example just reaches back into it with a relative
-# import (`../../../../sdk/ts/periapsis/identity.js`), which only resolves
-# because the example lives at a fixed depth inside THIS monorepo. A
-# consumer outside apsis-io/periapsis has no way to import it at all, so
-# vendoring a local copy (same pattern already used for periapsis:component's
-# WIT) is the only option today - not a workaround, the actual mechanism.
+# ***THIS IS NO LONGER THE ONLY OPTION, AND THE REASON IT USED TO BE IS GONE.***
+# This script was written when the SDK had no package.json and lived inside the
+# periapsis monorepo, where every example imported it by counting `../` to a
+# fixed depth - a consumer outside that repo simply could not import it, so
+# vendoring was the mechanism rather than a workaround.
 #
-# Usage: sdk/ts/sync-consumer.sh <dest-dir>
+# Since 2026-09-02 the SDK is its own repo and a real package,
+# @apsis-io/periapsis-sdk, whose exports map resolves `./x.js` to `./x.ts`. Most
+# consumers should just depend on it:
+#
+#   import { identity } from "@apsis-io/periapsis-sdk/identity.js"
+#
+# Vendoring remains for the cases a registry dependency cannot serve: an air-gapped
+# build, a toolchain that insists on a physical directory it controls, or pinning
+# an exact tree in-repo rather than through a lockfile.
+#
+# Usage: ts/sync-consumer.sh <dest-dir>
 #   <dest-dir> is where the SDK's files land directly (not nested under a
-#   "periapsis" subdir) - e.g. `sdk/ts/sync-consumer.sh vendor/periapsis-sdk`
+#   "periapsis" subdir) - e.g. `ts/sync-consumer.sh vendor/periapsis-sdk`
 #   produces vendor/periapsis-sdk/identity.ts, vendor/periapsis-sdk/types/, etc.
-#   Resolved relative to the CALLER's cwd, same convention as
-#   wit/sync-consumer.sh.
+#   Resolved relative to the CALLER's cwd.
 #
-# After syncing, update your own imports to point at <dest-dir> instead of
-# the old `../../../../sdk/ts/periapsis/...` depth, e.g.:
+# After syncing, point your imports at <dest-dir> instead of the package name:
 #   import { identity } from "../vendor/periapsis-sdk/identity.js"
 #
-# Re-run any time sdk/ts/periapsis changes upstream - this is a snapshot
-# copy, not a symlink or live reference, matching wit/sync-consumer.sh's own
-# model (JS/TS toolchains need a physical directory, not a registry fetch).
+# Re-run any time ts/periapsis changes upstream - this is a snapshot copy, not a
+# symlink or live reference (JS/TS toolchains need a physical directory, not a
+# registry fetch).
 set -euo pipefail
 
 if [ "$#" -ne 1 ]; then
@@ -42,6 +49,6 @@ mkdir -p "$DEST_DIR"
 # now", nothing hand-edited belongs in it.
 rsync -a --delete "$SRC/" "$DEST_DIR/"
 
-echo "vendored sdk/ts/periapsis -> $DEST_DIR"
+echo "vendored ts/periapsis -> $DEST_DIR"
 echo "update your imports to point at this directory relative to your own"
 echo "source files, e.g.: import { identity } from \"../$DEST_DIR/identity.js\""

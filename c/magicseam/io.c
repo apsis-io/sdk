@@ -365,7 +365,7 @@ static int cb_recv_stream_data(ngtcp2_conn *conn, uint32_t flags, int64_t stream
    * a sustained run (100k calls, 1 KiB each) stalled after roughly
    * initial_max_data's worth of bytes had round-tripped, with every call
    * thereafter failing "unavailable" - see
-   * done/2026-07-16_c-sdk-live-validation.md. */
+   * periapsis's internal notes. */
   if (datalen > 0) {
     ngtcp2_conn_extend_max_stream_offset(conn, stream_id, datalen);
     ngtcp2_conn_extend_max_offset(conn, datalen);
@@ -451,7 +451,7 @@ static int cb_stream_close(ngtcp2_conn *conn, uint32_t flags, int64_t stream_id,
    * fires - confirmed live (client-side instrumentation showed exactly
    * 999 successful calls, then every one thereafter failing with
    * "open_bi failed: timed out" - see
-   * done/2026-07-16_c-sdk-live-validation.md's write-up of both this and
+   * periapsis's internal notes's write-up of both this and
    * the earlier, separate write_side() retransmission-storm bug). */
   if (c->is_server) {
     ngtcp2_conn_extend_max_streams_bidi(conn, 1);
@@ -811,7 +811,7 @@ static int write_side(magicseam_conn *c) {
        * this break, a permanently-blocked stream free-runs this into an
        * ACK/retransmission storm between both peers (~63,000 pkt/s,
        * never settling) instead of yielding back to poll() - see
-       * done/2026-07-16_c-sdk-live-validation.md. */
+       * periapsis's internal notes. */
       n = ngtcp2_conn_writev_stream(c->conn, &path, NULL, out, sizeof(out), &datalen,
                                      NGTCP2_WRITE_STREAM_FLAG_NONE, -1, NULL, 0,
                                      magicseam_now_ns());
@@ -1071,7 +1071,7 @@ void *magicseam_io_thread_main(void *arg) {
      * and which is never reaped (see the server's sweep in server.c) - the
      * loop spins at whatever rate the CPU allows, forever, in userspace.
      *
-     * Measured on engix99 2026-08-15: magic-echo-c, 74 such threads, wchan=0
+     * Measured on node-1 2026-08-15: magic-echo-c, 74 such threads, wchan=0
      * on every one, ~4 cores. `ps` showed 13.4% because that is a LIFETIME
      * average over 27h; sampled it was 391-415%.
      *

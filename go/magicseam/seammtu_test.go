@@ -25,7 +25,7 @@ const (
 
 	// narrowestSeamPathMTU is the tightest link the seam is required to cross -
 	// the aphelion0 tailnet, where the off-cluster consumer lives. Measured on
-	// engix99: /sys/class/net/aphelion0/mtu reads 1280.
+	// node-1: /sys/class/net/aphelion0/mtu reads 1280.
 	narrowestSeamPathMTU = 1280
 
 	// quicMinInitialPacketSize is quic-go's documented lower limit ("values below

@@ -5,7 +5,7 @@
 //!
 //! # aperture does not type-check expressions, and the SDK is stricter on purpose
 //!
-//! `internal/aperture` has a `signatures` table with types, `CheckArity` and
+//! `periapsis's aperture` has a `signatures` table with types, `CheckArity` and
 //! `CheckPure`. It is easy to read that as "expressions are type-checked". They
 //! are not: the table types PARAMETERS and results for arity and addressing, and
 //! nothing walks an expression comparing operand types. The host will happily
@@ -149,7 +149,7 @@ impl<T: ApType> fmt::Display for Expr<T> {
 /// the TS SDK reaches the identical property by calling `JSON.stringify`.
 ///
 /// This is not decoration. aperture's string token carried NO escapes until
-/// 2026-08-29, and `cmd/trail` rendered condition messages with JSON escaping:
+/// 2026-08-29, and trail rendered condition messages with JSON escaping:
 /// the write boundary refused every obligation whose message quoted a policy
 /// name, silently, because an action returns nothing to the guest. Getting this
 /// wrong reproduces that outage.

@@ -5,11 +5,11 @@
 //
 // A provider built on this SDK is NATIVE - it speaks the wire protocol directly
 // rather than running as a WASM component - so it implements the negotiation
-// itself. This mirrors sdk/rust/seamwire/src/lib.rs, which is the
+// itself. This mirrors rust/seamwire/src/lib.rs, which is the
 // specification; the two are implementations of one protocol and must be read
-// together. sdk/go/magicseam/stream.go is the third.
+// together. go/magicseam/stream.go is the third.
 //
-// That path was cmd/trail/src/streamwire.rs until 2026-08-26, when it became a
+// That path was trail's wire vocabulary until 2026-08-26, when it became a
 // shared crate so the Comet agent could speak the seam without a second Rust
 // implementation of it. trail consumes it under the same name.
 //
@@ -106,7 +106,7 @@ export function capsOffered(hasBarrier: boolean = false, hasConverse: boolean = 
   // unavailable. A provider that advertised `converse` with nothing to dispatch
   // to would convert a readable up-front refusal on the caller's side - "peer
   // does not support the converse seam" - into a call that hangs mid-stream.
-  // Mirrors sdk/go/magicseam's capsOffered(hasBarrier, hasConverse).
+  // Mirrors go/magicseam's capsOffered(hasBarrier, hasConverse).
   if (hasConverse) caps.push(CAP_CONVERSE)
 
   return caps.join(",")

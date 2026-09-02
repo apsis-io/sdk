@@ -31,7 +31,7 @@
 // The handful of RUNTIME facts below (an empty resume throws) are ordinary
 // assertions in `runtimeGuards()`:
 //
-//	bun -e 'import {runtimeGuards} from "./sdk/ts/periapsis/perseid.test.ts"; runtimeGuards()'
+//	bun -e 'import {runtimeGuards} from "./ts/periapsis/perseid.test.ts"; runtimeGuards()'
 //
 // ***BUN, NOT NODE, AND THE REASON IS THE IMPORT ABOVE.*** It is extensionless,
 // which `moduleResolution: bundler` resolves and node's ESM resolver does NOT —
@@ -513,7 +513,7 @@ export const _eachPathKindIsAcceptedByItsOwnSurface = () => {
     path.cluster('admissionregistration.k8s.io', 'v1', 'validatingadmissionpolicies', 'p'),
   )
 
-  return reconcile.observeCluster()(path.clusterCore('v1', 'nodes', 'engix99'))
+  return reconcile.observeCluster()(path.clusterCore('v1', 'nodes', 'node-1'))
 }
 
 const builtCluster = path.cluster('admissionregistration.k8s.io', 'v1', 'validatingadmissionpolicies', 'p')

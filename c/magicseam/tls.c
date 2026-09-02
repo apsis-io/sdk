@@ -13,7 +13,7 @@
 /* The ALPN protocol byte string in OpenSSL's wire format: one length byte
  * followed by that many bytes, repeated per protocol (RFC 7301). We only
  * ever offer/accept the one fixed "trail-quic" string - must match
- * cmd/trail/src/remote_quic.rs's ALPN_PROTOCOL and every other SDK's
+ * trail's QUIC transport's ALPN_PROTOCOL and every other SDK's
  * own ALPN constant exactly (a real interop bug found and fixed this
  * session came from one SDK omitting ALPN once a peer offered it). */
 static const unsigned char kAlpnProtos[] = "\x0atrail-quic";
@@ -107,7 +107,7 @@ SSL_CTX *magicseam_tls_ctx_new_server(const char *cert_path, const char *key_pat
 
 /* pin_peer_host requires the peer's leaf to carry the fixed
  * "trail-quic-peer" SAN - every trail-CA-signed leaf does by
- * construction (see internal/podlaunch/trailtls.go); a pod's own address
+ * construction (see periapsis's pod-launch TLS wiring); a pod's own address
  * is neither known at cert-mint time nor stable across a migration, so
  * per-peer hostname verification would be both impossible and pointless -
  * the real trust boundary is "signed by our trail CA," not which specific

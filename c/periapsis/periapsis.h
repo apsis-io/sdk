@@ -3,7 +3,7 @@
 //
 // periapsis.h - the C (WASM guest) SDK for the Periapsis host capabilities
 // (ADR-0026 `periapsis:host/*` / ADR-0028 checkpoint), the C counterpart to
-// `sdk/ts/periapsis`. It is an ERGONOMIC wrapper over the raw, verbose bindings
+// `ts/periapsis`. It is an ERGONOMIC wrapper over the raw, verbose bindings
 // wit-bindgen generates from `wit/` (`generated/trail_host.h`) - it hides the
 // component-model string/option/result/list machinery behind plain C types
 // (`const char*`, small enums, out-params) so a guest reads and writes host
@@ -14,7 +14,7 @@
 // (`periapsis:magic/handler`) is deliberately OUT: its `handle()` is
 // `async func` and no non-Rust toolchain (TinyGo, C/wit-bindgen, jco) can bind
 // an async component-model export/import today - see
-// `done/2026-07-16_tinygo-sdk-blocked.md`. Every interface here is sync, so
+// `periapsis's internal notes`. Every interface here is sync, so
 // unlike the seam it binds cleanly and this SDK is complete, not a scaffold.
 //
 // Build: a guest links this SDK + `generated/trail_host.c` +

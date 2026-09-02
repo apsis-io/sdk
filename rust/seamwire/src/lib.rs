@@ -219,7 +219,7 @@ impl Caps {
     ///
     /// Listed now because `ProviderCall::converse` has a real implementation
     /// (plug.rs, running one Perseid step) rather than the refusing default.
-    /// sdk/go/magicseam/wiredrift_test.go enforces the pair in BOTH directions -
+    /// go/magicseam/wiredrift_test.go enforces the pair in BOTH directions -
     /// it went red on this exact line being absent while the serve side existed.
     pub fn ours() -> Caps {
         Caps {

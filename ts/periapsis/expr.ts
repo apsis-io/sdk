@@ -27,7 +27,7 @@
 //
 // So this builder is deliberately STRICTER THAN THE HOST. Every rule below is
 // one the host either enforces at eval or cannot express at all; none of them
-// contradicts it. `internal/aperture/sdkresume_test.go` runs what this produces
+// contradicts it. `periapsis's aperture/sdkresume_test.go` runs what this produces
 // through the host's real checks, so "stricter" stays "stricter and compatible"
 // rather than "stricter and diverged".
 //
@@ -116,7 +116,7 @@ const mk = <T extends ApType>(text: string): Expr<T> => text as Expr<T>
  * grammar decodes with `encoding/json` on the host side, so producer and
  * consumer are the same dialect by construction rather than by agreement.
  *
- * ***WHY THE LIMIT MATTERED ENOUGH TO CHANGE THE LANGUAGE.*** `cmd/trail`
+ * ***WHY THE LIMIT MATTERED ENOUGH TO CHANGE THE LANGUAGE.*** trail
  * rendered a condition's message with JSON escaping and aperture could not parse
  * it, so the write boundary refused the obligation - silently, because an action
  * returns nothing to the guest by contract. Every condition apogeos' governance

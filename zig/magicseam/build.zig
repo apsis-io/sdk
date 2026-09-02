@@ -1,10 +1,10 @@
 const std = @import("std");
 
-// Zig magic-seam SDK (ADR-0028/0043): wraps sdk/c/magicseam's own QUIC
+// Zig magic-seam SDK (ADR-0028/0043): wraps c/magicseam's own QUIC
 // implementation rather than re-porting ngtcp2 handling a third time (Go/TS
 // re-implement the wire protocol natively; C owns the one ngtcp2 binding,
 // Zig links straight into it via @cImport - see magicseam.zig's own doc
-// comment). The five C sources compiled below are sdk/c/magicseam's actual
+// comment). The five C sources compiled below are c/magicseam's actual
 // implementation, not a copy - this directory has no independent protocol
 // logic of its own.
 const c_sdk_dir = "../../c/magicseam";
@@ -18,7 +18,7 @@ const c_srcs = [_][]const u8{
 const c_flags = [_][]const u8{
     "-std=c11",
     "-D_POSIX_C_SOURCE=200809L",
-    // Matches sdk/c/magicseam/Makefile's own plain build (no UBSan there
+    // Matches c/magicseam/Makefile's own plain build (no UBSan there
     // either). Zig's C frontend instruments Debug builds with UBSan by
     // default; without this the final system-cc link (see the .use_lld
     // comment below) fails with undefined __ubsan_handle_* references,
@@ -96,7 +96,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_tests.step);
 }
 
-// Same system libraries sdk/c/magicseam/Makefile links (found via
+// Same system libraries c/magicseam/Makefile links (found via
 // pkg-config there; hardcoded here since Zig's build system has no
 // pkg-config integration and these names are stable ABI facts, not a build
 // configuration that varies per-machine).

@@ -21,7 +21,7 @@ import { stringToBytes, bytesToString } from "./codec.js";
  * readiness probe green long after you stopped serving. Measured 2026-08-12: the
  * same component, differing only by dropping its listener before returning, gave
  * port STILL OPEN vs CLOSED. See periapsis:component/checkpoint in
- * sdk/c/periapsis/wit/component.wit for the canonical statement and for the gap
+ * c/periapsis/wit/component.wit for the canonical statement and for the gap
  * this does NOT cover (returning for a non-checkpoint reason).
  */
 export function checkpointRequested(): boolean {

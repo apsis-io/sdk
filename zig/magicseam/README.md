@@ -1,16 +1,16 @@
-# sdk/zig/magicseam
+# zig/magicseam
 
 The Zig **host-side** magic-seam SDK (ADR-0028 / ADR-0043) - an idiomatic Zig
-wrapper over `sdk/c/magicseam`'s own QUIC implementation, for a genuinely
+wrapper over `c/magicseam`'s own QUIC implementation, for a genuinely
 non-WASM Zig program that wants to act as a magic-seam provider or consumer.
 
-Unlike `sdk/go/magicseam` and `sdk/ts/magicseam` (which re-implement the wire
+Unlike `go/magicseam` and `ts/magicseam` (which re-implement the wire
 protocol natively against their own languages' QUIC libraries), this SDK
 **links straight into `libmagicseam_quic.a`** via `@cImport` instead of
 re-porting the ngtcp2 handling a third time. Zig has first-class C interop and
 C is already the one ngtcp2 binding in this repo, so wrapping it is the
 correct scope here - this package has no protocol logic of its own; every
-behavior (flow control, framing, the worker pool, TLS) is `sdk/c/magicseam`'s.
+behavior (flow control, framing, the worker pool, TLS) is `c/magicseam`'s.
 
 ## API
 
@@ -34,10 +34,10 @@ behavior (flow control, framing, the worker pool, TLS) is `sdk/c/magicseam`'s.
 ## Build
 
 ```sh
-zig build test        # compiles sdk/c/magicseam's own 5 sources + runs this SDK's tests
+zig build test        # compiles c/magicseam's own 5 sources + runs this SDK's tests
 ```
 
-`build.zig` compiles `sdk/c/magicseam/{frame,tls,io,client,server}.c`
+`build.zig` compiles `c/magicseam/{frame,tls,io,client,server}.c`
 directly (not the Makefile's prebuilt `.a`) into a static lib, links system
 `ngtcp2`/`ngtcp2_crypto_ossl`/`ssl`/`crypto`/`pthread` (hardcoded - Zig's
 build system has no pkg-config integration), then builds `magicseam.zig` as
@@ -50,14 +50,14 @@ in `crt1.o`) - this affects ANY libc-linked native Zig source on this kind of
 host, not just this SDK. `build.zig`'s test step works around it by compiling
 the test to a plain object (`emit_object`) and linking + running it via the
 system `cc` instead of `zig build-exe`'s own linker. See
-`done/2026-07-17_zig-sdk-live-validation.md` for the full diagnosis - if a
+periapsis's internal notes for the full diagnosis - if a
 future Zig release fixes this upstream, that workaround (and its two related
 flag gotchas: `-fno-sanitize=undefined` on the C sources, and `cc` needing NO
 `-nostartfiles`/`-no-pie` for this specific object-emission path) can likely
 be simplified back to a plain `b.addRunArtifact`.
 
 `zig build test` mints throwaway CA + leaf certs via the `openssl` CLI
-(mirroring `sdk/c/magicseam`'s own test harness) and runs the same three real
+(mirroring `c/magicseam`'s own test harness) and runs the same three real
 loopback QUIC integration tests every magic-seam SDK's test suite has: a
 round trip, concurrent calls that don't serialize behind each other (proving
 the Zig handler trampoline doesn't accidentally serialize either), and the

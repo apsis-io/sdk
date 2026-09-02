@@ -39,7 +39,7 @@
 //!
 //! The guest builds these expressions and the host parses them; the two are
 //! written in different languages and cannot import each other. So
-//! `internal/aperture`'s test suite reads THIS SOURCE and checks that every
+//! `periapsis's aperture`'s test suite reads THIS SOURCE and checks that every
 //! symbol aperture types is constructed here, with a matching arity, and that
 //! effectful symbols are the ones typed `Expr<Effect>`. A drift is a Go test
 //! failure rather than a silently dropped write.

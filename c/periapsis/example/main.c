@@ -1,7 +1,7 @@
 // Copyright (C) 2025-2026 Malformed C. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Minimal example guest exercising every capability of sdk/c/periapsis. Built
+// Minimal example guest exercising every capability of c/periapsis. Built
 // as a wasm32-wasip3 component that imports the periapsis:component host caps
 // and exports wasi:cli/run - see build.sh. Not a benchmark or a real workload;
 // it just shows the SDK surface end to end.

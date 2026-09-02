@@ -5,7 +5,7 @@ package magicseam
 
 import "testing"
 
-// Paired with cmd/trail/src/statusframe.rs's tests on purpose: the two sides
+// Paired with trail's status frame's tests on purpose: the two sides
 // are separate implementations of one wire format, so the tests are what keeps
 // them from drifting. Any case added here should be added there.
 

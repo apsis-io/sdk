@@ -4,7 +4,7 @@
 // Guards for the typed aperture expression algebra.
 //
 // The expression TEXT these produce is checked against the host's own parser and
-// checks by internal/aperture/sdkresume_test.go. What is checked HERE is the
+// checks by periapsis's aperture/sdkresume_test.go. What is checked HERE is the
 // half the host cannot do: refusing expressions aperture would accept and
 // evaluate into nonsense.
 
@@ -189,7 +189,7 @@ export function runtimeGuards(): void {
     throw new Error(`a quoted message was not escaped as the grammar expects:\n  got  ${quoted}\n  want ${want}`)
   }
 
-  // And the host must be able to read it back. internal/aperture decodes with
+  // And the host must be able to read it back. periapsis's aperture decodes with
   // encoding/json, which is the same dialect JSON.stringify emits - that pairing
   // is what makes this safe, and TestSDKResumeExpressions pins it from the Go
   // side against this exact shape.

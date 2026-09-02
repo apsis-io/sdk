@@ -1,6 +1,6 @@
 //! Real loopback QUIC integration tests - real UDP sockets on 127.0.0.1,
 //! real mTLS handshakes, real streams, only the handler is a trivial mock.
-//! Mirrors sdk/c/magicseam/magicseam_quic_test.c (and sdk/go, sdk/ts's own
+//! Mirrors c/magicseam/magicseam_quic_test.c (and sdk/go, sdk/ts's own
 //! versions) exactly: same three tests, same generous timing bound - this
 //! is what actually proves the wrapper (not just the underlying C library
 //! in isolation) round-trips real calls, including through the Zig-side

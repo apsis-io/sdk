@@ -1,5 +1,5 @@
 // Ergonomic wrapper around periapsis:host/exec (ADR: the exec seam, trail's
-// cmd/trail/src/exec.rs) - allowlisted child-component spawning. A guest may
+// trail's exec implementation) - allowlisted child-component spawning. A guest may
 // only spawn a NAME declared at pod launch via `--exec-with <name>=<path>`
 // (or the trail.apsis/exec-with pod annotation); anything else throws a
 // JS Error whose `.payload` is `{ tag: "not-allowed" }`. p3-only: stream<u8>

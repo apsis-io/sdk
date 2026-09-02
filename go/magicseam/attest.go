@@ -10,7 +10,7 @@ import (
 
 // Turning the caller's ASSERTED identity into one the datapath attests.
 //
-// PROMOTED OUT OF examples/go/w8s-node-provider 2026-08-20, UNCHANGED IN
+// PROMOTED OUT OF the w8s node provider example 2026-08-20, UNCHANGED IN
 // BEHAVIOUR, because radiant needs exactly this check to authorize a Perseid's
 // observe/emit calls (ADR-0082's per-call enforcement point) and the alternative
 // was a SECOND copy of a security control that must agree with the first
@@ -23,7 +23,7 @@ import (
 // caller frame in from the pod it is running and a guest cannot reach it, but
 // nothing in the transport verifies it: every trail QUIC leaf fleet-wide carries
 // the same fixed CommonName/DNS-SAN and the signing side discards the subject
-// entirely (internal/pki/trailrelay.go, deliberately - ADR-0057 chose ONE
+// entirely (periapsis's PKI relay, deliberately - ADR-0057 chose ONE
 // IDENTITY PER HOST, not per pod). So mTLS proves "signed by the trail CA" and
 // nothing about which peer is speaking. Any holder of a trail cert could claim
 // to be any pod, given that pod's UID - and then act as it.
@@ -33,7 +33,7 @@ import (
 // claims to be a pod; that pod has a podIP; if the two disagree, the claim is
 // false. Verified live before this was written: conntrack on the node shows the
 // consumer's own pod IP reaching the provider unmodified (UDP IN
-// 10.0.51.33:50720 -> 10.0.63.53:9500), so pod-to-pod traffic there is not
+// 192.0.2.33:50720 -> 192.0.2.53:9500), so pod-to-pod traffic there is not
 // SNATed and the observed address is the caller's real one.
 //
 // AND THROUGH A ClusterIP SERVICE, ACROSS NODES - measured 2026-08-20, because
@@ -41,8 +41,8 @@ import (
 // (resolver.go binds the Service DNS name, not an endpoint IP). That is the hop
 // where a SNAT would silently reduce this control to nothing:
 //
-//	client 10.0.79.196 (engix99-trail-2) -> ClusterIP 10.107.243.254
-//	server 10.0.50.13  (engix99-trail-1) OBSERVED [::ffff:10.0.79.196]
+//	client 198.51.100.196 (node-2) -> ClusterIP 203.0.113.254
+//	server 198.51.100.13  (node-1) OBSERVED [::ffff:198.51.100.196]
 //	three consecutive connections, all carrying the client's real podIP
 //
 // ***THE OBSERVED FORM WAS IPv4-MAPPED IPv6, WHICH IS WHY sameIP PARSES RATHER
@@ -50,7 +50,7 @@ import (
 // LISTENER's doing rather than the CNI's and a v4-only listener would see a
 // plain v4 address - but it means the mapped form is a real wire condition here,
 // not a defensive hypothetical. A string compare against Status.PodIP
-// ("10.0.79.196") would have refused every legitimate call while reading in the
+// ("198.51.100.196") would have refused every legitimate call while reading in the
 // logs exactly like an impersonation attempt.
 //
 // WHAT IT DOES NOT DO, stated because a partial control described as a complete
@@ -59,8 +59,8 @@ import (
 //   - it says where the packets came from, NOT who signed them - it is not a
 //     substitute for per-pod credentials, it is what can be had without them.
 //     The durable fix is a per-pod URI SAN, and its cutover is MINT -> CYCLE ->
-//     ENFORCE in that order (done/2026-08-16_seam-scope-bypass-and-quic-
-//     authorization.md); enforcing first takes out every wasm pod at once;
+//     ENFORCE in that order (periapsis's internal notes); enforcing first takes
+//     out every wasm pod at once;
 //   - it would be defeated by any hop that rewrites the source address. Route a
 //     consumer through a SNATing path and the claim stops matching. That is why
 //     a refusal here names BOTH addresses: the failure mode of this control is a

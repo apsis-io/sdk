@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-const claimedIP = "10.0.51.33"
+const claimedIP = "192.0.2.33"
 
 func claimant() PodIdentity {
 	return PodIdentity{Namespace: "team-a", Name: "consumer", PodIP: claimedIP}
@@ -23,7 +23,7 @@ func claimant() PodIdentity {
 func TestAttestPeer_ImpersonationIsRefusedAndNamesBothAddresses(t *testing.T) {
 	err := AttestPeer(claimant(), Caller{
 		Namespace: "team-a", PodName: "consumer", PodUID: "uid",
-		PeerAddr: "10.0.99.99:41000",
+		PeerAddr: "192.0.2.99:41000",
 	})
 	if err == nil {
 		t.Fatal("a caller impersonating another pod was ACCEPTED")
@@ -31,7 +31,7 @@ func TestAttestPeer_ImpersonationIsRefusedAndNamesBothAddresses(t *testing.T) {
 	// BOTH addresses, because the failure mode of this control is a LEGITIMATE
 	// caller refused after a routing change, and that has to be diagnosable from
 	// the message alone rather than by reading this file.
-	if !strings.Contains(err.Error(), claimedIP) || !strings.Contains(err.Error(), "10.0.99.99") {
+	if !strings.Contains(err.Error(), claimedIP) || !strings.Contains(err.Error(), "192.0.2.99") {
 		t.Errorf("refusal names only one side: %v", err)
 	}
 	if !errors.Is(err, ErrRejected) {
@@ -60,7 +60,7 @@ func TestAttestPeer_UnobservedAddressFailsClosedForItsOwnReason(t *testing.T) {
 func TestAttestPeer_ClaimantWithoutAPodIPIsRefused(t *testing.T) {
 	id := claimant()
 	id.PodIP = ""
-	err := AttestPeer(id, Caller{PeerAddr: "10.0.51.33:1"})
+	err := AttestPeer(id, Caller{PeerAddr: "192.0.2.33:1"})
 	if err == nil {
 		t.Fatal("a claimant with no podIP was ACCEPTED")
 	}
@@ -73,7 +73,7 @@ func TestAttestPeer_ClaimantWithoutAPodIPIsRefused(t *testing.T) {
 // direction - the one that matters most here, because its symptom in the logs is
 // indistinguishable from an attack.
 func TestAttestPeer_EquivalentAddressSpellingsAreAccepted(t *testing.T) {
-	for _, peer := range []string{"10.0.51.33:1", "[::ffff:10.0.51.33]:1"} {
+	for _, peer := range []string{"192.0.2.33:1", "[::ffff:192.0.2.33]:1"} {
 		if err := AttestPeer(claimant(), Caller{PeerAddr: peer}); err != nil {
 			t.Errorf("AttestPeer(%q) refused an equivalent spelling: %v", peer, err)
 		}
@@ -83,10 +83,10 @@ func TestAttestPeer_EquivalentAddressSpellingsAreAccepted(t *testing.T) {
 // A STRING COMPARE WOULD PASS EVERY TEST ABOVE EXCEPT THIS ONE. Pinning it so
 // sameIP cannot be "simplified" back into ==.
 func TestAttestPeer_ComparesAsIPsNotStrings(t *testing.T) {
-	if !sameIP("10.0.51.33", "::ffff:10.0.51.33") {
+	if !sameIP("192.0.2.33", "::ffff:192.0.2.33") {
 		t.Error("sameIP compared as strings - an IPv4-mapped peer reads as impersonation")
 	}
-	if sameIP("10.0.51.33", "10.0.51.3") {
+	if sameIP("192.0.2.33", "192.0.2.3") {
 		t.Error("sameIP accepted a DIFFERENT address - a prefix must not attest")
 	}
 	// Garbage must not attest. ParseIP returns nil for both, and returning

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // QUIC transport (ADR-0043) for a genuinely non-WASM Go magic-seam
-// provider/consumer - mirrors cmd/trail/src/remote_quic.rs's wire
+// provider/consumer - mirrors trail's QUIC transport's wire
 // protocol EXACTLY (see that file's own module doc comment, the
 // authoritative spec this was ported from): mutual TLS against the
 // cluster's self-managed trail CA, one persistent connection, a version
@@ -10,9 +10,9 @@
 // opens its OWN stream (so unrelated calls never queue behind each other -
 // unlike Serve/DialMSK1's single-connection serialization above).
 //
-// TLS material: peri.apsis/tls-quic (internal/podlaunch/builder.go)
+// TLS material: peri.apsis/tls-quic (periapsis's pod builder)
 // bind-mounts a fresh cert/key/CA-bundle triple, signed by the trail CA,
-// into the pod at internal/podlaunch.TLSQuicMountDir - callers running as
+// into the pod at periapsis's TLS QUIC mount dir - callers running as
 // a pod should point DialQUIC/ServeQUIC at those three files directly.
 package magicseam
 
@@ -31,8 +31,8 @@ import (
 )
 
 // TrailQUICSNI is the fixed CommonName/DNS-SAN every trail-CA-signed QUIC
-// leaf carries - must match internal/podlaunch/trailtls.go's TrailQuicSNI
-// and cmd/trail/src/remote_quic.rs's SERVER_NAME exactly. Every peer
+// leaf carries - must match periapsis's pod-launch TLS wiring's TrailQuicSNI
+// and trail's QUIC transport's SERVER_NAME exactly. Every peer
 // shares this one SAN (a pod's own address is neither known at cert-mint
 // time nor stable across a migration), so hostname verification is
 // trivially satisfied; the real trust boundary is "signed by the trail
@@ -40,8 +40,8 @@ import (
 const TrailQUICSNI = "trail-quic-peer"
 
 // quicALPNProtocol is the ALPN protocol negotiated on every trail QUIC
-// endpoint (client and server) - must match cmd/trail/src/remote_quic.rs's
-// own ALPN_PROTOCOL and sdk/ts/magicseam/quic.ts's own ALPN constant
+// endpoint (client and server) - must match trail's QUIC transport's
+// own ALPN_PROTOCOL and ts/magicseam/quic.ts's own ALPN constant
 // exactly. quic-go's own docs (client.go/server.go) say tls.Config "must
 // define an application protocol (using NextProtos)"; leaving it unset
 // worked by coincidence as long as BOTH peers left it unset (quic-go
@@ -116,7 +116,7 @@ type QUICClient struct {
 	// every subsequent call rather than failing one. Measured: advertising
 	// unconditionally while Call wrote no opcode made the peer read the caller
 	// frame's length prefix as an opcode and wait forever - the tests HUNG rather
-	// than failed. cmd/trail/src/remote_quic.rs:444 carries the same warning from
+	// than failed. trail's QUIC transport:444 carries the same warning from
 	// the other side.
 	opcodes bool
 	// PeerCaps is what the provider advertised, or empty for a provider that
@@ -397,7 +397,7 @@ func serveQUIC(ctx context.Context, addr, certPath, keyPath, caPath, version str
 	// said IPv4. It is also the one structural difference between this provider
 	// and trail's quinn-based one, which parses a SocketAddr and binds AF_INET -
 	// and those two split exactly along survivor/casualty in the wedge
-	// investigation (done/2026-07-31_quic-provider-wedge.md). Whether the
+	// investigation (periapsis's internal notes). Whether the
 	// dual-stack bind is the MECHANISM there is untested at the time of writing;
 	// honouring the requested family is correct regardless.
 	pconn, err := listenUDPForHost(hostPort)
@@ -546,7 +546,7 @@ func serveQUICCall(ctx context.Context, stream *quic.Stream, obs observed, handl
 	//
 	// NO Enter() GUARD is taken for a marker. The marker arrives AS a stream, so
 	// counting it would make the drain wait for itself and always time out - the
-	// same coupling cmd/trail/src/marker.rs documents on its own drain.
+	// same coupling trail's marker handling documents on its own drain.
 	if op == opMarker || op == opResume {
 		serveQUICMarker(stream, op, barrier)
 
@@ -584,7 +584,7 @@ func serveQUICCall(ctx context.Context, stream *quic.Stream, obs observed, handl
 	}
 
 	// Caller frame FIRST, then the request - matching
-	// cmd/trail/src/remote_quic.rs's Client::call, which writes both before
+	// trail's QUIC transport's Client::call, which writes both before
 	// finishing the send side.
 	callerFrame, err := readFrame(stream)
 	if err != nil {

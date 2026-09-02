@@ -45,7 +45,7 @@ import (
 // >15% with machine load (several agents share this host), while the gap between
 // the two is stable. Use -count to get a spread rather than trusting one sample:
 //
-//	go test ./sdk/go/magicseam -run XXX -bench QUIC -benchtime 1000x -count=5
+//	go test ./go/magicseam -run XXX -bench QUIC -benchtime 1000x -count=5
 
 // freeLoopbackUDPPort reserves a free loopback UDP port and releases it.
 //

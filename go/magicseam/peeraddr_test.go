@@ -20,12 +20,12 @@ import (
 // claim.
 func TestPeerAddrCannotBeInjectedFromTheWire(t *testing.T) {
 	frames := [][]byte{
-		[]byte("ns\tpod\tuid\tcomp\t10.0.0.1:1234"),          // a 5th field
-		[]byte("ns\tpod\tuid\tcomp\t\t\t10.0.0.1:1234"),      // padded further
-		[]byte("10.0.0.1:1234\tpod\tuid\tcomp"),              // first field
+		[]byte("ns\tpod\tuid\tcomp\t192.0.2.1:1234"),          // a 5th field
+		[]byte("ns\tpod\tuid\tcomp\t\t\t192.0.2.1:1234"),      // padded further
+		[]byte("192.0.2.1:1234\tpod\tuid\tcomp"),              // first field
 		[]byte("ns\tpod\tuid\tcomp"),                         // exact arity
 		[]byte(""),                                           // empty
-		[]byte("ns\tpod\tuid\tcomp\nPeerAddr=10.0.0.1:1234"), // newline smuggling
+		[]byte("ns\tpod\tuid\tcomp\nPeerAddr=192.0.2.1:1234"), // newline smuggling
 	}
 	for _, f := range frames {
 		if got := decodeCaller(f); got.PeerAddr != "" {
@@ -38,8 +38,8 @@ func TestPeerAddrCannotBeInjectedFromTheWire(t *testing.T) {
 // own Caller (harmlessly, by mistake) must not have that value travel and be
 // mistaken for an observation on the far side.
 func TestPeerAddrIsNotSentOnTheWire(t *testing.T) {
-	c := Caller{Namespace: "ns", PodName: "pod", PodUID: "uid", Component: "comp", PeerAddr: "10.0.0.1:1234"}
-	if wire := string(encodeCaller(c)); strings.Contains(wire, "10.0.0.1") {
+	c := Caller{Namespace: "ns", PodName: "pod", PodUID: "uid", Component: "comp", PeerAddr: "192.0.2.1:1234"}
+	if wire := string(encodeCaller(c)); strings.Contains(wire, "192.0.2.1") {
 		t.Fatalf("encodeCaller emitted PeerAddr: %q", wire)
 	}
 	// ...and the round trip drops it, rather than shifting the other fields.

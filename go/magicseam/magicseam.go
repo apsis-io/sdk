@@ -7,7 +7,7 @@
 // *** TRAIL NO LONGER SPEAKS THIS PROTOCOL. *** MSK1 and its consumer flag
 // --plug-remote-simple were REMOVED from trail by ADR-0044 (commit 5fe956bf1,
 // "remove Simple/MSK1 transport, superseded by QUIC"). This doc comment cited
-// cmd/trail/src/remote_simple.rs for the authoritative wire description until
+// trail's MSK1 transport for the authoritative wire description until
 // 2026-08-27; that file has not existed since. Do not go looking for it, and
 // do not pass --plug-remote-simple to trail - it is not a flag.
 //
@@ -37,7 +37,7 @@
 // *** VERSION GATING IS ENFORCED HERE, AS OF 2026-08-27. *** Serve compares the
 // consumer's required version against the one it serves and refuses an
 // incompatible handshake with `accept = 0`. `versionCompatible` mirrors
-// cmd/trail/src/plug.rs's `version_compatible` exactly, including the 0.x rules
+// trail's plug negotiation's `version_compatible` exactly, including the 0.x rules
 // that are not plain semver.
 //
 // WHY IT HAD TO MOVE HERE, because the original decision was not wrong:
@@ -92,7 +92,7 @@ type Caller struct {
 	// cannot reach it - but nothing in the TRANSPORT verifies it. The QUIC
 	// leaf carries a fixed CommonName/DNS-SAN shared by every trail peer
 	// fleet-wide and the signing side discards the subject entirely
-	// (internal/pki/trailrelay.go), so mTLS proves "signed by the trail CA"
+	// (periapsis's PKI relay), so mTLS proves "signed by the trail CA"
 	// and nothing about WHICH peer is speaking. Any holder of a trail cert can
 	// therefore claim to be any pod, given that pod's UID.
 	Namespace string
@@ -135,7 +135,7 @@ type Caller struct {
 	//
 	// Every trail leaf in the fleet is minted with the fixed subject
 	// pki.TrailQuicSNI - the signer imposes it and discards the CSR's own
-	// (internal/pki/trailrelay.go). So for every pod peer this is EMPTY, and it
+	// (periapsis's PKI relay). So for every pod peer this is EMPTY, and it
 	// will stay empty until something issues an individually-subjected leaf.
 	// A provider that reads empty as "no claim made" is correct; one that reads
 	// it as "nobody is impersonating anyone" is making the absent-vs-unknown
@@ -168,7 +168,7 @@ func encodeCaller(c Caller) []byte {
 }
 
 // decodeCaller parses the tab-separated caller frame trail writes
-// (cmd/trail/src/remote_quic.rs encode_caller). A short or garbled frame
+// (trail's QUIC transport encode_caller). A short or garbled frame
 // yields empty fields rather than an error, matching the Rust side.
 func decodeCaller(b []byte) Caller {
 	f := strings.SplitN(string(b), "\t", 4)
@@ -210,7 +210,7 @@ var ErrUnavailable = errors.New("magicseam: provider unavailable")
 // an answer.
 //
 // The distinction is the whole basis of reachability probing
-// (internal/trailop's Prober): "the provider is reachable but serves the wrong
+// (periapsis's trail operator's Prober): "the provider is reachable but serves the wrong
 // version" and "nothing is listening" are the same string to a reader and
 // opposite facts to a health check. Marking a provider unhealthy for a version
 // mismatch would take a working provider out of service for consumers that
@@ -218,17 +218,17 @@ var ErrUnavailable = errors.New("magicseam: provider unavailable")
 var ErrVersionRejected = errors.New("magicseam: provider rejected the required version")
 
 // Wire constants. *** THIS IS THE AUTHORITATIVE DESCRIPTION NOW *** - it said
-// "see cmd/trail/src/remote_simple.rs's module doc comment for the
+// "see trail's MSK1 transport's module doc comment for the
 // authoritative protocol description this mirrors exactly" until 2026-08-27,
 // and that file was removed by ADR-0044. Nothing this mirrors exists; the
 // constants below are the definition, not a copy of one.
 const (
 	preamble = "MSK1"
 	// maxFrame bounds a single frame so a hostile/garbled peer can't make
-	// this process allocate unbounded - matches cmd/trail/src/remote_quic.rs's
+	// this process allocate unbounded - matches trail's QUIC transport's
 	// own MAX_FRAME (64 MiB, the seam's own too-large rejection ballpark).
 	// *** THAT EQUALITY IS ENFORCED, not merely asserted here: ***
-	// TestEverySeamSpeakerSharesOneFrameBound (cmd/comet/comettest/
+	// TestEverySeamSpeakerSharesOneFrameBound (periapsis's cross-language seam tests, 
 	// seamframebound_test.go) reds if any of the five speakers - trail, comet,
 	// this SDK, sdk/ts, sdk/c - drifts. It is the one cross-speaker fact that
 	// survived MSK1's removal, which is why this citation can be repointed
@@ -261,7 +261,7 @@ const (
 // so the syntax is not "the same" either - see parseAddr's note. Serve
 // serves the magic seam via handler, forever - one goroutine per accepted
 // connection (Go's cheap-goroutine model is a direct fit for what was
-// originally a thread-per-connection design in cmd/trail's pre-wRPC
+// originally a thread-per-connection design in trail's pre-wRPC
 // implementation). version is this provider's own self-declared seam
 // version (e.g. "0.1.0", matching periapsis:magic/handler@0.1.0) reported
 // at every handshake - purely informational from this package's own point
@@ -280,7 +280,7 @@ func Serve(addr string, version string, handler Handler) error {
 
 	// A stale socket file from a prior run would make Listen fail; clear it.
 	// Ported from the pre-wRPC Rust serve_provider, which ADR-0044 removed;
-	// sdk/ts/magicseam's equivalent is now the only other implementation to
+	// ts/magicseam's equivalent is now the only other implementation to
 	// compare against. A no-op, harmlessly, for "tcp".
 	if network == "unix" {
 		_ = os.Remove(address)
@@ -306,8 +306,8 @@ func Serve(addr string, version string, handler Handler) error {
 // parseAddr accepts "unix:<path>" or "tcp:<host:port>", nothing else.
 //
 // *** DO NOT "FIX" THIS CITATION BY REPOINTING IT AT A FILE THAT EXISTS. ***
-// It read "mirrors cmd/trail/src/remote_simple.rs's parse_addr exactly" until
-// 2026-08-27. `fn parse_addr` now appears NOWHERE in cmd/trail/src (verified
+// It read "mirrors trail's MSK1 transport's parse_addr exactly" until
+// 2026-08-27. `fn parse_addr` now appears NOWHERE in trail's sources (verified
 // against a positive control: `fn read_frame` finds 2, `fn parse_addr` finds
 // 0). Trail did not move that grammar, it SPLIT it, and each half rejects what
 // this function accepts:
@@ -433,7 +433,7 @@ func serveConn(conn net.Conn, version string, handler Handler) {
 // versionCompatible reports whether a provider serving `served` satisfies a
 // consumer requiring `required`.
 //
-// *** MIRRORS cmd/trail/src/plug.rs's version_compatible EXACTLY, including the
+// *** MIRRORS trail's plug negotiation's version_compatible EXACTLY, including the
 // parts that are not plain semver. *** Copied deliberately rather than
 // approximated with a >= comparison, because the 0.x rules are where the two
 // would silently diverge and a divergence here means one end binds a plug the

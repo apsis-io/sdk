@@ -24,7 +24,7 @@ import (
 // Generates a throwaway self-signed CA + two leaf certs (one "provider",
 // one "consumer" - genuinely mutual TLS, each side verifies the other),
 // both sharing TrailQUICSNI as their DNS SAN per this package's fixed-SAN
-// design (mirrors cmd/trail/src/remote_quic.rs's own test module doc
+// design (mirrors trail's QUIC transport's own test module doc
 // comment). Real UDP sockets on 127.0.0.1, real crypto/tls + quic-go
 // handshakes, real streams - only the handler is a trivial mock.
 
@@ -270,7 +270,7 @@ func TestDecodeCallerHandlesShortFrames(t *testing.T) {
 // net package answers an unspecified host on network "udp" with an AF_INET6
 // dual-stack socket, so a v4 wildcard silently becomes [::] - visible only in
 // /proc/net/udp6, with nothing in /proc/net/udp. That surprised us once
-// already (done/2026-07-31_quic-provider-wedge.md); assert the family rather
+// already (periapsis's internal notes); assert the family rather
 // than merely that a socket was created.
 func TestListenUDPForHostHonoursTheRequestedFamily(t *testing.T) {
 	cases := []struct {

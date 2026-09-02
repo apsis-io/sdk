@@ -2,10 +2,10 @@
  * SPDX-License-Identifier: BUSL-1.1
  *
  * QUIC transport (ADR-0043) for a genuinely non-WASM C magic-seam
- * provider/consumer - mirrors cmd/trail/src/remote_quic.rs's wire
+ * provider/consumer - mirrors trail's QUIC transport's wire
  * protocol EXACTLY (see that file's own module doc comment, the
  * authoritative spec this was ported from, also mirrored in
- * sdk/go/magicseam/quic.go and sdk/ts/magicseam/quic.ts): mutual TLS
+ * go/magicseam/quic.go and ts/magicseam/quic.ts): mutual TLS
  * against the cluster's self-managed trail CA, one persistent connection,
  * a version handshake on the first bidirectional stream, then every
  * subsequent call opens its OWN stream (so unrelated calls never queue
@@ -20,9 +20,9 @@
  * threads never touch ngtcp2 state directly; they hand requests to and
  * collect responses from that thread via a mutex-guarded call table.
  *
- * TLS material: peri.apsis/tls-quic (internal/podlaunch/builder.go)
+ * TLS material: peri.apsis/tls-quic (periapsis's pod builder)
  * bind-mounts a fresh cert/key/CA-bundle triple, signed by the trail CA,
- * into the pod at internal/podlaunch.TLSQuicMountDir - callers running as
+ * into the pod at periapsis's TLS QUIC mount dir - callers running as
  * a pod should point magicseam_quic_dial/_serve at those three files
  * directly.
  */
@@ -53,8 +53,8 @@ typedef enum {
   MAGICSEAM_ERR_UNAVAIL = -9,  /* call result tag 1 (or any unknown tag) - wire's Unavailable */
 } magicseam_status;
 
-/* TrailQUICSNI mirrors internal/podlaunch/trailtls.go's TrailQuicSNI and
- * cmd/trail/src/remote_quic.rs's SERVER_NAME exactly - every trail-CA-
+/* TrailQUICSNI mirrors periapsis's pod-launch TLS wiring's TrailQuicSNI and
+ * trail's QUIC transport's SERVER_NAME exactly - every trail-CA-
  * signed leaf carries this one fixed CommonName/DNS-SAN. */
 #define MAGICSEAM_QUIC_SNI "trail-quic-peer"
 

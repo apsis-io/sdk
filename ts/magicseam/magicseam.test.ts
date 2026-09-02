@@ -36,10 +36,10 @@ async function readFrame(r: Reader): Promise<Buffer> {
 // A minimal hand-rolled MSK1 CLIENT, used ONLY by these tests.
 //
 // *** ITS JUSTIFICATION HAS INVERTED. *** This read "mirroring
-// cmd/trail/src/remote_simple.rs's Client exactly ... the real client lives in
+// trail's MSK1 transport's Client exactly ... the real client lives in
 // Rust/trail; this proves serve()'s server-side wire behavior independently of
 // it" until 2026-08-27. ADR-0044 removed that Client, so there is no real one
-// to be independent OF - this and sdk/go/magicseam's equivalent are the only
+// to be independent OF - this and go/magicseam's equivalent are the only
 // MSK1 clients left. A pass here pins serve() against accidental change; it is
 // NOT cross-implementation agreement, because the oracle and the subject are
 // now maintained by the same hand.
@@ -138,8 +138,8 @@ describe("serve", () => {
   });
 });
 
-// *** THE SAME TABLE AS sdk/go/magicseam's TestVersionCompatible_MirrorsTrailExactly
-// AND cmd/trail/src/plug.rs's version_compatible. *** Three speakers, one rule -
+// *** THE SAME TABLE AS go/magicseam's TestVersionCompatible_MirrorsTrailExactly
+// AND trail's plug negotiation's version_compatible. *** Three speakers, one rule -
 // and the 0.x rows are where a plain ">=" would silently diverge, which matters
 // because 0.x is what the seam actually ships.
 test("versionCompatible mirrors trail's rule, including the 0.x cases", () => {

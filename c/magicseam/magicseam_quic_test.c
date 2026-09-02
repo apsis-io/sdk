@@ -3,8 +3,8 @@
  *
  * Real loopback QUIC integration tests - real UDP sockets on 127.0.0.1,
  * real mTLS handshakes, real streams, only the handler is a trivial
- * mock. Mirrors sdk/go/magicseam/quic_test.go and
- * sdk/ts/magicseam/quic.test.ts's own three tests exactly (same test
+ * mock. Mirrors go/magicseam/quic_test.go and
+ * ts/magicseam/quic.test.ts's own three tests exactly (same test
  * names/shape, same generous timing bound) - this is the one that
  * actually proves the background-io_thread design (io_internal.h's own
  * doc comment) is real, not accidentally degraded to serial.
@@ -111,7 +111,7 @@ static magicseam_status echo_handler(void *user_data, const uint8_t *req, size_t
  * connection that ever SUCCEEDED kept its conn_entry and its per-connection
  * io_thread for the life of the process - and each finished one busy-polled,
  * because ngtcp2's expiry stays in the past once the peer is gone and the loop
- * used a 0ms poll timeout for that case. Measured on engix99 2026-08-15:
+ * used a 0ms poll timeout for that case. Measured on node-1 2026-08-15:
  * magic-echo-c, up 27h, 74 dead connections still holding threads, wchan=0 on
  * every one, ~4 cores. The peer was radiant's reachability prober, dialling
  * every QUIC SeamProvider every 5s and closing CORRECTLY each time.

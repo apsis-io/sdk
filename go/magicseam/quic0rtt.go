@@ -83,7 +83,7 @@ import (
 //
 //   - HEALING (quicheal.go). A redial after a provider restart is a fresh
 //     connection on a hot path, with a caller blocked on it.
-//   - SHORT-LIVED CONSUMERS. tools/seamstatus and internal/trailop's probers
+//   - SHORT-LIVED CONSUMERS. tools/seamstatus and periapsis's trail operator's probers
 //     dial, ask one question, and exit. They pay full establishment for a single
 //     call, which is the worst possible ratio.
 //

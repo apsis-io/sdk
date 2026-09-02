@@ -51,7 +51,7 @@ Rust, calls the exported `transform` ABI with
 `examples/wasm/extension-transform/transform-request.json`, emits JSON output,
 and asserts that `status.notify` reports reached the host.
 
-Go code should use `internal/componenthost.Invoker` to call the helper. That
+Go code should use `periapsis's component-host Invoker` to call the helper. That
 keeps the first integration boundary explicit while the long-term runtime host
 shape is still being settled.
 
@@ -73,7 +73,7 @@ from `$PERIAPSIS_COMPONENT_HOST` or `periapsis-component-host`. Pass `--helper`
 to force one-shot helper mode.
 
 Component references currently support local paths and `file://` URLs. Both
-resolve through `internal/componenthost.Resolver`, which returns an absolute
+resolve through `periapsis's component-host Resolver`, which returns an absolute
 path, SHA-256 digest, media type, size, source kind, and cache state before
 invocation.
 

@@ -9,8 +9,8 @@
 // drains its own in-flight calls while this provider keeps serving through the
 // snapshot instant, producing a torn cut that nothing detects.
 //
-// sdk/go/magicseam/barrier.go is the reference implementation and
-// cmd/trail/src/marker.rs is the consumer side; all three are implementations
+// go/magicseam/barrier.go is the reference implementation and
+// trail's marker handling is the consumer side; all three are implementations
 // of one written protocol and must agree on the wire, not on their internals.
 //
 // # The contract, and the part that is easy to get wrong
@@ -22,7 +22,7 @@
 // quiesce and the torn cut the protocol prevents.
 
 /** How long a drain may take before the marker FAILS (§8 rule 2). Matches
- *  sdk/go/magicseam's DefaultDrainTimeout and trail's own bound, so both ends of
+ *  go/magicseam's DefaultDrainTimeout and trail's own bound, so both ends of
  *  a barrier give up at the same point rather than one waiting on the other's
  *  already-abandoned attempt. */
 export const DEFAULT_DRAIN_TIMEOUT_MS = 10_000
@@ -33,7 +33,7 @@ export const DEFAULT_DRAIN_TIMEOUT_MS = 10_000
  *  consumer lease (90s)? No - it must simply bound an ABANDONED arm. The
  *  consumer gives up first at 90s and sends a Resume; this is the fallback for a
  *  consumer that is GONE and can never send one, exactly as
- *  sdk/go/magicseam/barrierlease.go describes. Measured there: without a lease a
+ *  go/magicseam/barrierlease.go describes. Measured there: without a lease a
  *  provider armed by a consumer that died refused every caller forever, cleared
  *  only by a restart. */
 export const DEFAULT_LEASE_MS = 120_000
