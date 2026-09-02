@@ -60,27 +60,6 @@ bundler) needs `allowArbitraryExtensions`/`noEmit` to resolve `.ts` from
 `node_modules` - not the common case for a dwarf-targeting project, but
 worth knowing.
 
-Published on npm as `@apsis-io/periapsis-sdk`, 0.1.0 onwards, from this
-directory:
-
-```sh
-npm login                        # your own npm credentials
-npm publish --access public      # publishConfig.access is already set, --access is belt-and-suspenders
-```
-
-Bump `version` in `package.json` before each publish (no CI workflow for
-this yet, unlike dwarf's own `.github/workflows/npm-publish.yml` - worth
-adding once this has real external consumers).
-
-***THE `repository` FIELD POINTS AT A PRIVATE REPO AND THAT IS A KNOWN WART.***
-This section used to say the field was deliberately OMITTED, because
-`apsis-io/sdk` is private and the link would 404 for every reader. Preparing the
-first publish I added it back without reading that, so `0.1.0` ships a
-`repository` URL that 404s for everyone. A published version is immutable, so
-that stays true of `0.1.0` whatever happens next; the field should be dropped -
-or pointed somewhere public - in whatever ships next. The original reasoning was
-right and this note exists so it does not get overwritten a second time.
-
 **Import each module directly, not the `index.js` barrel** (unless you
 already use every `periapsis:component/*` interface): Vite/Rollup treats an
 `external` import (`periapsis:*`/`wasi:*` are marked external in every
