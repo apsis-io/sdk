@@ -87,7 +87,12 @@ jobs:
         working-directory: ${{ steps.pkg.outputs.dir }}
         run: |
           npm install --no-audit --no-fund
-          npx tsc --noEmit
+          # ***--no, NOT bare npx.*** `npx tsc` with no local typescript
+          # silently FETCHES a registry package called `tsc` - a deprecated
+          # squatter that is not the compiler - and the step then fails for a
+          # reason that has nothing to do with the code. Caught by a dispatch
+          # run before any tag ever triggered this. --no refuses to install.
+          npm exec --no -- tsc --noEmit
           npm test || echo "no test script"
 
       - name: Publish
