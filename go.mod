@@ -1,4 +1,4 @@
-module github.com/apsis-io/sdk/go
+module github.com/apsis-io/sdk
 
 go 1.27.0
 
