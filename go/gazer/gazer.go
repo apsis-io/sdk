@@ -17,6 +17,28 @@
 // magicseam keeps GazerPrincipal(Caller), which needs the seam's own Caller
 // type. It imports this package; the dependency runs BUSL -> Apache, never the
 // other way.
+//
+// ***THE SYMBOLS ARE NOT RE-EXPORTED FROM magicseam, AND THAT IS A COMPILER
+// GUARANTEE RATHER THAN A CONVENTION.*** An alias would let a GPLv3 build reach
+// this vocabulary through a BUSL import and still compile, leaving a CI guard as
+// the only thing between that and a shipped licence edge - and a guard that is
+// skipped, mis-scoped or silently not running leaves evidence identical to a
+// guard that passed. Without the alias it does not build. Do not add one for
+// convenience.
+//
+// # TO DO: drop the stutter, once periapsis-CE has settled
+//
+// Every exported name here repeats the package: gazer.GazerPrincipalFor,
+// gazer.ParseGazerPrincipal, gazer.GazerOrganisation. That is not good Go and it
+// was not an oversight - the names were kept identical on 2026-09-02 so that
+// every call site was a pure import swap, at a moment when three agents were
+// mid-refactor across two repos and a rename would have been a second behaviour
+// change hiding behind one green suite.
+//
+// The intended end state is PrincipalFor, ParsePrincipal, Organisation,
+// PrincipalPrefix, ErrNotAGazer. It is written here rather than remembered
+// because "we will fix the naming later" is the kind of intention that
+// evaporates, and this doc is what the next person to touch the package reads.
 package gazer
 
 import (
