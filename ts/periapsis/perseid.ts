@@ -255,6 +255,19 @@ export type Canonical<Kind extends string, S extends string> = S & {
 export type ApiPath = Canonical<'apiserver-path', ApiPathShape>
 
 /**
+ * The shape of a namespaced COLLECTION path: an object path without the name.
+ *
+ * Same shape family as `ApiPathShape` and a THIRD canonical kind on purpose
+ * (ADR-0101): `list(...)`/`fields(...)` take a collection and `get(...)` takes an
+ * object, and a string that is both is a read the host refuses one way or the
+ * other. The kinded brand makes passing one where the other goes a compile error.
+ */
+export type CollectionPathShape = `${string}/namespaces/${string}`
+
+/** A namespaced collection path, canonical by construction. */
+export type CollectionPath = Canonical<'collection-path', CollectionPathShape>
+
+/**
  * The shape of a CLUSTER-SCOPED apiserver path.
  *
  * The complement of `ApiPathShape`, deliberately: an object is namespaced or it
@@ -355,6 +368,27 @@ export const path = {
       `/api/${version}/namespaces/${namespace}/${kind}/${name}` as Canonical<
         'apiserver-path',
         `/api/${V}/namespaces/${NS}/${K}/${N}`
+      >,
+
+    /**
+     * `/api/v1/namespaces/NS/KIND` — a core-group COLLECTION, what `list(...)` and
+     * `fields(...)` take (ADR-0101). `collection('configmaps')`, `collection('pods')`.
+     */
+    collection: <K extends string>(kind: K) =>
+      `/api/v1/namespaces/${namespace}/${kind}` as Canonical<
+        'collection-path',
+        `/api/v1/namespaces/${NS}/${K}`
+      >,
+
+    /** `/apis/GROUP/VERSION/namespaces/NS/KIND` — a grouped COLLECTION. */
+    collectionOf: <G extends string, V extends string, K extends string>(
+      group: G,
+      version: V,
+      kind: K,
+    ) =>
+      `/apis/${group}/${version}/namespaces/${namespace}/${kind}` as Canonical<
+        'collection-path',
+        `/apis/${G}/${V}/namespaces/${NS}/${K}`
       >,
   }),
   /**

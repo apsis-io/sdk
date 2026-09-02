@@ -46,7 +46,7 @@
 // makes, given a name so the SDK can enforce it.
 // ═══════════════════════════════════════════════════════════════════════════
 
-import type { ApiPath, LabelSelector, PodName, WorkloadName } from './perseid'
+import type { ApiPath, CollectionPath, LabelSelector, PodName, WorkloadName } from './perseid'
 
 declare const exprOf: unique symbol
 
@@ -63,6 +63,7 @@ export type ApType =
   | 'observed-int'
   | 'string'
   | 'pods'
+  | 'list'
   | 'path'
   | 'value'
   | 'effect'
@@ -179,14 +180,53 @@ export const get = (path: PathLike, field: string): Expr<'value'> =>
  */
 export const now = (): Expr<'int'> => mk('Now()')
 
+/**
+ * `List(collection, selector) -> list`. ***ONE CALL OVER N OBJECTS, FOR EVERY
+ * KIND WITH A READ CAPABILITY*** (ADR-0101) - what `listPods` has always been for
+ * pods. `length(list(...))` is a count.
+ *
+ *     list(path.ns('overhead').collection('configmaps'), 'role=src')
+ *
+ * WHY IT MATTERS: with only `get` per object, calls and objects watched are the
+ * same number, and the host's 16-call budget per wake check (15 for you - the
+ * host's own backstop `Now()` is the 16th) was a ceiling of 7 compared pairs per
+ * park. overhead-bench measured it on a fused relay, 2026-09-02.
+ *
+ * ***THE AUTHORITY IS THE KIND'S, DECIDED FROM THE ARGUMENT.*** Every read
+ * capability makes this resolvable; whether THIS collection may be listed needs
+ * that kind's capability - `observe-configmaps` for configmaps - and never a
+ * `spec.reads` entry, because a list is a wider read than any declared object.
+ * The grant's label selector still applies to every object listed.
+ */
+export const list = (collection: CollectionPath, selector: LabelSelector | ''): Expr<'list'> =>
+  mk(`List(${lit(collection)}, ${lit(selector)})`)
+
+/**
+ * `Fields(collection, selector, field) -> list`. One field of every matching
+ * object, ***ORDERED BY OBJECT NAME***, in one call.
+ *
+ *     ne(fields(cms, 'role=src', 'data.v'), fields(cms, 'role=dst', 'data.v'))
+ *
+ * is "some source differs from its destination" for any number of pairs, in TWO
+ * calls - the park the fused relay needed. The name order is what makes
+ * `src-000..src-007` line up against `dst-000..dst-007`; name your pairs so they
+ * sort alike. A missing field is ABSENT, never "", and an absent element makes
+ * the comparison unknown - which does not hold, and the backstop asks again.
+ */
+export const fields = (
+  collection: CollectionPath,
+  selector: LabelSelector | '',
+  field: string,
+): Expr<'list'> => mk(`Fields(${lit(collection)}, ${lit(selector)}, ${lit(field)})`)
+
 // ---------------------------------------------------------------------------
 // Properties.
 
 /** `.exists` - did this observation RESOLVE. Only for things that are observed. */
 export const exists = (o: Observed): Expr<'bool'> => mk(`${o}.exists`)
 
-/** `.length` - how many. Only for a set. */
-export const length = (p: Expr<'pods'>): Expr<'int'> => mk(`${p}.length`)
+/** `.length` - how many. Only for a set: pods, or a `list`/`fields` result. */
+export const length = (p: Expr<'pods'> | Expr<'list'>): Expr<'int'> => mk(`${p}.length`)
 
 // ---------------------------------------------------------------------------
 // ⛔ EIGHT PER-KIND CONSTRUCTORS WERE HERE AND ARE DELETED, 2026-08-30.
@@ -219,6 +259,20 @@ const cmp =
 
 export const ne = cmp('!=')
 export const eq = cmp('==')
+
+/**
+ * `==` / `!=` between two LISTS (ADR-0101): element-wise and strict, the host's
+ * rule for scalars applied per element. Different lengths are unequal; an absent
+ * element makes the whole comparison unknown. `<`/`>` are not defined on lists,
+ * and there is deliberately no constructor for them.
+ */
+const listCmp =
+  (op: string) =>
+  (a: Expr<'list'>, b: Expr<'list'>): Expr<'bool'> =>
+    mk(`${a} ${op} ${b}`)
+
+export const listEq = listCmp('==')
+export const listNe = listCmp('!=')
 export const lt = cmp('<')
 export const le = cmp('<=')
 export const gt = cmp('>')

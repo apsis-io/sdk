@@ -91,6 +91,46 @@ impl Namespaced<'_> {
             group, version, self.namespace, resource, name
         ))
     }
+
+    /// `/api/v1/namespaces/NS/KIND` - a core-group COLLECTION, what `list` and
+    /// `fields` take (ADR-0101). `collection("configmaps")`, `collection("pods")`.
+    #[must_use]
+    pub fn collection(self, kind: &str) -> CollectionPath {
+        CollectionPath(format!("/api/v1/namespaces/{}/{}", self.namespace, kind))
+    }
+
+    /// `/apis/GROUP/VERSION/namespaces/NS/KIND` - a grouped COLLECTION.
+    #[must_use]
+    pub fn collection_of(self, group: &str, version: &str, kind: &str) -> CollectionPath {
+        CollectionPath(format!(
+            "/apis/{}/{}/namespaces/{}/{}",
+            group, version, self.namespace, kind
+        ))
+    }
+}
+
+/// A namespaced COLLECTION path: an object path without the name. What `list`
+/// and `fields` take (ADR-0101).
+///
+/// A separate type from [`ApiPath`] on purpose: `get` takes an object and `list`
+/// takes a collection, and a string that is both is a read the host refuses one
+/// way or the other. Making them distinct types makes passing one where the
+/// other goes a compile error rather than an `unknown` forever.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CollectionPath(String);
+
+impl CollectionPath {
+    /// The path as the host reads it.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for CollectionPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
 }
 
 #[cfg(test)]

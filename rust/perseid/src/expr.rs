@@ -86,6 +86,10 @@ aptype! {
     Str => "string",
     /// A set of pods; `.length` is an `Int`.
     Pods => "pods",
+    /// A set of ANY kind's objects, or of one field of each - what `list` and
+    /// `fields` produce (ADR-0101). `.length` is an `Int`; two lists compare
+    /// with [`list_eq`] / [`list_ne`], element-wise.
+    List => "list",
     /// A STRING THAT NAMES AN OBJECT. Distinct from `Str` because the write
     /// boundary reads the object out of the argument typed this way rather than
     /// guessing it from position.
@@ -215,6 +219,52 @@ pub fn list_pods(selector: &str) -> Expr<Pods> {
     Expr::new(format!("ListPods({})", lit(selector)))
 }
 
+/// `List(collection, selector) -> list`. **ONE CALL OVER N OBJECTS, FOR EVERY
+/// KIND WITH A READ CAPABILITY** (ADR-0101) - what [`list_pods`] has always been
+/// for pods. `length(&list(...))` is a count.
+///
+/// ```ignore
+/// list(&ns("overhead").collection("configmaps"), "role=src")
+/// ```
+///
+/// WHY IT MATTERS: with only `get` per object, calls and objects watched are the
+/// same number, and the host's 16-call budget per wake check (15 for you - the
+/// host's own backstop `Now()` is the 16th) was a ceiling of 7 compared pairs
+/// per park. overhead-bench measured it on a fused relay, 2026-09-02.
+///
+/// **THE AUTHORITY IS THE KIND'S, DECIDED FROM THE ARGUMENT.** Every read
+/// capability makes this resolvable; whether THIS collection may be listed needs
+/// that kind's capability - `observe-configmaps` for configmaps - and never a
+/// `spec.reads` entry, because a list is a wider read than any declared object.
+/// The grant's label selector still applies to every object listed.
+#[must_use]
+pub fn list(collection: &crate::path::CollectionPath, selector: &str) -> Expr<List> {
+    Expr::new(format!("List({}, {})", lit(collection.as_str()), lit(selector)))
+}
+
+/// `Fields(collection, selector, field) -> list`. One field of every matching
+/// object, **ORDERED BY OBJECT NAME**, in one call.
+///
+/// ```ignore
+/// list_ne(&fields(&cms, "role=src", "data.v"), &fields(&cms, "role=dst", "data.v"))
+/// ```
+///
+/// is "some source differs from its destination" for any number of pairs, in
+/// TWO calls - the park the fused relay needed. The name order is what makes
+/// `src-000..src-007` line up against `dst-000..dst-007`; name your pairs so
+/// they sort alike. A missing field is ABSENT, never `""`, and an absent element
+/// makes the comparison unknown - which does not hold, and the backstop asks
+/// again.
+#[must_use]
+pub fn fields(collection: &crate::path::CollectionPath, selector: &str, field: &str) -> Expr<List> {
+    Expr::new(format!(
+        "Fields({}, {}, {})",
+        lit(collection.as_str()),
+        lit(selector),
+        lit(field)
+    ))
+}
+
 /// `Now() -> int`. Epoch milliseconds, UTC.
 ///
 /// Typed [`Int`] and not [`ObservedInt`] because the clock cannot be absent, and
@@ -238,10 +288,30 @@ pub fn exists<T: Observed>(o: &Expr<T>) -> Expr<Bool> {
     Expr::new(format!("{o}.exists"))
 }
 
+/// Anything `.length` may be asked of: a set of pods, or a `list`/`fields` result.
+pub trait Countable: ApType {}
+impl Countable for Pods {}
+impl Countable for List {}
+
 /// `.length` - how many. Only for a set.
 #[must_use]
-pub fn length(p: &Expr<Pods>) -> Expr<Int> {
+pub fn length<T: Countable>(p: &Expr<T>) -> Expr<Int> {
     Expr::new(format!("{p}.length"))
+}
+
+/// `==` between two LISTS (ADR-0101): element-wise and strict, the host's rule
+/// for scalars applied per element. Different lengths are unequal; an absent
+/// element makes the whole comparison unknown. `<`/`>` are not defined on lists,
+/// and there is deliberately no constructor for them.
+#[must_use]
+pub fn list_eq(a: &Expr<List>, b: &Expr<List>) -> Expr<Bool> {
+    Expr::new(format!("{a} == {b}"))
+}
+
+/// `!=` between two LISTS - see [`list_eq`].
+#[must_use]
+pub fn list_ne(a: &Expr<List>, b: &Expr<List>) -> Expr<Bool> {
+    Expr::new(format!("{a} != {b}"))
 }
 
 // ---------------------------------------------------------------------------
