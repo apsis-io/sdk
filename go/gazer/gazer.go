@@ -26,6 +26,16 @@
 // guard that passed. Without the alias it does not build. Do not add one for
 // convenience.
 //
+// ***AND DO NOT EXPECT THE DEPENDENCY CHECK TO CATCH IT, BECAUSE IT WILL PASS.***
+// An alias added here creates no edge on the day it lands: nothing imports it
+// yet, so a `go list -deps` arm over the CE set is green and is RIGHT to be.
+// What the alias has actually done is make a future magicseam import COMPILE
+// again - the protection is gone at that moment, and the dep arm cannot report
+// it until somebody writes the import, which is afterwards. The two checks fire
+// at different TIMES, not on two readings of one property: absence of the
+// symbol is the hazard, presence of the edge is the breach, and only the first
+// one is cheap to fix.
+//
 // # TO DO: drop the stutter, once periapsis-CE has settled
 //
 // Every exported name here repeats the package: gazer.GazerPrincipalFor,
