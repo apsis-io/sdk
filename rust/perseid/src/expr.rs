@@ -429,12 +429,38 @@ cmp_op! {
     ge => ">=",
 }
 
+/// Parenthesise an arithmetic operand.
+///
+/// ***THE DEFECT THIS FIXES: `times(plus(a, b), c)` RENDERED `"a + b * c"`.***
+/// The grammar binds `mul` (`*`) tighter than `add` (`+`/`-`), so an
+/// unparenthesised `plus`/`minus` result used as an operand of `times` parsed
+/// as `a + (b * c)` rather than the intended `(a + b) * c` - a silently wrong
+/// value, with no error on either side of the seam.
+///
+/// ***UNLIKE `cmp_op`, WHICH IS CORRECT BARE AND MUST STAY SO.*** Arithmetic
+/// binds tighter than comparison, so `plus(x, 2) > y` already means
+/// `(x + 2) > y`; `comparison_and_arithmetic` asserts exactly that and would
+/// break if this were applied there. The two macros differ because the grammar
+/// does.
+///
+/// Costs a redundant `(3)` on a bare literal, which is the same trade `and`/`or`
+/// already make for their operands: an `IntLike` is opaque at this point - a
+/// literal is indistinguishable from the text of a nested `plus` - so there is
+/// no way to parenthesise only when it matters.
+///
+/// The TypeScript SDK carries the identical fix (`parenInt` in
+/// ts/periapsis/expr.ts, periapsis-3b, 2026-09-03); this is the Rust half of
+/// one defect that shipped in both languages.
+fn paren_int(v: impl IntLike) -> String {
+    format!("({})", v.int_text())
+}
+
 macro_rules! arith_op {
     ($($(#[$m:meta])* $f:ident => $op:literal),+ $(,)?) => {$(
         $(#[$m])*
         #[must_use]
         pub fn $f(a: impl IntLike, b: impl IntLike) -> Expr<Int> {
-            Expr::new(format!("{} {} {}", a.int_text(), $op, b.int_text()))
+            Expr::new(format!("{} {} {}", paren_int(a), $op, paren_int(b)))
         }
     )+};
 }
@@ -808,14 +834,20 @@ mod tests {
             ne(get(&dep(), "spec.replicas"), 3).as_str(),
             r#"Get("/apis/apps/v1/namespaces/default/deployments/api", "spec.replicas") != 3"#
         );
-        // Arithmetic binds tighter than comparison in the grammar, so the
-        // rendered form needs no parentheses to mean `(a + 2) > b`.
+        // Arithmetic binds tighter than comparison in the grammar, so NO
+        // parenthesis is needed AT THE cmp BOUNDARY for `plus(x, 2) > y` to
+        // mean `(x + 2) > y` - and none is added there.
+        //
+        // The parens below are the ARITH OPERAND rule (`paren_int`), which is a
+        // different question and the one that was wrong: they make a nested
+        // `plus` safe inside a `times`. Redundant on a bare literal, which is
+        // the stated cost of not being able to tell a literal from nested text.
         assert_eq!(
             plus(length(&list_pods("app=x")), 2).as_str(),
-            r#"ListPods("app=x").length + 2"#
+            r#"(ListPods("app=x").length) + (2)"#
         );
-        assert_eq!(times(2, 3).as_str(), "2 * 3");
-        assert_eq!(minus(5, 1).as_str(), "5 - 1");
+        assert_eq!(times(2, 3).as_str(), "(2) * (3)");
+        assert_eq!(minus(5, 1).as_str(), "(5) - (1)");
     }
 
     // ***THE ESCAPING TEST IS NOT COSMETIC.*** An unescaped quote produces an
@@ -834,6 +866,32 @@ mod tests {
         // A raw control character is rejected by Go's JSON decoder, so it must
         // be escaped rather than passed through.
         assert!(f("a\u{1}b").ends_with(r#", "a\u0001b")"#));
+    }
+
+    /// ***THE DEFECT: `times(plus(a, b), c)` RENDERED `"a + b * c"`.***
+    ///
+    /// The grammar binds `mul` tighter than `add`, so that text parses as
+    /// `a + (b * c)` and the step computes a different number than the program
+    /// asked for - no error, no refusal, on either side of the seam.
+    ///
+    /// ***THE NEIGHBOURING CASES WERE BOTH ALREADY TESTED, WHICH IS WHY THIS
+    /// SURVIVED.*** `comparison_and_arithmetic` covers arithmetic inside a
+    /// COMPARISON and correctly asserts no parens are needed there;
+    /// `boolean_combinators_parenthesise_their_operands` covers and/or. Nothing
+    /// covered arithmetic inside ARITHMETIC, and the cmp reasoning reads as if
+    /// it settles the whole question. The TypeScript SDK had the same gap in the
+    /// same shape (periapsis-3b, 2026-09-03).
+    #[test]
+    fn arithmetic_operands_are_parenthesised_so_mul_cannot_capture_an_add() {
+        let inner = plus(length(&list_pods("app=x")), 1);
+        let text = times(inner, 2).as_str().to_string();
+
+        // The whole point: the `+` is bracketed, so `mul` cannot take only `1`.
+        assert_eq!(text, r#"((ListPods("app=x").length) + (1)) * (2)"#);
+        assert!(
+            !text.starts_with("ListPods(\"app=x\").length + 1 *"),
+            "unparenthesised: `mul` captures the right operand of the `add`"
+        );
     }
 
     #[test]
