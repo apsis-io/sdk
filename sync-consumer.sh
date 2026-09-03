@@ -57,7 +57,19 @@ if [ "$#" -lt 2 ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ***NORMALISED BEFORE IT IS JUDGED.*** The refusal below matches on the first
+# path component, and it used to match on the raw argument with `go/*|rust/*` -
+# which four real spellings walked straight through, every one of them an
+# existing directory: `go`, `rust`, `./go/magicseam`, `./rust`. `sync-consumer.sh
+# go <dest>` would have vendored the entire Go SDK, the exact thing the next
+# paragraph exists to prevent, because the pattern demanded a slash that a
+# directory name does not need.
+#
+# A check on a string the caller controls the formatting of has to normalise the
+# formatting first, or it is a check on one spelling out of several.
 TREE="$1"
+TREE="${TREE#./}"       # ./go/magicseam -> go/magicseam
+TREE="${TREE%/}"        # rust/          -> rust
 DEST_DIR="$2"
 shift 2
 EXTRA=("$@")          # passed straight to rsync, e.g. --exclude '*.wasm'
@@ -68,8 +80,8 @@ SRC="$SCRIPT_DIR/$TREE"
 # of truth that no lockfile pins and no bump updates - the exact drift these
 # SDKs exist to prevent between languages. Refusing here is cheaper than
 # discovering the copy months later.
-case "$TREE" in
-  go/*|rust/*)
+case "${TREE%%/*}" in
+  go|rust)
     echo "$0: $TREE is a real package - depend on it by version, do not vendor it." >&2
     echo "  go:   require github.com/apsis-io/sdk <version>" >&2
     echo "  rust: { git = \"https://github.com/apsis-io/sdk.git\", rev = \"<sha>\" }" >&2
