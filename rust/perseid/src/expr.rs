@@ -182,9 +182,20 @@ fn lit(s: &str) -> String {
 /// engi, 2026-08-30: *"write generalized read - deprecate specialized reads
 /// (GetConfigMap, ...)"*.
 ///
-/// ```ignore
-/// get(&deployment("default", "api")?, "status.readyReplicas")
-/// get(&config_map("default", "cfg")?, "data.mode")
+/// ```
+/// use perseid::{expr::get, path::ns};
+///
+/// let dep = ns("default").deployments("api");
+/// assert_eq!(
+///     get(&dep, "status.readyReplicas").as_str(),
+///     r#"Get("/apis/apps/v1/namespaces/default/deployments/api", "status.readyReplicas")"#
+/// );
+///
+/// let pod = ns("default").pods("web");
+/// assert_eq!(
+///     get(&pod, "metadata.name").as_str(),
+///     r#"Get("/api/v1/namespaces/default/pods/web", "metadata.name")"#
+/// );
 /// ```
 ///
 /// It replaced `get_pod`, `replicas`, `get_deployment`, `get_stateful_set`,
@@ -223,8 +234,19 @@ pub fn list_pods(selector: &str) -> Expr<Pods> {
 /// KIND WITH A READ CAPABILITY** (ADR-0101) - what [`list_pods`] has always been
 /// for pods. `length(&list(...))` is a count.
 ///
-/// ```ignore
-/// list(&ns("overhead").collection("configmaps"), "role=src")
+/// ```
+/// use perseid::{expr::{length, list}, path::ns};
+///
+/// let cms = ns("overhead").collection("configmaps");
+/// assert_eq!(
+///     list(&cms, "role=src").as_str(),
+///     r#"List("/api/v1/namespaces/overhead/configmaps", "role=src")"#
+/// );
+/// // `length(&list(...))` is a count.
+/// assert_eq!(
+///     length(&list(&cms, "role=src")).as_str(),
+///     r#"List("/api/v1/namespaces/overhead/configmaps", "role=src").length"#
+/// );
 /// ```
 ///
 /// WHY IT MATTERS: with only `get` per object, calls and objects watched are the
@@ -239,14 +261,32 @@ pub fn list_pods(selector: &str) -> Expr<Pods> {
 /// The grant's label selector still applies to every object listed.
 #[must_use]
 pub fn list(collection: &crate::path::CollectionPath, selector: &str) -> Expr<List> {
-    Expr::new(format!("List({}, {})", lit(collection.as_str()), lit(selector)))
+    Expr::new(format!(
+        "List({}, {})",
+        lit(collection.as_str()),
+        lit(selector)
+    ))
 }
 
 /// `Fields(collection, selector, field) -> list`. One field of every matching
 /// object, **ORDERED BY OBJECT NAME**, in one call.
 ///
-/// ```ignore
-/// list_ne(&fields(&cms, "role=src", "data.v"), &fields(&cms, "role=dst", "data.v"))
+/// ```
+/// use perseid::{expr::{fields, list_ne}, path::ns};
+///
+/// let cms = ns("overhead").collection("configmaps");
+/// let drifted = list_ne(
+///     &fields(&cms, "role=src", "data.v"),
+///     &fields(&cms, "role=dst", "data.v"),
+/// );
+/// assert_eq!(
+///     drifted.as_str(),
+///     concat!(
+///         r#"Fields("/api/v1/namespaces/overhead/configmaps", "role=src", "data.v")"#,
+///         " != ",
+///         r#"Fields("/api/v1/namespaces/overhead/configmaps", "role=dst", "data.v")"#,
+///     )
+/// );
 /// ```
 ///
 /// is "some source differs from its destination" for any number of pairs, in
@@ -525,10 +565,32 @@ pub fn and(bs: &[Expr<Bool>]) -> Expr<Bool> {
 /// The mirror of [`get`], and it replaced `set_replicas` (engi, 2026-08-30:
 /// *"deprecate specialized writes"*).
 ///
-/// ```ignore
-/// ensure(&deployment("default", "api")?, "spec.replicas", 3);
-/// ensure(&config_map("default", "cfg")?, "data.mode", "fast");
-/// ensure(&dep, "spec.replicas", plus(length(&list_pods("app=x")), 2));
+/// ```
+/// use perseid::{expr::{ensure, length, list_pods, plus}, path::ns};
+///
+/// let dep = ns("default").deployments("api");
+///
+/// // A literal.
+/// assert_eq!(
+///     ensure(&dep, "spec.replicas", 3).as_str(),
+///     r#"Ensure("/apis/apps/v1/namespaces/default/deployments/api", "spec.replicas", 3)"#
+/// );
+///
+/// // A string literal is QUOTED, never evaluated - see below.
+/// let pod = ns("default").pods("web");
+/// assert_eq!(
+///     ensure(&pod, "metadata.labels.role", "src").as_str(),
+///     r#"Ensure("/api/v1/namespaces/default/pods/web", "metadata.labels.role", "src")"#
+/// );
+///
+/// // An expression is emitted BARE, so the host evaluates it.
+/// assert_eq!(
+///     ensure(&dep, "spec.replicas", &plus(&length(&list_pods("app=x")), 2)).as_str(),
+///     concat!(
+///         r#"Ensure("/apis/apps/v1/namespaces/default/deployments/api", "spec.replicas", "#,
+///         "(ListPods(\"app=x\").length) + (2))",
+///     )
+/// );
 /// ```
 ///
 /// **A LITERAL AND AN EXPRESSION ARE DIFFERENT TYPES HERE, WHICH IS WHY THIS
@@ -564,9 +626,17 @@ pub fn ensure(path: impl PathArg, field: &str, value: impl EnsureValue) -> Expr<
 
 /// `At(apiVersion, kind, name) -> path`. Name an object WITHOUT a namespace.
 ///
-/// ```ignore
-/// get(&at("apps/v1", "deployments", "web"), "status.readyReplicas")
-/// ensure(&at("v1", "configmaps", "cfg"), "data.mode", "fast")
+/// ```
+/// use perseid::expr::{at, ensure, get};
+///
+/// assert_eq!(
+///     get(&at("apps/v1", "deployments", "web"), "status.readyReplicas").as_str(),
+///     r#"Get(At("apps/v1", "deployments", "web"), "status.readyReplicas")"#
+/// );
+/// assert_eq!(
+///     ensure(&at("v1", "configmaps", "cfg"), "data.mode", "fast").as_str(),
+///     r#"Ensure(At("v1", "configmaps", "cfg"), "data.mode", "fast")"#
+/// );
 /// ```
 ///
 /// **THE NAMESPACE COMES FROM THE GRANT, AND A PROGRAM CANNOT SUPPLY ONE.** Not
@@ -652,7 +722,11 @@ pub fn create(path: impl PathArg, body: &Struct) -> Expr<Effect> {
 /// boundary. Use [`ensure`] for the count.
 #[must_use]
 pub fn ensure_all(path: impl PathArg, body: &Struct) -> Expr<Effect> {
-    Expr::new(format!("EnsureAll({}, {})", path.path_text(), body.render()))
+    Expr::new(format!(
+        "EnsureAll({}, {})",
+        path.path_text(),
+        body.render()
+    ))
 }
 
 /// A structured value: an object body for [`create`].
@@ -704,7 +778,8 @@ impl Struct {
     #[must_use]
     pub fn list(mut self, key: &str, items: impl IntoIterator<Item = impl EnsureValue>) -> Self {
         let rendered: Vec<String> = items.into_iter().map(EnsureValue::value_text).collect();
-        self.fields.insert(key.to_string(), format!("[{}]", rendered.join(", ")));
+        self.fields
+            .insert(key.to_string(), format!("[{}]", rendered.join(", ")));
         self
     }
 
@@ -720,7 +795,8 @@ impl Struct {
     #[must_use]
     pub fn list_of(mut self, key: &str, items: &[Struct]) -> Self {
         let rendered: Vec<String> = items.iter().map(Struct::render).collect();
-        self.fields.insert(key.to_string(), format!("[{}]", rendered.join(", ")));
+        self.fields
+            .insert(key.to_string(), format!("[{}]", rendered.join(", ")));
         self
     }
 
@@ -944,11 +1020,12 @@ mod tests {
     #[test]
     fn array_elements_keep_their_order_at_ten_or_more() {
         let items: Vec<String> = (1..=12).map(|n| n.to_string()).collect();
-        let text = Struct::new().list("command", items.iter().map(String::as_str)).render();
+        let text = Struct::new()
+            .list("command", items.iter().map(String::as_str))
+            .render();
 
         assert_eq!(
-            text,
-            r#"{"command": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]}"#,
+            text, r#"{"command": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]}"#,
             "elements must render in the order given, not sorted as strings"
         );
     }
@@ -970,7 +1047,10 @@ mod tests {
             text.contains(r#""command": ["sh", "-c", "run"]"#),
             "inner array order lost: {text}"
         );
-        assert!(text.starts_with(r#"{"containers": [{"#), "not an array of objects: {text}");
+        assert!(
+            text.starts_with(r#"{"containers": [{"#),
+            "not an array of objects: {text}"
+        );
     }
 
     #[test]
