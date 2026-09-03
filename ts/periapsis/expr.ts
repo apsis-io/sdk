@@ -271,7 +271,15 @@ export const length = (p: Expr<'pods'> | Expr<'list'>): Expr<'int'> => mk(`${p}.
 // ---------------------------------------------------------------------------
 // Comparison. Both operands must be integers - which is the rule the host does
 // NOT enforce, and the one that produces a silently meaningless park.
-
+//
+// ***NOT PARENTHESISED, AND THAT IS CORRECT RATHER THAN AN OVERSIGHT.*** `cmp`
+// sits at the LOOSEST level of the arithmetic/comparison chain (grammar.go:
+// `cmp -> add -> mul -> unary -> postfix -> primary`), so any add- or
+// mul-level text embedded as its operand already binds correctly without
+// help - "a + b != c * d" parses as "(a + b) != (c * d)" regardless. The
+// hazard `arith` below fixes (a looser "add" result embedded inside a
+// tighter "mul" context) has no analogue here: nothing in this language sits
+// ABOVE `cmp` for one of its own results to be embedded inside.
 const cmp =
   (op: string) =>
   (a: IntLike, b: IntLike): Expr<'bool'> =>
@@ -305,10 +313,30 @@ export const ge = cmp('>=')
 // no answer in a three-valued language that is not either a lie or a new failure
 // mode, so the grammar has `+ - *` and stops. Nothing here can produce `/`.
 
+// ***BOTH OPERANDS ARE PARENTHESISED, UNCONDITIONALLY - THE SAME DISCIPLINE
+// and/or USE FOR BOOLEAN OPERANDS BELOW (`paren`).*** `IntLike` is an opaque
+// branded string at runtime: this function cannot tell "a NUMBER literal"
+// from "the text of a nested `plus(a, b)`", so there is no way to add parens
+// only where precedence actually requires them without tracking precedence as
+// SDK-side metadata, which does not exist. Grouping unconditionally is always
+// semantically inert for a well-formed operand and always correct, at the
+// cost of a redundant `(3)` on a bare literal - exactly the trade `and`/`or`
+// already made for booleans.
+//
+// ***THE DEFECT THIS FIXES: `times(plus(a, b), c)` USED TO RENDER
+// `"a + b * c"`.*** The grammar's `mul` (`*`) binds tighter than `add`
+// (`+`/`-`) - grammar.go's own comment: "BETWEEN cmp AND unary, so `a + 1 > b`
+// parses as `(a + 1) > b` - the reading every other language gives it" - so
+// unparenthesised text for a `plus`/`minus` result embedded as an operand of
+// `times` parsed as `a + (b * c)` instead of the intended `(a + b) * c`,
+// silently computing the wrong value with no error on either side. `cmp`
+// above does not need this: see its own comment for why.
+const parenInt = (v: IntLike): string => `(${intText(v)})`
+
 const arith =
   (op: string) =>
   (a: IntLike, b: IntLike): Expr<'int'> =>
-    mk(`${intText(a)} ${op} ${intText(b)}`)
+    mk(`${parenInt(a)} ${op} ${parenInt(b)}`)
 
 export const plus = arith('+')
 export const minus = arith('-')
@@ -412,7 +440,15 @@ export type EnsureValue = string | number | boolean | Computed
 /** An expression to be evaluated at emit time, rather than a literal to store. */
 export type Computed = { readonly [computedOf]: true; readonly text: string }
 
-declare const computedOf: unique symbol
+// ***A REAL RUNTIME VALUE, UNLIKE exprOf/bodyOf/kindOf ABOVE - AND THAT
+// DIFFERENCE IS THE WHOLE POINT.*** Those three are pure TYPE brands: nothing
+// ever tests for them at runtime, so `declare const … : unique symbol`
+// (erased entirely by the compiler - it exists only to give TypeScript
+// something to key a nominal type on) is correct for them. isStruct below
+// tests THIS one with `in`, which needs an actual value to look up - a
+// `declare const` there is not merely unused, it is a ReferenceError the
+// moment isStruct runs, thrown from inside `create`/`ensure`, on every call.
+const computedOf: unique symbol = Symbol('computed')
 
 /**
  * Mark an expression as the COMPUTED value of an `ensure`.
@@ -423,7 +459,7 @@ declare const computedOf: unique symbol
  * numeric one - goes in directly.
  */
 export const computed = (e: Expr<'int'> | Expr<'observed-int'> | Expr<'value'>): Computed =>
-  ({ text: e }) as unknown as Computed
+  ({ [computedOf]: true, text: e }) as unknown as Computed
 
 /** Render an Ensure value: a quoted literal, or bare expression text. */
 function valueText(v: EnsureValue): string {
@@ -565,8 +601,13 @@ export type KindedObject<K extends string> = {
  */
 type NoInferK<T> = [T][T extends unknown ? 0 : never]
 
+// ARRAYS ARE EXCLUDED, DELIBERATELY: `typeof [] === 'object'` in JS, so without
+// this check an array value (podTemplate's `containers`/`command`/`args`, cast
+// `as unknown as StructShape` because the grammar's array literal has no
+// TypeScript shape of its own) was treated as a struct - see arrayText below
+// for what that broke and why it must render differently.
 const isStruct = (v: EnsureValue | StructShape): v is StructShape =>
-  typeof v === 'object' && v !== null && !(computedOf in (v as object))
+  typeof v === 'object' && v !== null && !Array.isArray(v) && !(computedOf in (v as object))
 
 /**
  * Render a structured value with SORTED keys.
@@ -585,10 +626,37 @@ const structText = (v: StructShape): string => {
     .map((k) => {
       const inner = v[k]
 
-      return `${lit(k)}: ${isStruct(inner) ? structText(inner) : valueText(inner)}`
+      return `${lit(k)}: ${fieldText(inner)}`
     })
 
   return `{${parts.join(', ')}}`
+}
+
+/**
+ * Render an array value with its ELEMENTS IN ORDER, never sorted.
+ *
+ * ***THE DEFECT THIS FILE SHIPPED: BEFORE isStruct EXCLUDED ARRAYS, AN ARRAY
+ * WENT THROUGH structText.*** `Object.keys` on an array returns its indices as
+ * STRINGS ('0', '1', ..., '10', ...), `.sort()` on strings is lexicographic
+ * ('10' before '2'), and structText wraps in `{...}` - so a 10+ element
+ * `command` array rendered as a JSON OBJECT with numerically-scrambled keys
+ * instead of a JSON array in the order the caller wrote it, which the parser's
+ * array-literal rule (periapsis's internal/aperture/grammar.go, "ORDER IS
+ * SIGNIFICANT HERE AND IS NOT FOR OBJECTS") cannot correctly read back as the
+ * intended command.
+ *
+ * Never sorted, unlike structText: array order is DATA (`containers[0]` is not
+ * `containers[1]`), not an incidental map-iteration artifact to canonicalise.
+ */
+const arrayText = (v: readonly (EnsureValue | StructShape)[]): string =>
+  `[${v.map(fieldText).join(', ')}]`
+
+/** Render one struct field or array element, dispatching on its shape. */
+const fieldText = (v: EnsureValue | StructShape): string => {
+  if (Array.isArray(v)) return arrayText(v)
+  if (isStruct(v)) return structText(v)
+
+  return valueText(v)
 }
 
 /**

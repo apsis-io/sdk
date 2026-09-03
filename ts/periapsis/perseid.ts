@@ -1936,7 +1936,20 @@ export const objects = {
           kinded<'deployments'>(p.deployments(name)).with(
             {
               spec: {
-                replicas: s.replicas,
+                // ***A BARE Expr MUST BE WRAPPED, NOT HANDED TO THE GENERIC
+                // FIELD RENDERER.*** `Expr<T>` is a plain string at runtime -
+                // the brand is erased - and expr.ts's struct-field renderer
+                // cannot tell `replicas: '3'` (a literal to quote) from
+                // `replicas: 'Get(...) + 2'` (expression text to emit bare)
+                // by inspecting the value; that ambiguity is exactly why
+                // `computed()` exists. DeploymentSpec.replicas's own type
+                // advertises `Expr<'int'> | Expr<'observed-int'> |
+                // Expr<'value'>` as valid input, so a caller passing one
+                // reasonably expects it evaluated - but without this, it
+                // reached the field renderer un-wrapped and came out
+                // JSON-quoted as a literal string, silently writing the
+                // wrong type into spec.replicas.
+                replicas: typeof s.replicas === 'number' ? s.replicas : E.computed(s.replicas),
                 selector: { matchLabels: { ...s.selector } },
                 template: podTemplate(s.containers, { labels: s.selector }),
               },
