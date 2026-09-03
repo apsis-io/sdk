@@ -93,7 +93,18 @@ jobs:
           # reason that has nothing to do with the code. Caught by a dispatch
           # run before any tag ever triggered this. --no refuses to install.
           npm exec --no -- tsc --noEmit
-          npm test || echo "no test script"
+          # ***`npm test || echo ...` SWALLOWED A FAILING SUITE.*** That was the
+          # original line here, written to tolerate a package with no test
+          # script - and it tolerated a FAILING one identically, exit 0 either
+          # way, in the step named "verify before publishing anything
+          # permanent". Two states, one verdict, and only one of them is news.
+          # Ask whether the script EXISTS, then run it with nothing swallowing
+          # the result.
+          if node -e "process.exit(require('./package.json').scripts?.test ? 0 : 1)"; then
+            npm test
+          else
+            echo "::notice::no test script declared - nothing to run"
+          fi
 
       - name: Publish
         working-directory: ${{ steps.pkg.outputs.dir }}
