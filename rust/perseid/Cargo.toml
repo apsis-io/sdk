@@ -4,7 +4,7 @@
 # too generic a global claim, while `use perseid::` is the spelling guests are
 # written against. See [lib] below.
 name = "apsis-perseid"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 description = "The Perseid vocabulary for Rust guests: canonical apiserver paths, the aperture expression language, and resume conditions."
 # Apache, not BUSL: this is the GUEST side - what a program links against to run
