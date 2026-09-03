@@ -23,8 +23,8 @@ func TestPeerAddrCannotBeInjectedFromTheWire(t *testing.T) {
 		[]byte("ns\tpod\tuid\tcomp\t192.0.2.1:1234"),          // a 5th field
 		[]byte("ns\tpod\tuid\tcomp\t\t\t192.0.2.1:1234"),      // padded further
 		[]byte("192.0.2.1:1234\tpod\tuid\tcomp"),              // first field
-		[]byte("ns\tpod\tuid\tcomp"),                         // exact arity
-		[]byte(""),                                           // empty
+		[]byte("ns\tpod\tuid\tcomp"),                          // exact arity
+		[]byte(""),                                            // empty
 		[]byte("ns\tpod\tuid\tcomp\nPeerAddr=192.0.2.1:1234"), // newline smuggling
 	}
 	for _, f := range frames {

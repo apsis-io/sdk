@@ -70,11 +70,6 @@ func TestParseGazerPrincipal_RefusesOverlongSegments(t *testing.T) {
 // only way to know it. Checking the parts separately would wave through a
 // namespace containing a colon, which silently renames the object a signer is
 // about to authorize.
-
-// THE CONSTRUCTOR AND THE PARSER MUST AGREE FOREVER, and the round trip is the
-// only way to know it. Checking the parts separately would wave through a
-// namespace containing a colon, which silently renames the object a signer is
-// about to authorize.
 func TestGazerPrincipalFor_RoundTripsThroughTheParser(t *testing.T) {
 	for _, tc := range []struct{ ns, name string }{
 		{"team-a", "phone-7"},
@@ -95,9 +90,6 @@ func TestGazerPrincipalFor_RoundTripsThroughTheParser(t *testing.T) {
 		}
 	}
 }
-
-// A DERIVED PRINCIPAL IS ONLY SAFE IF IT CANNOT BE STEERED. These are the inputs
-// an issuer might read off an object whose name it did not fully validate.
 
 // A DERIVED PRINCIPAL IS ONLY SAFE IF IT CANNOT BE STEERED. These are the inputs
 // an issuer might read off an object whose name it did not fully validate.

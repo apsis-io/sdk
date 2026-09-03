@@ -228,7 +228,7 @@ const (
 	// this process allocate unbounded - matches trail's QUIC transport's
 	// own MAX_FRAME (64 MiB, the seam's own too-large rejection ballpark).
 	// *** THAT EQUALITY IS ENFORCED, not merely asserted here: ***
-	// TestEverySeamSpeakerSharesOneFrameBound (periapsis's cross-language seam tests, 
+	// TestEverySeamSpeakerSharesOneFrameBound (periapsis's cross-language seam tests,
 	// seamframebound_test.go) reds if any of the five speakers - trail, comet,
 	// this SDK, sdk/ts, sdk/c - drifts. It is the one cross-speaker fact that
 	// survived MSK1's removal, which is why this citation can be repointed
