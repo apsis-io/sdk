@@ -517,7 +517,30 @@ const isAtExpr = (p: PathLike): boolean => p.startsWith('At(')
  *
  * Values are scalars, `computed(...)` expressions, or nested `StructValue`s.
  */
-export type StructShape = { [k: string]: EnsureValue | StructShape }
+export type StructShape = {
+  [k: string]: EnsureValue | StructShape | StructArray
+}
+
+/**
+ * An array field — `command`, `args`, `containers`, `volumes`.
+ *
+ * ***HOMOGENEOUS BY CONSTRUCTION, AND THAT IS THE GUARDRAIL.*** Written as a
+ * union of two arrays (`A[] | B[]`) rather than one array of a union
+ * (`(A | B)[]`), so `['sh', {name: 'x'}]` does not typecheck. The grammar
+ * permits a mixed array and no guest has ever needed one, and rust/perseid
+ * cannot express one at all (`list` takes scalars, `list_of` takes structs) —
+ * so the two SDKs now agree on what they ACCEPT and not merely on what they
+ * emit.
+ *
+ * ***AND ARRAYS ARE IN THIS TYPE AT ALL ONLY SINCE 2026-09-03, WHICH IS THE
+ * ROOT OF THE DEFECT THAT SHIPPED.*** `StructShape` was
+ * `{ [k: string]: EnsureValue | StructShape }`, and an array satisfies a string
+ * index signature structurally — so `containers: [...]` typechecked by ACCIDENT,
+ * went down the struct path, and rendered as a sorted-key object. The fix to
+ * `isStruct` stops that at runtime; naming the type stops it being expressible
+ * as a struct in the first place.
+ */
+export type StructArray = readonly EnsureValue[] | readonly StructShape[]
 
 declare const bodyOf: unique symbol
 
@@ -648,12 +671,22 @@ const structText = (v: StructShape): string => {
  * Never sorted, unlike structText: array order is DATA (`containers[0]` is not
  * `containers[1]`), not an incidental map-iteration artifact to canonicalise.
  */
-const arrayText = (v: readonly (EnsureValue | StructShape)[]): string =>
+const arrayText = (v: StructArray): string =>
   `[${v.map(fieldText).join(', ')}]`
 
+/**
+ * `Array.isArray` as a TYPE PREDICATE, because the built-in one does not narrow
+ * a `readonly` array out of a union — it is declared `arg is any[]`, and
+ * `readonly EnsureValue[]` is not an `any[]`. Without this the two branches
+ * below still receive the array type and neither `isStruct` nor `valueText`
+ * accepts it.
+ */
+const isFieldArray = (v: EnsureValue | StructShape | StructArray): v is StructArray =>
+  Array.isArray(v)
+
 /** Render one struct field or array element, dispatching on its shape. */
-const fieldText = (v: EnsureValue | StructShape): string => {
-  if (Array.isArray(v)) return arrayText(v)
+const fieldText = (v: EnsureValue | StructShape | StructArray): string => {
+  if (isFieldArray(v)) return arrayText(v)
   if (isStruct(v)) return structText(v)
 
   return valueText(v)

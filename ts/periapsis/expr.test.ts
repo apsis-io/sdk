@@ -10,6 +10,7 @@
 
 import {
   type Expr,
+  type StructShape,
   get,
   listPods,
   now,
@@ -271,3 +272,30 @@ export const _theEscapeHatchIsStillPaired = (): Expr<'effect'> =>
       .resource('acme.example', 'v1', 'widgets', 'w1')
       .with({ spec: { size: 3 } }),
   )
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ARRAY FIELDS ARE HOMOGENEOUS, AND A MIXED ONE MUST NOT COMPILE.
+//
+// `StructArray` is `readonly EnsureValue[] | readonly StructShape[]` — a union
+// of two arrays, not one array of a union — so an element list may be all
+// scalars or all structs and not a mixture. The grammar permits mixed and no
+// guest has needed one; rust/perseid cannot express one (`list` takes scalars,
+// `list_of` takes structs), so this keeps the two SDKs agreeing on what they
+// ACCEPT rather than only on what they emit.
+//
+// ***THE @ts-expect-error IS THE ASSERTION, NOT A SUPPRESSION.*** tsc fails the
+// build if the line it marks does NOT error, so this test cannot pass while the
+// guardrail is absent — which is the property the runtime array test
+// (exprtext.test.ts) cannot have, since a mixed array renders perfectly well.
+// ═══════════════════════════════════════════════════════════════════════════
+const scalarsOnly: StructShape = { command: ['sh', '-c', 'run'] }
+const structsOnly: StructShape = { containers: [{ name: 'api' }, { name: 'sidecar' }] }
+const nestedArray: StructShape = { containers: [{ name: 'api', args: ['-v'] }] }
+
+// @ts-expect-error - a MIXED array: scalar and struct in one element list
+const mixed: StructShape = { containers: ['sh', { name: 'api' }] }
+
+void scalarsOnly
+void structsOnly
+void nestedArray
+void mixed
