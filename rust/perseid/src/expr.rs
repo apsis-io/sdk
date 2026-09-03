@@ -688,6 +688,42 @@ impl Struct {
         self
     }
 
+    /// Set a field to an ARRAY of scalars or computed expressions.
+    ///
+    /// ***ORDER IS PRESERVED AND IS NEVER SORTED, UNLIKE STRUCT KEYS.*** A
+    /// struct's fields are a map and are canonicalised on render so a caller can
+    /// build in any order; an array's elements are DATA - `command[0]` is not
+    /// `command[1]` - and periapsis's grammar says so itself: "ORDER IS
+    /// SIGNIFICANT HERE AND IS NOT FOR OBJECTS".
+    ///
+    /// This existed in no form until 2026-09-03. rust/perseid could express a
+    /// scalar and a nested struct and nothing else, so a Rust guest needing
+    /// `command: ["sh", "-c", "run"]` had no way to write it while the grammar
+    /// accepted it and the TypeScript SDK emitted it. Not a bug - a missing
+    /// capability, which is why it needed asking rather than fixing.
+    #[must_use]
+    pub fn list(mut self, key: &str, items: impl IntoIterator<Item = impl EnsureValue>) -> Self {
+        let rendered: Vec<String> = items.into_iter().map(EnsureValue::value_text).collect();
+        self.fields.insert(key.to_string(), format!("[{}]", rendered.join(", ")));
+        self
+    }
+
+    /// Set a field to an ARRAY of nested structs - `containers`, `volumes`, and
+    /// every other list-of-objects a pod template carries.
+    ///
+    /// Separate from [`Struct::list`] because a `Struct` is not an
+    /// [`EnsureValue`]: the trait renders a scalar or an expression, and a
+    /// struct renders braces. A single enum covering both would let a caller
+    /// write a MIXED array, which the grammar permits and no guest has ever
+    /// needed - so the two shapes stay two methods and an unrepresentable
+    /// mixture is the price. Order preserved, for [`Struct::list`]'s reason.
+    #[must_use]
+    pub fn list_of(mut self, key: &str, items: &[Struct]) -> Self {
+        let rendered: Vec<String> = items.iter().map(Struct::render).collect();
+        self.fields.insert(key.to_string(), format!("[{}]", rendered.join(", ")));
+        self
+    }
+
     fn render(&self) -> String {
         let inner: Vec<String> = self
             .fields
@@ -892,6 +928,49 @@ mod tests {
             !text.starts_with("ListPods(\"app=x\").length + 1 *"),
             "unparenthesised: `mul` captures the right operand of the `add`"
         );
+    }
+
+    /// ***ARRAY ORDER IS DATA AND MUST SURVIVE RENDERING.*** The TypeScript SDK
+    /// shipped the opposite: an array reached its struct path, `Object.keys`
+    /// returned string indices, `.sort()` ordered them lexicographically ('10'
+    /// before '2') and the result came out as a JSON OBJECT. A 10+ element
+    /// `command` was silently scrambled, and periapsis's grammar - "ORDER IS
+    /// SIGNIFICANT HERE AND IS NOT FOR OBJECTS" - could not read it back.
+    ///
+    /// Rust could not have that defect, because until now it could not express
+    /// an array at all. This test exists so that stays true of the thing that
+    /// replaced the gap: TEN elements, so a lexicographic sort would visibly
+    /// reorder them.
+    #[test]
+    fn array_elements_keep_their_order_at_ten_or_more() {
+        let items: Vec<String> = (1..=12).map(|n| n.to_string()).collect();
+        let text = Struct::new().list("command", items.iter().map(String::as_str)).render();
+
+        assert_eq!(
+            text,
+            r#"{"command": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]}"#,
+            "elements must render in the order given, not sorted as strings"
+        );
+    }
+
+    /// A pod template's `containers` - an array of structs, each carrying its own
+    /// array. The shape `list` alone cannot express, and the reason `list_of`
+    /// exists separately.
+    #[test]
+    fn an_array_of_structs_nests_and_keeps_both_orders() {
+        let container = Struct::new()
+            .set("name", "api")
+            .set("image", "nginx:alpine")
+            .list("command", ["sh", "-c", "run"]);
+        let text = Struct::new().list_of("containers", &[container]).render();
+
+        // Struct keys ARE sorted (image, name come before command? no - all three
+        // are canonicalised): the assertion is on the array, which is not.
+        assert!(
+            text.contains(r#""command": ["sh", "-c", "run"]"#),
+            "inner array order lost: {text}"
+        );
+        assert!(text.starts_with(r#"{"containers": [{"#), "not an array of objects: {text}");
     }
 
     #[test]
