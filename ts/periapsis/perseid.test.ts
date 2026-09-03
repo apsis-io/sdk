@@ -40,6 +40,7 @@
 // instruction nobody has executed is the same untested claim as any other.
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { test } from 'bun:test'
 import {
   type Handler,
   type Obs,
@@ -687,3 +688,20 @@ export const _anEmptyRetryReasonIsRefused = () => {
   // @ts-expect-error a retry must say what it is waiting for
   retry('')
 }
+
+// ⭐ ***WIRED INTO `bun test` ON 2026-09-03, BECAUSE UNTIL THEN IT RAN NOWHERE.***
+//
+// `runtimeGuards` was exported and never called. `bun test` collects files by
+// their `test()` blocks and this file declared none, so bun loaded it, found
+// nothing to run, and reported success - and the suite's own summary counted
+// the tests in the OTHER files, which is why the total looked plausible. Every
+// assertion in here had never executed once.
+//
+// Found by breaking one deliberately and watching the suite stay green. That is
+// the only check that distinguishes a passing assertion from an absent one, and
+// it is worth doing to any test that has never been seen to fail.
+//
+// The type-level assertions above were always live - tsc --noEmit checks them.
+// It was only the runtime half that was dead, which is the harder case to
+// notice: the file genuinely did enforce something, just not this.
+test('runtime guards', runtimeGuards)

@@ -1853,16 +1853,32 @@ export type Container = {
  * The legitimate half of what a "pod builder" would be: the template is a field
  * of a Deployment or a Job, both writable, where a pod OBJECT is refused.
  */
+// ***THE FOUR `as unknown as E.StructShape` CASTS HERE ARE GONE, AND THEIR
+// ABSENCE IS THE POINT.*** They existed because `StructShape` had no array
+// case, so an array value was not expressible in the type and every array had
+// to be lied about at the boundary. That is the same cast that let an array
+// reach `structText` and render as a key-sorted JSON OBJECT - the 10+ element
+// `command` defect - because `as unknown as` does not merely widen, it tells
+// the compiler the value is the one thing it is not.
+//
+// `StructShape` now admits `StructArray` directly, so these assign plainly:
+// `string[]` is a `readonly EnsureValue[]`, `Record<string, string>` is a
+// `StructShape`, and `map` produces a `readonly StructShape[]`. A guardrail
+// that leaves the casts that defeat it in place has added a type and changed
+// nothing.
+//
+// The spreads stay - they defensively copy the caller's arrays, which is a
+// separate concern from the casts and was never what they were for.
 export const podTemplate = (containers: Container[], m?: Meta): E.StructShape => {
   const spec: E.StructShape = {
     containers: containers.map((c) => {
       const out: E.StructShape = { name: c.name, image: c.image }
-      if (c.command) out.command = [...c.command] as unknown as E.StructShape
-      if (c.args) out.args = [...c.args] as unknown as E.StructShape
-      if (c.env) out.env = c.env as unknown as E.StructShape
+      if (c.command) out.command = [...c.command]
+      if (c.args) out.args = [...c.args]
+      if (c.env) out.env = c.env
 
       return out
-    }) as unknown as E.StructShape,
+    }),
   }
   const meta = metaOf(m)
 

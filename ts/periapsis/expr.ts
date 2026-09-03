@@ -448,7 +448,25 @@ export type Computed = { readonly [computedOf]: true; readonly text: string }
 // tests THIS one with `in`, which needs an actual value to look up - a
 // `declare const` there is not merely unused, it is a ReferenceError the
 // moment isStruct runs, thrown from inside `create`/`ensure`, on every call.
-const computedOf: unique symbol = Symbol('computed')
+//
+// ***Symbol.for, NOT Symbol, AND THAT IS A CORRECTNESS FIX RATHER THAN A
+// STYLE.*** `Symbol('computed')` is unique PER MODULE INSTANCE. Load this file
+// twice in one process and there are two different symbols, so a Computed built
+// by instance A fails `computedOf in v` in instance B - and isStruct's checks
+// are all satisfied by that object, so it comes back TRUE. The expression is
+// then rendered by structText as the literal body `{"text": "Now()"}` instead
+// of the bare expression: not a crash, not a type error, a WRONG VALUE WRITTEN
+// TO THE CLUSTER, and one that looks like the caller passed a struct.
+//
+// Two instances is the normal case, not a pathological one. periapsis depends
+// on this package as `file:` paths from several different depths and also has
+// the published @apsis-io/periapsis-sdk available; npm and bun dedupe by
+// RESOLVED PATH, so two spellings of the same copy are two instances.
+//
+// The global registry is keyed by this string, so every instance - including
+// different VERSIONS of this package - agrees. The key is namespaced because
+// the registry is process-global and shared with every other library in it.
+const computedOf: unique symbol = Symbol.for('@apsis-io/periapsis-sdk:computed')
 
 /**
  * Mark an expression as the COMPUTED value of an `ensure`.
@@ -625,10 +643,14 @@ export type KindedObject<K extends string> = {
 type NoInferK<T> = [T][T extends unknown ? 0 : never]
 
 // ARRAYS ARE EXCLUDED, DELIBERATELY: `typeof [] === 'object'` in JS, so without
-// this check an array value (podTemplate's `containers`/`command`/`args`, cast
-// `as unknown as StructShape` because the grammar's array literal has no
-// TypeScript shape of its own) was treated as a struct - see arrayText below
-// for what that broke and why it must render differently.
+// this check an array value (podTemplate's `containers`/`command`/`args`) was
+// treated as a struct - see arrayText below for what that broke and why it must
+// render differently.
+//
+// This check is still load-bearing even now that `StructShape` names the array
+// case and podTemplate's casts are gone. The type says which arrays are
+// INTENDED; it cannot say what a JS runtime hands this function, and the
+// rendering split is a runtime decision.
 const isStruct = (v: EnsureValue | StructShape): v is StructShape =>
   typeof v === 'object' && v !== null && !Array.isArray(v) && !(computedOf in (v as object))
 

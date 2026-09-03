@@ -8,6 +8,7 @@
 // half the host cannot do: refusing expressions aperture would accept and
 // evaluate into nonsense.
 
+import { test } from 'bun:test'
 import {
   type Expr,
   type StructShape,
@@ -174,6 +175,47 @@ export function runtimeGuards(): void {
     'setCondition',
   )
 
+  // ⭐ ***A Computed FROM A SECOND MODULE INSTANCE MUST STILL BE COMPUTED.***
+  //
+  // The brand was `Symbol('computed')`, unique per module instance. Two
+  // instances of this package in one process - the normal outcome of depending
+  // on it by `file:` from two different depths, since npm and bun dedupe by
+  // RESOLVED PATH - gave two different symbols, so instance B did not
+  // recognise instance A's Computed. It is not REJECTED in that case, which is
+  // the whole problem: `isStruct`'s remaining checks are all satisfied by that
+  // object, so it comes back true and `structText` renders it as the body
+  // `{"text": "Now()"}`. A wrong value reaches the cluster, looking exactly
+  // like a caller who passed a struct on purpose.
+  //
+  // `foreign` is built the way another instance builds one - through the global
+  // registry by name, with no reference to this module's binding - which is the
+  // only way to write the two-instance case inside one instance.
+  //
+  // ***IT GOES THROUGH `create`, NOT `ensure`, AND THE FIRST VERSION OF THIS
+  // TEST USED `ensure` AND THEREFORE MEASURED NOTHING.*** It passed with
+  // `Symbol('computed')` put back - checked, which is the only reason this is
+  // written correctly now. `ensure` renders a scalar through `valueText`, which
+  // reads `.text` off anything non-primitive and never consults the brand at
+  // all. `isStruct` is reached only from `fieldText`, on the struct-body path.
+  // The brand has exactly one runtime reader and a regression test for it has
+  // to go through that reader.
+  //
+  // ***THE ASSERTION IS AGAINST THE LOCAL RENDERING, NOT A PASTED STRING.***
+  // The property is "a foreign Computed is indistinguishable from a local one",
+  // so comparing the two states it directly and cannot bake in whatever the
+  // emitter currently happens to produce.
+  const foreign = {
+    [Symbol.for('@apsis-io/periapsis-sdk:computed')]: true,
+    text: now(),
+  } as unknown as ReturnType<typeof computed>
+  const withValue = (v: ReturnType<typeof computed>) =>
+    String(create(objects.ns('default').configMap('cfg').with({ data: { mode: v } })))
+  eq(
+    withValue(foreign),
+    withValue(computed(now())),
+    "another instance's computed value renders exactly like a local one",
+  )
+
   // ⭐ ***A QUOTE ROUND-TRIPS NOW; IT USED TO REFUSE.*** The grammar's token was
   // `"[^"]*"`, so a value containing a quote was unrepresentable and `lit`
   // refused rather than emit something that would not parse. The token accepts
@@ -299,3 +341,20 @@ void scalarsOnly
 void structsOnly
 void nestedArray
 void mixed
+
+// ⭐ ***WIRED INTO `bun test` ON 2026-09-03, BECAUSE UNTIL THEN IT RAN NOWHERE.***
+//
+// `runtimeGuards` was exported and never called. `bun test` collects files by
+// their `test()` blocks and this file declared none, so bun loaded it, found
+// nothing to run, and reported success - and the suite's own summary counted
+// the tests in the OTHER files, which is why the total looked plausible. Every
+// assertion in here had never executed once.
+//
+// Found by breaking one deliberately and watching the suite stay green. That is
+// the only check that distinguishes a passing assertion from an absent one, and
+// it is worth doing to any test that has never been seen to fail.
+//
+// The type-level assertions above were always live - tsc --noEmit checks them.
+// It was only the runtime half that was dead, which is the harder case to
+// notice: the file genuinely did enforce something, just not this.
+test('runtime guards', runtimeGuards)

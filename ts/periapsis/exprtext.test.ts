@@ -16,8 +16,9 @@ import { objects } from './perseid'
 // used to accept anything with `typeof v === 'object'`, which is true for an
 // array. `structText` then ran `Object.keys` (returning string indices),
 // `.sort()` (lexicographic - '10' before '2') and wrapped the result in
-// `{...}` - so a `command`/`args` array (podTemplate casts them
-// `as unknown as StructShape`, exactly this path) rendered as a JSON OBJECT
+// `{...}` - so a `command`/`args` array (podTemplate's, exactly this path;
+// it reached here through an `as unknown as StructShape` that the array case
+// in `StructShape` has since made unnecessary) rendered as a JSON OBJECT
 // with its elements in the WRONG ORDER, which periapsis's grammar's
 // array-literal rule (internal/aperture/grammar.go, "order is significant")
 // cannot read back as the intended command.
