@@ -10,6 +10,7 @@
   },
   "files": [
     "*.ts",
+    "!*.test.ts",
     "LICENSE",
     "NOTICE"
   ],

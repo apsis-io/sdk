@@ -47,6 +47,26 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
+      # ***REQUIRED BY THE VERIFY STEP, NOT BY PUBLISH.*** Both packages declare
+      # `"test": "bun test"` and their suites `import { test } from "bun:test"`,
+      # which node cannot run at all. ubuntu-latest has no bun, so `npm test`
+      # below exits 127 with `bun: command not found` and NO TAG CAN EVER
+      # PUBLISH.
+      #
+      # This was invisible until the line above it was fixed: the verify step
+      # used to read `npm test || echo "no test script"`, which turned the 127
+      # into exit 0. Removing the swallow did not introduce this failure, it
+      # REVEALED it - the workflow had never once run these tests. A masked
+      # error hides the next error behind it, and the count is not knowable
+      # until the mask comes off.
+      #
+      # npm remains the publisher; bun is only the test runner. Trusted
+      # publishing verifies an npm client's OIDC token and bun does not speak
+      # that protocol, so `bun publish` is not a substitute here.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       # setup-node pins whatever npm shipped with the Node release, which may
       # predate OIDC support. Upgrading is cheap; debugging a silent fallback to
       # token auth is not.
@@ -86,7 +106,17 @@ jobs:
       - name: Verify before publishing anything permanent
         working-directory: ${{ steps.pkg.outputs.dir }}
         run: |
-          npm install --no-audit --no-fund
+          # ***--frozen-lockfile, AND bun's RATHER THAN npm's.*** A plain install
+          # resolves ranges fresh, so the thing verified here is not the thing
+          # bun.lock pins - `"@types/bun": "latest"` would float between this
+          # step and any later one. `npm ci` is not the alternative: it demands
+          # a package-lock.json, this repo's packages are bun's, and the one
+          # package-lock.json that ever appeared here was an accident committed
+          # by a verification step and is now gitignored by name.
+          #
+          # bun install also populates node_modules/.bin, which is what the
+          # `npm exec --no` below needs to find tsc locally.
+          bun install --frozen-lockfile
           # ***--no, NOT bare npx.*** `npx tsc` with no local typescript
           # silently FETCHES a registry package called `tsc` - a deprecated
           # squatter that is not the compiler - and the step then fails for a
