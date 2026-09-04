@@ -50,6 +50,7 @@ pub mod backstop;
 pub mod expr;
 pub mod path;
 pub mod resume;
+pub mod wake;
 
 pub use backstop::{BACKSTOP_SECTION, Backstop, DEFAULT_BACKSTOP_MS};
 pub use path::ApiPath;
