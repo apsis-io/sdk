@@ -332,7 +332,7 @@ pub fn now() -> Expr<Int> {
 /// ```text
 /// 1  2026-09-02  ADR-0101: list, fields
 /// ```
-pub const LANGUAGE_VERSION: u32 = 1;
+pub const LANGUAGE_VERSION: u32 = 2;
 
 // ---------------------------------------------------------------------------
 // Properties.
@@ -614,6 +614,63 @@ pub fn and(bs: &[Expr<Bool>]) -> Expr<Bool> {
 /// KIND: configmaps, secrets, deployments, statefulsets, daemonsets,
 /// replicasets. **Not pods** - an obligation is applied with RADIANT's
 /// credential, which the seam-binding admission policy exempts on pods.
+/// `OwnedBy(path) -> path`. The CONTROLLER owner of an object.
+///
+/// **AN EDGE IN THE OBJECT GRAPH, RETURNING A PATH SO IT COMPOSES WITH EVERY
+/// SYMBOL THAT TAKES ONE** (engi, 2026-09-05: "what if pods, owners, nodes, and
+/// events were one queryable graph instead of separate API objects?").
+///
+/// ```
+/// use perseid::expr::{get, node_of, owned_by};
+/// use perseid::path;
+///
+/// let pod = path::ns("default").pods("web-7d9f");
+///
+/// // One hop: the owner's desired scale.
+/// assert_eq!(
+///     get(&owned_by(&pod), "spec.replicas").as_str(),
+///     r#"Get(OwnedBy("/api/v1/namespaces/default/pods/web-7d9f"), "spec.replicas")"#
+/// );
+/// // Two hops: pod -> replicaset -> deployment. Edges compose because an edge
+/// // RETURNS A PATH, which is the whole design.
+/// assert_eq!(
+///     get(&owned_by(&owned_by(&pod)), "metadata.name").as_str(),
+///     r#"Get(OwnedBy(OwnedBy("/api/v1/namespaces/default/pods/web-7d9f")), "metadata.name")"#
+/// );
+/// // And across scopes: the machine running it.
+/// assert_eq!(
+///     get(&node_of(&pod), "spec.unschedulable").as_str(),
+///     r#"Get(NodeOf("/api/v1/namespaces/default/pods/web-7d9f"), "spec.unschedulable")"#
+/// );
+/// ```
+///
+/// **IT CONFERS NO AUTHORITY.** Resolving the edge READS its source, so it is
+/// gated by exactly the capability that source's kind already needs, and the path
+/// it returns is bounded by whatever consumes it. Three-valued like any read:
+/// `unknown` when the source could not be read, `absent` when there is no
+/// controller owner or its kind is one the aperture cannot address.
+///
+/// ⚠ **A PARK ON AN EDGE SUBSCRIBES TO THE SOURCE, NOT THE TARGET** - subjects
+/// come from an expression's literals, and the only literal here is the source.
+#[must_use]
+pub fn owned_by(path: impl PathArg) -> Expr<Path> {
+    Expr::new(format!("OwnedBy({})", path.path_text()))
+}
+
+/// `NodeOf(path) -> path`. The machine running a pod, CLUSTER-scoped.
+///
+/// **THE EDGE THAT CROSSES SCOPES.** The result lives outside any namespace, so
+/// consuming it needs `observe-cluster` AND the node named in `spec.reads`. This
+/// symbol grants none of that: it returns a string, and it is the `get` around it
+/// that must be permitted.
+///
+/// `absent` while the pod is unscheduled - `spec.nodeName` is empty until the
+/// scheduler places it, and "no node yet" must not read as "some node".
+#[must_use]
+pub fn node_of(path: impl PathArg) -> Expr<Path> {
+    Expr::new(format!("NodeOf({})", path.path_text()))
+}
+
 #[must_use]
 pub fn ensure(path: impl PathArg, field: &str, value: impl EnsureValue) -> Expr<Effect> {
     Expr::new(format!(
