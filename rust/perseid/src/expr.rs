@@ -614,6 +614,43 @@ pub fn and(bs: &[Expr<Bool>]) -> Expr<Bool> {
 /// KIND: configmaps, secrets, deployments, statefulsets, daemonsets,
 /// replicasets. **Not pods** - an obligation is applied with RADIANT's
 /// credential, which the seam-binding admission policy exempts on pods.
+#[must_use]
+pub fn ensure(path: impl PathArg, field: &str, value: impl EnsureValue) -> Expr<Effect> {
+    Expr::new(format!(
+        "Ensure({}, {}, {})",
+        path.path_text(),
+        lit(field),
+        value.value_text()
+    ))
+}
+
+/// Write one field of a CLUSTER-SCOPED object: a Node, a PersistentVolume.
+///
+/// ⚠ **THIS EMITS `Ensure`, THE SAME SYMBOL AS [`ensure`]. IT IS A SPELLING, NOT
+/// A SECOND AUTHORITY** (engi, 2026-09-05: "unify and extend ensure args"). It
+/// exists so a program that cordons a node SAYS so at the call site; the host
+/// tells the two scopes apart from the PATH, which already carries the answer.
+///
+/// **THE BOUND IS DIFFERENT EVEN THOUGH THE SYMBOL IS NOT.** A namespaced
+/// `ensure` is confined by the grant's NAMESPACE and by `spec.writes`; this is
+/// confined by `spec.writes` ALONE, because a cluster object has no namespace to
+/// compare against. The declaration is the whole boundary, and an undeclared
+/// cluster path is refused.
+///
+/// **THE PATH CARRIES NO `namespaces` SEGMENT** - `/api/v1/nodes/NAME`,
+/// `/apis/GROUP/VERSION/RESOURCE/NAME`. A namespaced path written through this
+/// helper is not silently promoted: the host routes on the path's own shape, so
+/// it simply takes the namespaced bound, which is the safe direction.
+#[must_use]
+pub fn ensure_cluster(path: impl PathArg, field: &str, value: impl EnsureValue) -> Expr<Effect> {
+    Expr::new(format!(
+        "Ensure({}, {}, {})",
+        path.path_text(),
+        lit(field),
+        value.value_text()
+    ))
+}
+
 /// `OwnedBy(path) -> path`. The CONTROLLER owner of an object.
 ///
 /// **AN EDGE IN THE OBJECT GRAPH, RETURNING A PATH SO IT COMPOSES WITH EVERY
@@ -669,43 +706,6 @@ pub fn owned_by(path: impl PathArg) -> Expr<Path> {
 #[must_use]
 pub fn node_of(path: impl PathArg) -> Expr<Path> {
     Expr::new(format!("NodeOf({})", path.path_text()))
-}
-
-#[must_use]
-pub fn ensure(path: impl PathArg, field: &str, value: impl EnsureValue) -> Expr<Effect> {
-    Expr::new(format!(
-        "Ensure({}, {}, {})",
-        path.path_text(),
-        lit(field),
-        value.value_text()
-    ))
-}
-
-/// Write one field of a CLUSTER-SCOPED object: a Node, a PersistentVolume.
-///
-/// ⚠ **THIS EMITS `Ensure`, THE SAME SYMBOL AS [`ensure`]. IT IS A SPELLING, NOT
-/// A SECOND AUTHORITY** (engi, 2026-09-05: "unify and extend ensure args"). It
-/// exists so a program that cordons a node SAYS so at the call site; the host
-/// tells the two scopes apart from the PATH, which already carries the answer.
-///
-/// **THE BOUND IS DIFFERENT EVEN THOUGH THE SYMBOL IS NOT.** A namespaced
-/// `ensure` is confined by the grant's NAMESPACE and by `spec.writes`; this is
-/// confined by `spec.writes` ALONE, because a cluster object has no namespace to
-/// compare against. The declaration is the whole boundary, and an undeclared
-/// cluster path is refused.
-///
-/// **THE PATH CARRIES NO `namespaces` SEGMENT** - `/api/v1/nodes/NAME`,
-/// `/apis/GROUP/VERSION/RESOURCE/NAME`. A namespaced path written through this
-/// helper is not silently promoted: the host routes on the path's own shape, so
-/// it simply takes the namespaced bound, which is the safe direction.
-#[must_use]
-pub fn ensure_cluster(path: impl PathArg, field: &str, value: impl EnsureValue) -> Expr<Effect> {
-    Expr::new(format!(
-        "Ensure({}, {}, {})",
-        path.path_text(),
-        lit(field),
-        value.value_text()
-    ))
 }
 
 /// `At(apiVersion, kind, name) -> path`. Name an object WITHOUT a namespace.
