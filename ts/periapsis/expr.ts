@@ -46,7 +46,14 @@
 // makes, given a name so the SDK can enforce it.
 // ═══════════════════════════════════════════════════════════════════════════
 
-import type { ApiPath, CollectionPath, LabelSelector, PodName, WorkloadName } from './perseid'
+import type {
+  ApiPath,
+  ClusterPath,
+  CollectionPath,
+  LabelSelector,
+  PodName,
+  WorkloadName,
+} from './perseid'
 
 declare const exprOf: unique symbol
 
@@ -148,7 +155,7 @@ const intText = (v: IntLike): string => (typeof v === 'number' ? String(Math.tru
  *
  *     1  2026-09-02  ADR-0101: list, fields
  */
-export const LANGUAGE_VERSION = 1
+export const LANGUAGE_VERSION = 2
 
 // ---------------------------------------------------------------------------
 // Symbols. One per entry in aperture's `signatures` table.
@@ -188,7 +195,7 @@ export const listPods = (selector: LabelSelector): Expr<'pods'> =>
  * optional field is a real question rather than a frozen program.
  * ═══════════════════════════════════════════════════════════════════════════
  */
-export const get = (path: PathLike, field: string): Expr<'value'> =>
+export const get = (path: ReadPathLike, field: string): Expr<'value'> =>
   mk(`Get(${pathText(path)}, ${lit(field)})`)
 
 /**
@@ -287,6 +294,44 @@ const cmp =
 
 export const ne = cmp('!=')
 export const eq = cmp('==')
+
+/**
+ * A NON-INTEGER scalar the grammar compares directly: a string or a boolean.
+ *
+ * ***THE HOST HAS ALWAYS SUPPORTED THESE AND THIS SDK COULD NOT SPELL THEM.***
+ * `evalState.compare` has a `case string` and a `case bool` arm, each defining
+ * `==` and `!=` (and refusing `<`/`>`, which is why this is a separate type
+ * rather than a widening of `IntLike` - ordering is genuinely undefined here).
+ * `cmp` above takes `IntLike`, so every park condition an author could write was
+ * about a number.
+ *
+ * Found 2026-09-05 trying to park on a node's drain annotation - a STRING - and
+ * it is the reason a cluster park had nothing to say even after the wake index
+ * learned to carry one.
+ */
+export type ScalarLike = string | boolean
+
+// A boolean renders bare and a string is JSON-quoted, which is the same dialect
+// `lit` uses and the host decodes with.
+const scalarText = (v: ScalarLike): string => (typeof v === 'string' ? lit(v) : String(v))
+
+const cmpScalar =
+  (op: string) =>
+  (a: Expr<'value'>, b: ScalarLike): Expr<'bool'> =>
+    mk(`${a} ${op} ${scalarText(b)}`)
+
+/** `Get(p, f) == "text"` or `== true`. */
+export const eqScalar = cmpScalar('==')
+
+/**
+ * `Get(p, f) != "text"`.
+ *
+ * ⚠ ***THIS IS UNKNOWN WHEN THE FIELD IS ABSENT, WHICH IS USUALLY NOT WHAT A
+ * WAKE CONDITION WANTS.*** An absent operand propagates rather than comparing,
+ * so `absent != "true"` is unknown and a park on it does NOT fire when the field
+ * is DELETED. `perseid.fieldNoLonger` is the wake-shaped version.
+ */
+export const neScalar = cmpScalar('!=')
 
 /**
  * `==` / `!=` between two LISTS (ADR-0101): element-wise and strict, the host's
@@ -411,8 +456,71 @@ export const and = (...bs: Expr<'bool'>[]): Expr<'bool'> => mk(bs.map(paren).joi
  * one identity the policy lets past.
  * ═══════════════════════════════════════════════════════════════════════════
  */
+/**
+ * `OwnedBy(path)` — the CONTROLLER owner of an object, as a path.
+ *
+ * ***AN EDGE IN THE OBJECT GRAPH, AND IT RETURNS A PATH SO IT COMPOSES WITH
+ * EVERYTHING*** (engi, 2026-09-05: "what if pods, owners, nodes, and events were
+ * one queryable graph instead of separate API objects?"):
+ *
+ *     get(ownedBy(pod), 'spec.replicas')            // the owner's scale
+ *     get(ownedBy(ownedBy(pod)), 'metadata.name')   // pod -> rs -> deployment
+ *
+ * ***IT CONFERS NO AUTHORITY.*** Resolving the edge READS the source object, so
+ * it is gated by exactly the capability that source's kind already needs; and the
+ * path it returns is bounded by whatever consumes it. A program that may not read
+ * the pod cannot learn its owner, and one that may not read Deployments gets
+ * `absent` from a `get` on the result.
+ *
+ * Three-valued like every read: `unknown` when the source could not be read,
+ * `absent` when there is no controller owner or its kind is one this aperture
+ * cannot address — never a guess.
+ *
+ * ⚠ ***A PARK ON AN EDGE SUBSCRIBES TO THE SOURCE, NOT THE TARGET.*** Subjects
+ * are extracted from an expression's literals, and the only literal here is the
+ * pod. So the owner changing does not wake the program; the backstop does.
+ */
+export const ownedBy = (path: PathLike): Expr<'path'> => mk(`OwnedBy(${pathText(path)})`)
+
+/**
+ * `NodeOf(path)` — the machine running a pod, as a CLUSTER-scoped path.
+ *
+ * ***THE EDGE THAT CROSSES SCOPES***, which is the interesting one: the result
+ * lives outside any namespace, so consuming it needs `observe-cluster` AND the
+ * node named in `spec.reads`. This symbol grants none of that — `nodeOf(pod)` is
+ * a string, and it is the `get` around it that must be permitted.
+ *
+ *     get(nodeOf(pod), 'spec.unschedulable')   // is my pod's machine cordoned
+ *
+ * `absent` while the pod is unscheduled: `spec.nodeName` is empty until the
+ * scheduler places it, and "no node yet" must not read as "some node".
+ */
+export const nodeOf = (path: PathLike): Expr<'path'> => mk(`NodeOf(${pathText(path)})`)
+
 export const ensure = (path: PathLike, field: string, value: EnsureValue): Expr<'effect'> =>
   mk(`Ensure(${pathText(path)}, ${lit(field)}, ${valueText(value)})`)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⛔ ***THERE IS NO `ensureCluster`, AND THAT IS A DECISION RATHER THAN A GAP***
+// (engi, 2026-09-05). `ensure` above writes a CLUSTER-SCOPED object too - a Node,
+// a PersistentVolume - and the PATH is what says which:
+//
+//	ensure(path.ns('default').deployments('api'), 'spec.replicas', { num: 3 })
+//	ensure(path.nodes('worker-1'), 'spec.unschedulable', { flag: true })
+//
+// It existed for an hour as a second SPELLING emitting the same `Ensure` symbol,
+// so an author could say at the call site that they were cordoning a machine.
+// It was removed once the path was shown to encode its scope UNAMBIGUOUSLY - by
+// segment arity, see `aperture.ScopeOf` - because a second name for one function
+// is then a thing to keep in step for no confinement it adds.
+//
+// ⚠ ***WHAT IS LOST IS THE CALL-SITE SIGNAL, AND IT IS WORTH KNOWING.*** A reader
+// scanning a program no longer sees "this one is cluster-scoped" in the verb;
+// they have to read the path. The AUTHORITY is unchanged and is where it always
+// was - `spec.writes` names the object, and for a cluster object that declaration
+// is the ONLY bound, since there is no namespace to compare.
+// ═══════════════════════════════════════════════════════════════════════════
+
 
 /**
  * What `ensure` may write: a scalar LITERAL, or a computed expression.
@@ -521,14 +629,59 @@ export const at = (apiVersion: string, kind: string, name: string): Expr<'path'>
  */
 export type PathLike = ApiPath | Expr<'path'>
 
-/** Render a path argument: both forms are already the text to emit. */
-const pathText = (p: PathLike): string => (isAtExpr(p) ? p : lit(p))
+/**
+ * Anywhere a path goes to be READ: namespaced, cluster-scoped, or a resolved
+ * edge.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***A SEPARATE TYPE RATHER THAN A WIDENING OF `PathLike`, BECAUSE `PathLike`
+ * ALSO FEEDS `del`.*** Widening it in one place would silently make `del(node)`
+ * typecheck, and there is no cluster delete anywhere in the host - a program
+ * would compile, ship, and have its obligation refused at the write boundary.
+ * The read arm is the only one the host actually grew.
+ *
+ * ***WHY THE BRAND STILL EARNS ITS KEEP HERE.*** `ApiPath` and `ClusterPath` are
+ * kinded so a cluster path cannot reach a NAMESPACED read surface -
+ * `observe.get` takes one and `observeCluster.get` the other, because those two
+ * reads have different confinements. `Get` in the EXPRESSION language is not one
+ * of those surfaces: it is scope-generic, exactly as `ensure` became when engi
+ * unified it ("why path can't encode scopes?"), and the host tells the two apart
+ * from the path itself. So this union widens the symbol that genuinely accepts
+ * both and leaves every other one alone.
+ *
+ * ⚠ The confinements are NOT the same on the two sides and that is the point:
+ * a namespaced read is bounded by the grant's namespace and the kind's
+ * capability, a cluster read by `spec.reads` matched EXACTLY. Both are enforced
+ * by the host; neither is enforced by this type.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export type ReadPathLike = PathLike | ClusterPath
 
-// An `at(...)` is emitted BARE (it is an expression the host evaluates); a built
-// path is a LITERAL and must be quoted. They are both strings at runtime, so the
-// discriminator is the shape - and `At(` is one this SDK produces and a
-// canonical path can never start with.
-const isAtExpr = (p: PathLike): boolean => p.startsWith('At(')
+/** Render a path argument: both forms are already the text to emit. */
+const pathText = (p: ReadPathLike): string => (isPathExpr(p) ? p : lit(p))
+
+// A path EXPRESSION is emitted bare (the host evaluates it); a built path is a
+// LITERAL and must be quoted. Both are strings at runtime, so the discriminator
+// has to be the shape.
+//
+// ⛔ ***THIS WAS `p.startsWith('At(')` AND IT WENT STALE THE MOMENT A SECOND
+// PATH-PRODUCING SYMBOL EXISTED.*** `ownedBy` and `nodeOf` emit `OwnedBy(` and
+// `NodeOf(`, so an edge was QUOTED as a literal:
+//
+//	want  Get(OwnedBy("/api/v1/..."), "spec.replicas")
+//	got   Get("OwnedBy(\"/api/v1/...\")", "spec.replicas")
+//
+// The host then parses a path argument that is a string containing an
+// expression, which resolves to nothing - so every traversal silently failed.
+// Nothing caught it: the aperture's own tests build expressions directly, and
+// this SDK's tests asserted that helpers COMPILED rather than what they RENDER.
+//
+// ⇒ ***THE TEST IS STRUCTURAL, NOT AN ALLOWLIST OF SYMBOL NAMES.*** A canonical
+// apiserver path ALWAYS begins with `/` - that is what `Canonical<'apiserver-path'>`
+// and `unsafeApiPath` guarantee - and no expression does. So this cannot go
+// stale when the next path-producing symbol is added, which is precisely how the
+// old form failed.
+const isPathExpr = (p: ReadPathLike): boolean => !p.startsWith('/')
 
 /**
  * A structured value: an object body for {@link create}.

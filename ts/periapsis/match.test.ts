@@ -30,7 +30,7 @@ type NotNever<T, MSG extends string> = [T] extends [never] ? MSG : true
 
 const target = path.ns('default').deployments('api')
 const observe = reconcile.observe<number>()
-const scale = reconcile.scale()
+const ensure = reconcile.ensure()
 
 const step = defineStep(function* () {
   const have = yield* observe(target)
@@ -40,7 +40,7 @@ const step = defineStep(function* () {
     unknown: () => yieldStep,
     known: function* ({ v }) {
       if (v === 2) return quiesce(fieldNe(DEP, 'spec.replicas', 2))
-      yield* scale({ path: target, n: 2 })
+      yield* ensure({ path: target, field: 'spec.replicas', value: 2 })
 
       return yieldStep
     },
@@ -52,14 +52,14 @@ const step = defineStep(function* () {
 // This is what ts-pattern structurally cannot do - its `.with()` handler is an
 // ordinary function, so the effects had to be lifted into generator factories
 // outside the match. If the delegation ever stopped composing, the step's
-// capability set would silently lose `scale` and `derive-wit` would emit a world
+// capability set would silently lose `ensure` and `derive-wit` would emit a world
 // missing an import the program actually needs.
 type Effs = EffectsOf<typeof step>
 
 export type _TheMatchPreservesTheEffectUnion = Assert<
   Same<
     Effs['op'],
-    'get' | 'scale',
+    'get' | 'ensure',
     'a generator arm lost its effects: the step no longer demands what it performs'
   >
 >
@@ -107,8 +107,13 @@ export function runtimeGuards(): void {
     const acts: string[] = []
     const outcome = runStep(step, {
       get: () => o,
-      scale: ({ n }) => {
-        acts.push(`scale=${n}`)
+      ensure: ({ value }) => {
+        // ***NO NARROWING NEEDED SINCE `EnsureValue` WENT BARE (2026-09-05).***
+        // It was `{text}|{num}|{flag}` and reading `.num` off the union
+        // type-errored - which `bun test` never noticed, because it does not
+        // typecheck. Now it is `string | number | boolean` and this is just a
+        // value.
+        acts.push(`ensure=${String(value)}`)
       },
     })
 
@@ -122,7 +127,7 @@ export function runtimeGuards(): void {
   }
 
   eq(drive(known(2)).outcome, { o: 'quiesce', resume: fieldNe(DEP, 'spec.replicas', 2) }, 'at desired scale')
-  eq(drive(known(1)).acts, ['scale=2'], 'below desired scale emits one obligation')
+  eq(drive(known(1)).acts, ['ensure=2'], 'below desired scale emits one obligation')
   eq(drive(unknown).outcome, yieldStep, 'unknown yields')
   eq(drive({ t: 'absent' } as Obs<number>).outcome, terminate, 'absent terminates')
 
@@ -173,7 +178,7 @@ const guardedStep = defineStep(function* () {
       [(o: KnownObs) => o.v === 2, () => quiesce(fieldNe(DEP, 'spec.replicas', 2))],
       [(o: KnownObs) => o.v < 0, () => terminate],
       function* () {
-        yield* scale({ path: target, n: 2 })
+        yield* ensure({ path: target, field: 'spec.replicas', value: 2 })
 
         return yieldStep
       },
@@ -186,7 +191,7 @@ const guardedStep = defineStep(function* () {
 // the pre-fix inline conditional dropped the generator member of it entirely.
 // ⚠ ***`NotNever` ALONE WAS TOO WEAK HERE, AND IT PASSED THROUGHOUT.*** The
 // step yields `get` from the observation OUTSIDE the match, so the effect union
-// is non-empty even when the clause arm's `scale` is dropped entirely - which is
+// is non-empty even when the clause arm's `ensure` is dropped entirely - which is
 // precisely the regression this guard names. It stayed green through three
 // redesigns of `when()`, two of which really did lose the effects.
 //
@@ -195,7 +200,7 @@ const guardedStep = defineStep(function* () {
 export type _AClauseArmsEffectsReachTheStep = Assert<
   Same<
     EffectsOf<typeof guardedStep>['op'],
-    'get' | 'scale',
+    'get' | 'ensure',
     'a when() clause lost its effects: the yielding arm is missing from the union'
   >
 >
@@ -262,8 +267,13 @@ export function extensionRuntimeGuards(): void {
     const acts: string[] = []
     const outcome = runStep(guardedStep, {
       get: () => o,
-      scale: ({ n }) => {
-        acts.push(`scale=${n}`)
+      ensure: ({ value }) => {
+        // ***NO NARROWING NEEDED SINCE `EnsureValue` WENT BARE (2026-09-05).***
+        // It was `{text}|{num}|{flag}` and reading `.num` off the union
+        // type-errored - which `bun test` never noticed, because it does not
+        // typecheck. Now it is `string | number | boolean` and this is just a
+        // value.
+        acts.push(`ensure=${String(value)}`)
       },
     })
 
@@ -273,7 +283,7 @@ export function extensionRuntimeGuards(): void {
   // Clause ORDER is meaningful: first match wins.
   eq(drive(known(2)).outcome, { o: 'quiesce', resume: fieldNe(DEP, 'spec.replicas', 2) }, 'first clause wins')
   eq(drive(known(-1)).outcome, terminate, 'second clause')
-  eq(drive(known(1)).acts, ['scale=2'], 'fallback clause yields')
+  eq(drive(known(1)).acts, ['ensure=2'], 'fallback clause yields')
 
   eq(outcomeLabel(yieldStep), 'Yield', 'matchValue yield')
   eq(outcomeLabel(terminate), 'Terminate', 'matchValue terminate')

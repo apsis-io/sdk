@@ -56,7 +56,7 @@ import {
   type LabelSelectorShape,
   type Canonical,
   type Wit,
-  type ScaleArgs,
+  type EnsureArgs,
   cleanupDone,
   retry,
   defineEffect,
@@ -73,7 +73,7 @@ import {
   fieldNe,
   unsafeApiPath,
   WIT_OBSERVE,
-  WIT_WORKLOADS,
+  WIT_ENSURE,
 } from './perseid'
 
 const WEB = path.ns('default').deployments('web')
@@ -111,7 +111,7 @@ type Same<A, B, MSG extends string> = [A] extends [B] ? ([B] extends [A] ? true 
 
 const webDeployment = path.ns('default').deployments('web')
 const observe = reconcile.observe<number>()
-const scale = reconcile.scale()
+const ensure = reconcile.ensure()
 
 const step = defineStep(function* () {
   const have = yield* observe(webDeployment)
@@ -122,7 +122,7 @@ const step = defineStep(function* () {
       return yieldStep
     case 'known': {
       if (have.v !== 2) {
-        yield* scale({ path: webDeployment, n: 2 })
+        yield* ensure({ path: webDeployment, field: 'spec.replicas', value: 2 })
 
         return yieldStep
       }
@@ -134,7 +134,7 @@ const step = defineStep(function* () {
 
 type Effs = EffectsOf<typeof step>
 type GetArg = Handler<Effs> extends { get: (a: infer A) => any } ? A : never
-type ScaleArg = Handler<Effs> extends { scale: (a: infer A) => any } ? A : never
+type EnsureArg = Handler<Effs> extends { ensure: (a: infer A) => any } ? A : never
 
 // ---------------------------------------------------------------------------
 // ⭐ THE REGRESSION: handler arguments must not be `never`.
@@ -147,14 +147,14 @@ type ScaleArg = Handler<Effs> extends { scale: (a: infer A) => any } ? A : never
 export type _HandlerGetArgIsNotNever = Assert<
   NotNever<GetArg, 'Handler<E> get-arg is never: Extract<E,{op:K}> matched no member'>
 >
-export type _HandlerScaleArgIsNotNever = Assert<
-  NotNever<ScaleArg, 'Handler<E> scale-arg is never: Extract<E,{op:K}> matched no member'>
+export type _HandlerEnsureArgIsNotNever = Assert<
+  NotNever<EnsureArg, 'Handler<E> ensure-arg is never: Extract<E,{op:K}> matched no member'>
 >
 export type _HandlerGetArgIsTheEffectsArg = Assert<
   Same<GetArg, ApiPath, 'Handler<E> get-arg is not the effect arg type (ApiPath)'>
 >
-export type _HandlerScaleArgIsTheEffectsArg = Assert<
-  Same<ScaleArg, ScaleArgs, 'Handler<E> scale-arg is not ScaleArgs'>
+export type _HandlerEnsureArgIsTheEffectsArg = Assert<
+  Same<EnsureArg, EnsureArgs, 'Handler<E> ensure-arg is not EnsureArgs'>
 >
 
 // ⭐ The same through `runStep`'s PARAMETER, which is where `NoInfer` sits — and
@@ -190,7 +190,7 @@ export type _RunStepGetArgIsTheEffectsArg = Assert<
 export const _anExtraHandlerKeyIsRejected = () => {
   runStep(step, {
     get: () => known(1),
-    scale: () => {},
+    ensure: () => {},
     // @ts-expect-error a key no effect yields is not part of the capability set
     bogus: () => {},
   })
@@ -306,14 +306,14 @@ export const _wellFormedWitIdsAreAccepted = () => {
 // Otherwise it is a second vocabulary for the same seam - the shape this
 // codebase has deleted repeatedly.
 
-const longhandScale = defineEffect<ScaleArgs, void>()(WIT_WORKLOADS, 'scale')
+const longhandEnsure = defineEffect<EnsureArgs, void>()(WIT_ENSURE, 'ensure')
 const longhandObserve = defineEffect<string, Obs<number>>()(WIT_OBSERVE, 'get')
 
-export type _SugarScaleMatchesLonghand = Assert<
+export type _SugarEnsureMatchesLonghand = Assert<
   Same<
-    EffectsOf<typeof scale>,
-    EffectsOf<typeof longhandScale>,
-    'reconcile.scale() and the longhand defineEffect yield DIFFERENT effects - the sugar is a second vocabulary'
+    EffectsOf<typeof ensure>,
+    EffectsOf<typeof longhandEnsure>,
+    'reconcile.ensure() and the longhand defineEffect yield DIFFERENT effects - the sugar is a second vocabulary'
   >
 >
 export type _SugarObserveMatchesLonghand = Assert<
@@ -338,10 +338,20 @@ export type _StepReturnsOutcome = Assert<
 export type _StepKeepsItsEffectUnionNarrow = Assert<
   NotNever<Effs, 'defineStep lost the effect union - capability tracking is gone'>
 >
+// ⚠ ***`'get' | 'ensure'`, AND THIS SAID `'get' | 'scale'` UNTIL 2026-09-06.***
+// The step above was migrated from `reconcile.scale()` to `reconcile.ensure()`
+// and this assertion was not, so it failed with "defineStep WIDENED the effect
+// union" - a message accusing `defineStep` of a regression it never had. The
+// union was correct; the expectation was stale.
+//
+// ***IT WAS RED FOR THREE DAYS AND NOBODY SAW IT, BECAUSE A TYPE-LEVEL
+// ASSERTION ONLY FIRES UNDER `tsc`*** - and `bun test` strips types without
+// checking them, so the suite was green the whole time. That is the same shape
+// as this file's own `runtimeGuards` defect: a guard that runs nowhere.
 export type _StepDoesNotYieldEverything = Assert<
   Same<
     Effs['op'],
-    'get' | 'scale',
+    'get' | 'ensure',
     'defineStep WIDENED the effect union - a step now looks like it needs everything'
   >
 >
@@ -363,8 +373,8 @@ const handlersAnnotated: Handler<YieldOf<ReturnType<typeof step>>> = {
 
     return known(p.length)
   },
-  scale: ({ path, n }) => {
-    void `${path}${n}`
+  ensure: ({ path, value }) => {
+    void `${path}${String(value)}`
   },
 }
 
@@ -375,7 +385,7 @@ export const _theAnnotatedHandlerArgIsNotAny = () => {
   const h: Handler<YieldOf<ReturnType<typeof step>>> = {
     // @ts-expect-error `what` is string; a number parameter is not compatible
     get: (what: number) => known(what),
-    scale: () => {},
+    ensure: () => {},
   }
 
   return h
@@ -610,8 +620,8 @@ export function runtimeGuards(): void {
     const acts: string[] = []
     const outcome = runStep(step, {
       get: () => o,
-      scale: ({ path, n }) => {
-        acts.push(`scale(${path},${n})`)
+      ensure: ({ path, value }) => {
+        acts.push(`ensure(${path},${String(value)})`)
       },
     })
 

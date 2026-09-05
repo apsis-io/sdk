@@ -351,6 +351,30 @@ export const path = {
         `/api/v1/namespaces/${NS}/pods/${N}`
       >,
 
+    /**
+     * `/apis/radiant.apsis/v1/namespaces/NS/perseids/NAME` — ANOTHER PROGRAM.
+     *
+     * ***THE ADDRESS OF A CONCLUSION RATHER THAN OF A WORKLOAD***, which is why
+     * it gets a name of its own instead of being left to `resource(...)`. What a
+     * reader wants off this object is `status.carry` — what that program
+     * decided — and `carriedBy` is the parser for it.
+     *
+     * Reading it needs `radiant:reconcile/observe-perseids@0.1.0`. That is a
+     * SEPARATE grant from `observe` on purpose: "may see another program's
+     * conclusions" and "may see a Deployment's replica count" are different
+     * sentences, and a manifest should be able to say one without the other.
+     *
+     * A four-argument `resource('radiant.apsis', 'v1', 'perseids', name)` is the
+     * same string and is exactly the call this builder exists to remove — the
+     * group and the plural are both easy to get subtly wrong, and a wrong path
+     * reads as a permanent `absent`, not as an error.
+     */
+    perseids: <N extends string>(name: N) =>
+      `/apis/radiant.apsis/v1/namespaces/${namespace}/perseids/${name}` as Canonical<
+        'apiserver-path',
+        `/apis/radiant.apsis/v1/namespaces/${NS}/perseids/${N}`
+      >,
+
     /** Any grouped resource: `/apis/GROUP/VERSION/namespaces/NS/KIND/NAME`. */
     resource: <G extends string, V extends string, K extends string, N extends string>(
       group: G,
@@ -408,6 +432,19 @@ export const path = {
       'cluster-path',
       `/apis/${G}/${V}/${R}/${N}`
     >,
+
+  /**
+   * A NODE: `/api/v1/nodes/NAME`.
+   *
+   * ***THE ONE CLUSTER KIND A CONTROLLER ROUTINELY WRITES***, and the reason it
+   * gets a name rather than being left to `clusterCore('v1', 'nodes', n)`:
+   * cordoning is `spec.unschedulable`, and the four-argument form is exactly the
+   * call this builder exists to remove - `nodes` is easy to write `node`, and a
+   * wrong resource reads as a permanent `absent` on the read side and a refused
+   * write on this one.
+   */
+  nodes: <N extends string>(name: N) =>
+    `/api/v1/nodes/${name}` as Canonical<'cluster-path', `/api/v1/nodes/${N}`>,
 
   /** A cluster-scoped object in the CORE group: `/api/VERSION/RESOURCE/NAME`. */
   clusterCore: <V extends string, R extends string, N extends string>(
@@ -516,7 +553,33 @@ export type RefusesAPath<N extends string> = N extends `/${string}`
  *
  * Renamed from `exists`, which took a pod NAME and could only ever watch a pod.
  */
-export const objectExists = (path: ApiPath): Resume =>
+// ═══════════════════════════════════════════════════════════════════════════
+// ***THESE TAKE `PathLike`, NOT `ApiPath`, SO A PARK CAN TRAVERSE AN EDGE.***
+//
+//	quiesce(fieldNe(ownedBy(pod), 'spec.replicas', 3))
+//
+// `expr.ts` has accepted `ApiPath | Expr<'path'>` since edges landed; these three
+// narrowed it back to `ApiPath`, which made the object graph unreachable from a
+// STEP - the only place a park is ever written. The mechanism was landed, tested,
+// deployed and unusable by any program, which is the shape ADR-0106 already names
+// about the wake.
+//
+// ⚠ ***A PARK ON AN EDGE WATCHES THE SOURCE, NOT THE TARGET*** (declared in
+// reconcilehost's `unwatchableSymbols`). Subjects come from an expression's
+// LITERALS, and the only literal in `fieldNe(ownedBy(pod), …)` is the POD. So
+// this is correct when the thing that changes your answer lives on the SOURCE -
+// a pod being rescheduled changes `spec.nodeName` ON THE POD - and degrades to
+// the backstop poll when it lives on the target.
+//
+// ⛔ ***AND `nodeOf` HAS A SECOND CONSTRAINT THAT `ownedBy` DOES NOT: ITS TARGET
+// MUST ALREADY BE IN `spec.reads`.*** A Node is cluster-scoped, and cluster reads
+// are granted per OBJECT by name - so a program can only traverse to a node it
+// declared in advance, which the common case ("whichever machine my pod landed
+// on") cannot do. `ownedBy` is free of this: an owner is namespaced, so it is
+// bounded by the grant's namespace and the kind's capability, both of which a
+// program already holds for its own workloads.
+// ═══════════════════════════════════════════════════════════════════════════
+export const objectExists = (path: E.ReadPathLike): Resume =>
   E.exists(E.get(path, 'metadata.name'))
 
 /**
@@ -532,7 +595,7 @@ export const objectExists = (path: ApiPath): Resume =>
  * Renamed from `missing`, and it replaces `workloadMissing` too: those differed
  * only in which kind their symbol named, and the path says that now.
  */
-export const objectGone = (path: ApiPath): Resume =>
+export const objectGone = (path: E.ReadPathLike): Resume =>
   E.not(E.exists(E.get(path, 'metadata.name')))
 
 /** Wake when the pods matching a LABEL SELECTOR stop numbering n. */
@@ -594,8 +657,41 @@ export const countNeField = (
  * because `Get` made every field reachable, so a builder per field would be the
  * shape the collapse removed.
  */
-export const fieldNe = (path: ApiPath, field: string, n: number): Resume =>
+export const fieldNe = (path: E.ReadPathLike, field: string, n: number): Resume =>
   E.ne(E.get(path, field), n)
+
+/**
+ * Wake when a STRING or BOOLEAN field becomes `value`.
+ *
+ * The scalar sibling of `fieldNe`, for the fields a number cannot express - an
+ * annotation, a phase, `spec.unschedulable`. The host has always compared these;
+ * until 2026-09-05 this SDK had no way to say so (see `E.ScalarLike`).
+ *
+ * ***FALSE RATHER THAN TRUE WHILE THE FIELD IS ABSENT***, because an absent
+ * operand propagates as unknown and a park holds unless its condition is TRUE.
+ * That is the direction you want here: a program parking "until the drain flag
+ * appears" must not resume instantly on a node that has no such annotation.
+ */
+export const fieldIs = (path: E.ReadPathLike, field: string, value: string | boolean): Resume =>
+  E.eqScalar(E.get(path, field), value)
+
+/**
+ * Wake when a STRING or BOOLEAN field STOPS being `value` - including by being
+ * DELETED.
+ *
+ * ⛔ ***THE `|| !exists` HALF IS THE WHOLE POINT AND A BARE `!=` IS A BUG
+ * HERE.*** Removing an annotation makes the field ABSENT, and `absent != "true"`
+ * evaluates to UNKNOWN, not true - so a park written as a plain inequality never
+ * fires on the withdrawal it was written to catch, and the program waits out its
+ * backstop instead. The failure is invisible: the program does eventually wake,
+ * just slowly, and the park LOOKS like it is watching the right thing.
+ *
+ * `.exists` is a real question on a field precisely because the host narrows to
+ * the field before evaluating - a missing one is absent, not unknown - which is
+ * what makes this expressible at all.
+ */
+export const fieldNoLonger = (path: E.ReadPathLike, field: string, value: string | boolean): Resume =>
+  E.or(E.not(E.exists(E.get(path, field))), E.neScalar(E.get(path, field), value))
 
 // ---------------------------------------------------------------------------
 // DERIVING A RESUME FROM WHAT THE STEP ACTUALLY OBSERVED.
@@ -907,13 +1003,113 @@ export const nextPoll: Resume = 'true' as Resume
 // done for now" without saying what would change your mind. The host is expected
 // to add its own bounded `after` backstop on top, so a declared condition that
 // is too narrow degrades to a slow poll rather than a lost wakeup.
+//
+// `carry` is OPTIONAL ON EVERY VARIANT and its ABSENCE IS MEANINGFUL — see
+// `remember`/`forget` below, and `internal/reconcilehost/carry.go` for the
+// three-valued wire contract this mirrors.
 export type Outcome =
-  | { readonly o: 'yield' }
-  | { readonly o: 'quiesce'; readonly resume: Resume }
-  | { readonly o: 'terminate' }
+  | { readonly o: 'yield'; readonly carry?: string }
+  | { readonly o: 'quiesce'; readonly resume: Resume; readonly carry?: string }
+  | { readonly o: 'terminate'; readonly carry?: string }
 
 export const yieldStep: Outcome = { o: 'yield' }
 export const terminate: Outcome = { o: 'terminate' }
+
+// ---------------------------------------------------------------------------
+// Carry: what a probe remembers between passes.
+//
+// ***THE THREE-VALUED CONTRACT SURVIVES INTO TYPESCRIPT BY ACCIDENT OF
+// `JSON.stringify`, WHICH IS NOT A GOOD ENOUGH REASON TO LEAVE IT BARE.*** The
+// host reads `carry` as a POINTER (carry.go): absent KEEPS the previous value,
+// `""` CLEARS it, anything else SETS it. An omitted TS property and an
+// `undefined` one both serialize to an absent key, so the mapping happens to be
+// right — and an author who writes `{ o: 'yield', carry: computed }` where
+// `computed` came back `''` has silently erased the program's memory, with the
+// object simply no longer carrying what it used to and nothing logged.
+//
+// So the two answers get two SPELLINGS, and the dangerous one cannot be reached
+// by an expression that merely evaluated to empty.
+
+/** The host's bound on one program's memory (`MaxCarryBytes`, carry.go). */
+export const MAX_CARRY_BYTES = 4096
+
+const carryBytes = (value: string): number => new TextEncoder().encode(value).length
+
+/**
+ * Remember `value` across passes, on top of any outcome.
+ *
+ *     return remember(quiesce(afterMs(60_000)), JSON.stringify(summary))
+ *
+ * ***AN EMPTY VALUE IS A COMPILE ERROR, NOT A SILENT WIPE*** — the same
+ * parameter-position trick as `quiesce('')`, and for a sharper reason. There,
+ * the empty resume is refused by the host anyway and the type only moves WHEN
+ * you find out. Here the host ACCEPTS `""` as a real answer meaning *forget
+ * everything*, so an accidental empty is not an error at any layer: it is a
+ * successful pass that destroyed the program's state. `forget()` is the way to
+ * say it deliberately.
+ *
+ * A value that is only empty at RUNTIME throws, for the reason `quiesce` throws:
+ * the alternative is data loss that looks like an ordinary pass.
+ */
+export function remember<O extends Outcome, V extends string>(
+  outcome: O,
+  value: V extends '' ? never : V,
+): O {
+  if (value === '') {
+    throw new Error(
+      'remember: empty value. The host reads "" as CLEAR (carry.go), so this would erase ' +
+        "the program's memory rather than leave it alone - which is a successful pass that " +
+        'destroyed state. Use forget(outcome) to mean it, or omit the call to keep the ' +
+        'previous value.',
+    )
+  }
+  // ***REFUSED HERE, WHERE THE AUTHOR CAN SEE WHAT THEY BUILT.*** The host
+  // refuses an over-large carry at the pass that produced it, deliberately
+  // (ErrCarryTooLarge) - but that refusal arrives one process away, naming a
+  // byte count and not the line that grew. A probe that accumulates a window
+  // crosses this bound gradually and in production.
+  const n = carryBytes(value)
+  if (n > MAX_CARRY_BYTES) {
+    throw new Error(
+      `remember: ${n} bytes exceeds the host bound of ${MAX_CARRY_BYTES} (MaxCarryBytes). ` +
+        'The carry is written to the Perseid OBJECT, so this is an apiserver write, not ' +
+        'process memory. A probe that needs more should bound its window, not its history.',
+    )
+  }
+
+  return { ...outcome, carry: value }
+}
+
+/** Deliberately clear what was remembered — the only way to reset a streak. */
+export function forget<O extends Outcome>(outcome: O): O {
+  return { ...outcome, carry: '' }
+}
+
+/**
+ * Read what a program published, out of an observed Perseid object.
+ *
+ * ***THIS IS THE OTHER HALF OF `observe-perseids`*** (engi, 2026-09-05: "one
+ * perseid do metrics and writes them as data on itself, another reads them").
+ * A step's only self-targeted write is its own status, so a probe publishes on
+ * `status.carry` and a reader gets there through an ordinary `observe` of the
+ * Perseid path plus this parser.
+ *
+ * Returns `null` for every shape that is not a published value — absent status,
+ * absent carry, a non-string carry, unparseable JSON. ***A PROBE THAT HAS NOT
+ * SPOKEN YET AND ONE THAT PUBLISHED GARBAGE ARE BOTH `null` ON PURPOSE***: the
+ * reader's correct response to either is to not act on a measurement it does not
+ * have, and a gate that distinguished them would be tempted to proceed on one.
+ */
+export function carriedBy(rawPerseid: string): string | null {
+  try {
+    const o = JSON.parse(rawPerseid) as { status?: { carry?: unknown } }
+    const carry = o.status?.carry
+
+    return typeof carry === 'string' && carry !== '' ? carry : null
+  } catch {
+    return null
+  }
+}
 
 /**
  * ***AN EMPTY RESUME IS A COMPILE ERROR, NOT A RUNTIME ONE*** (engi,
@@ -1048,6 +1244,33 @@ export function runFinalize<E extends AnyEffect>(
   )
 }
 
+/**
+ * The same, awaiting each handler result.
+ *
+ * ***`finalize.run` IS `async func` SINCE 2026-09-04, AND THIS IS WHY IT HAD TO
+ * BE.*** A finalizer decides whether cleanup is complete, which is a question
+ * about the world - so it reads, usually through the very same handler as its
+ * step. Every read in the contract is `async func`, and a SYNC export cannot
+ * await one: the guest trapped with *"no active task state"*. The alternative
+ * was a finalizer forbidden to read, which is a worse contract.
+ *
+ * The outcome type is pinned here for the same reason it is pinned in
+ * {@link runFinalize} - a generic `A` typechecks a finalizer returning a step's
+ * `Outcome`, which is the one wrong value an author adapting a step will reach
+ * for.
+ */
+export async function runFinalizeAsync<E extends AnyEffect>(
+  finalize: () => Step<E, FinalizeOutcome>,
+  handler: HandlerArg<E>,
+): Promise<FinalizeOutcome> {
+  return (
+    runStepAsync as unknown as (
+      f: () => Step<E, FinalizeOutcome>,
+      h: HandlerArg<E>,
+    ) => Promise<FinalizeOutcome>
+  )(finalize, handler)
+}
+
 // ---------------------------------------------------------------------------
 // Conditions — the payload of `radiant:reconcile/status@0.1.0`.
 //
@@ -1126,27 +1349,40 @@ export type Condition = {
 export const WIT_TYPES = 'radiant:reconcile/types@0.1.0'
 export const WIT_OBSERVE = 'radiant:reconcile/observe@0.1.0'
 export const WIT_OBSERVE_CLUSTER = 'radiant:reconcile/observe-cluster@0.1.0'
-export const WIT_WORKLOADS = 'radiant:reconcile/workloads@0.1.0'
+// ***`WIT_WORKLOADS` WAS REMOVED 2026-09-05 WITH THE INTERFACE.*** engi:
+// "remove workloads". `scale(path, n)` rendered the same `Ensure(path,
+// "spec.replicas", n)` that `ensure` renders, and the interface had already
+// stopped conferring anything on 2026-09-01 - so the id named a grant no host
+// would honour. Use WIT_ENSURE.
 export const WIT_STATUS = 'radiant:reconcile/status@0.1.0'
 // ***THE INTERFACE IS THE GRANT, WHICH IS WHY THESE ARE SEPARATE IDS.***
-// `periapsis's aperture/effects.go` scopes WIT_WORKLOADS to the single field
-// `spec.replicas`; WIT_ENSURE writes ANY field, and WIT_DELETE removes the
-// object outright. A program that may scale a Deployment must not thereby be
-// able to rewrite its image or delete it, so they cannot share an id.
+// WIT_ENSURE writes any field `spec.writes` declares and WIT_DELETE removes the
+// object outright, so a program permitted to adjust a Deployment must not
+// thereby be able to delete it. They cannot share an id.
+//
+// ⚠ This paragraph cited WIT_WORKLOADS as the narrow case - "scoped to the
+// single field spec.replicas" - and that narrowing was removed on 2026-09-01,
+// four days before the interface itself. Nothing narrows an Ensure by field
+// today; `scopedEffectFields` is an empty mechanism awaiting a user.
 export const WIT_ENSURE = 'radiant:reconcile/ensure@0.1.0'
 export const WIT_DELETE = 'radiant:reconcile/delete@0.1.0'
 export const WIT_CREATE = 'radiant:reconcile/create@0.1.0'
+// A program's OWN memory, read back. The write half is not an interface at all -
+// it rides on the outcome (see `remember`/`forget`) - and that asymmetry is the
+// design: a call could change what a program remembers and then fail, leaving it
+// holding a value no pass ever concluded.
+export const WIT_CARRY = 'radiant:reconcile/carry@0.1.0'
 
 /** The interfaces this SDK knows. Autocompletion comes from this union. */
 export type KnownWit =
   | typeof WIT_TYPES
   | typeof WIT_OBSERVE
   | typeof WIT_OBSERVE_CLUSTER
-  | typeof WIT_WORKLOADS
   | typeof WIT_STATUS
   | typeof WIT_ENSURE
   | typeof WIT_DELETE
   | typeof WIT_CREATE
+  | typeof WIT_CARRY
 
 /**
  * The SHAPE of a WIT interface id: `namespace:package/interface@major.minor.patch`.
@@ -1290,18 +1526,10 @@ export function defineEffect<A, R>() {
 // author has to find — a step written against `{ path, replicas }` type-checks
 // against its own handler and marshals to something radiant cannot read.
 
-/** The wire shape of a `workloads.scale` obligation: aperture's `SetReplicasArgs`. */
-export type ScaleArgs = {
-  readonly path: ApiPath
-  /** The ABSOLUTE replica count, not a delta. JSON tag `n`, not `replicas`. */
-  readonly n: number
-}
-
 /**
  * The `radiant:reconcile` contract as ready-made effects.
  *
  *     const observe = reconcile.observe<number>()
- *     const scale   = reconcile.scale()
  *     const have    = yield* observe(deployment)   // Obs<number>, checked
  *
  * Each is a THUNK because the observation's value type is the caller's: `obs`
@@ -1318,10 +1546,35 @@ export type ScaleArgs = {
  * a caller passed a value whose type came from somewhere else - which is exactly
  * how a numeric field ends up holding a string.
  */
-export type EnsureValue =
-  | { readonly text: string }
-  | { readonly num: number }
-  | { readonly flag: boolean }
+export type EnsureValue = string | number | boolean
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ***BARE, NOT TAGGED*** (engi, 2026-09-05: "ensure(path.nodes('worker-1'),
+// 'spec.unschedulable', true)?"). It was
+// `{text: string} | {num: number} | {flag: boolean}` and the tag bought nothing
+// here.
+//
+// ⚠ ***THE TWO SDK HALVES DISAGREED, WHICH IS THE ACTUAL DEFECT THE QUESTION
+// FOUND.*** `expr.ts`'s `EnsureValue` has ALWAYS been
+// `string | number | boolean | Computed`, dispatching on `typeof`. So the same
+// value was written two ways depending on which half you were in - `true` in a
+// resume expression, `{ flag: true }` in a step - for one interface, one wire
+// variant and one meaning.
+//
+// ***THE TAG WAS COPIED FROM THE WIT VARIANT, WHERE IT IS LOAD-BEARING, TO A
+// PLACE WHERE IT IS NOT.*** `variant value { text, num, flag }` needs a
+// discriminant because the component model does; TypeScript already has one -
+// `typeof` - and the lowering in each `*-main.ts` is exactly where the two
+// representations are supposed to meet.
+//
+// ⛔ ***WHY `Computed` IS NOT HERE, WHICH IS THE ONE REAL ASYMMETRY.*** In
+// `expr.ts` a string is genuinely ambiguous: an `Expr` is a plain string at
+// runtime, so nothing can tell `'fast'` (a ConfigMap value to store) from
+// `Get(...) + 1` (expression text to emit bare) by inspection - hence
+// `computed()`. A STEP's `ensure` has no such ambiguity: it declares an
+// obligation carrying a literal, and there is no expression text it could be
+// confused with. So `typeof v === 'string'` means text, always.
+// ═══════════════════════════════════════════════════════════════════════════
 // ***THE BOOLEAN ARM MIRRORS THE WIT, WHICH MIRRORS THE GRAMMAR — AND ALL THREE
 // MOVED IN ONE DAY.*** It was removed on 2026-08-31 because `Ensure(p,"d",true)`
 // did not parse, and restored hours later when boolean literals were added to
@@ -1339,7 +1592,23 @@ export type CreateArgs = {
 }
 
 export type EnsureArgs = {
-  readonly path: ApiPath
+  /**
+   * ***EITHER KIND OF PATH, AND THE HOST TELLS THEM APART FROM THE PATH
+   * ITSELF*** (engi, 2026-09-05: "unify and extend ensure args"). One symbol
+   * writes both scopes; what differs is the BOUND, not the verb:
+   *
+   *	ApiPath      confined by the grant's NAMESPACE and by spec.writes
+   *	ClusterPath  confined by spec.writes ALONE - there is no namespace to
+   *	             compare, so the declaration is the whole boundary
+   *
+   * ⚠ ***THE TWO REMAIN DIFFERENT KINDS EVERYWHERE ELSE, AND THAT IS STILL
+   * LOAD-BEARING.*** `observe.get` takes `ApiPath` and `observeCluster.get`
+   * takes `ClusterPath`, because those two READS have different confinements
+   * and passing one where the other goes routes around the one chosen for it.
+   * The union is widened HERE and not there because `ensure`'s confinement is
+   * `spec.writes` in both cases - the same mechanism, naming the same objects.
+   */
+  readonly path: ApiPath | ClusterPath
   readonly field: string
   readonly value: EnsureValue
 }
@@ -1382,6 +1651,36 @@ export const reconcile = {
    * already: 239 asks, 119 resolved.
    */
   count: <T = number>() => defineEffect<LabelSelector, Obs<T>>()(WIT_OBSERVE, 'count'),
+
+  /**
+   * `observe.get(collection) -> obs`, the objects as a JSON ARRAY.
+   *
+   * ***THE SAME WIT SYMBOL AS `observe`, AND THAT IS WHY THIS COST NOTHING TO
+   * SHIP.*** `get` takes a path; a collection path IS a path. The host tells
+   * the two apart from the path itself (`IsCollectionPath`) exactly as `ensure`
+   * tells the two write scopes apart. No new import, so `ci/wit-skew.sh` does
+   * not fire and no deployed component needs rebuilding to keep running.
+   *
+   * ***WHAT THIS ADDS OVER `count`, WHICH IS THE WHOLE POINT: NAMES AND
+   * FIELDS.*** `count` takes a LABEL SELECTOR and answers `.length`, so a
+   * program could learn that eleven pods matched and never which, and could
+   * only ever ask questions a label can express. A pod's node is not a label.
+   * So `pods on machine X` was not a narrower version of a query this surface
+   * had - it was not expressible at all, and enumerating plus filtering
+   * `spec.nodeName` in the guest is what makes it so.
+   *
+   * ⚠ ***READING A SET IS NOT AUTHORITY TO WRITE ONE, AND THE GAP IS
+   * DELIBERATE.*** `spec.writes` matches a canonical object path EXACTLY, so a
+   * program cannot act on what it discovers here: a name learned at runtime was
+   * not in the manifest. That is `WriteConflicts`' doing rather than an
+   * oversight - admission proves no two programs claim one object, and a
+   * selector-shaped declaration would make that proof impossible. ***So this
+   * surface is for DECIDING and REPORTING, never for reaching further.***
+   *
+   * Bounded by the grant's namespace and by the kind's read capability - the
+   * same bound `count` already applies to the same objects.
+   */
+  enumerate: <T = string>() => defineEffect<CollectionPath, Obs<T>>()(WIT_OBSERVE, 'get'),
 
   /** `observe.now() -> u64`. EPOCH MILLISECONDS, UTC. */
   now: () => defineEffect<void, number>()(WIT_OBSERVE, 'now'),
@@ -1457,28 +1756,59 @@ export const reconcile = {
 
 
   /** `workloads.scale(path, replicas)`. Returns nothing on purpose — see the WIT. */
-  /**
-   * @deprecated Use {@link reconcile.ensure} — `ensure(path, 'spec.replicas',
-   * { num: n })` renders the identical obligation, `Ensure(path,
-   * "spec.replicas", n)`. (engi, 2026-08-31: "we deprecated workloads.scale and
-   * status.set".)
-   *
-   * ***STILL LINKED AND STILL CORRECT.*** Deprecated is not removed: components
-   * on the fleet import this interface, and a world's imports are what the host
-   * supplies, so dropping it strands every one of them until rebuilt.
-   *
-   * ⚠ ***ITS GRANT IS NARROWER THAN THE REPLACEMENT'S, WHICH IS THE ONE THING
-   * MIGRATING COSTS.*** `periapsis's aperture/effects.go` scopes
-   * `radiant:reconcile/workloads@0.1.0` to the single field `spec.replicas`;
-   * `radiant:reconcile/ensure@0.1.0` writes ANY field. A program that only ever
-   * scales is strictly better bounded holding the old capability, so a
-   * migration widens its authority unless the narrowing is replaced by
-   * something. Worth knowing before a sweep.
-   */
-  scale: () => defineEffect<ScaleArgs, void>()(WIT_WORKLOADS, 'scale'),
 
   /** `status.set(condition)`. `type` is an IDENTITY: a second set REPLACES. */
   report: () => defineEffect<Condition, void>()(WIT_STATUS, 'set'),
+
+  /**
+   * `carry.get()`: what this program remembered on its LAST pass.
+   *
+   * ***THE INPUT HALF OF A PROBE, AND THE ONLY THING THAT MAKES ONE POSSIBLE.***
+   * A total step re-derives everything from the present world, so a streak, a
+   * rate or a rolling average is unspellable in one: the current observation is
+   * one sample and the others are gone. The carry is where the others live, and
+   * `internal/reconcilehost/carry.go` argues at length why it is an explicit
+   * input and output rather than a module global — restart-safe, replayable, and
+   * visible in `kubectl get perseid -o yaml`.
+   *
+   * Pair it with `remember`/`forget`, which are the WRITE half and are NOT
+   * effects: they ride on the outcome. See `remember`'s doc for why the two
+   * directions are spelled so differently.
+   *
+   *     const window = windowOf(yield* carry())
+   *     return remember(quiesce(...), JSON.stringify(publish(window, now)))
+   *
+   * ⚠ ***EMPTY IS A REAL ANSWER AND IT MEANS "NOTHING".*** A first pass, a
+   * program that never carries, and one that deliberately cleared its memory all
+   * read `''`. Treat that as "start measuring", never as an error: the carry
+   * outlives the version of the program that wrote it, so a step that threw on
+   * an unrecognised value could never publish the one that would replace it.
+   *
+   * ⚠ ***TAKES NO ARGUMENT BECAUSE THERE IS NOTHING TO NAME.*** A program can
+   * only read ITS OWN memory. Reading what a DIFFERENT program concluded is a
+   * cluster read of that Perseid's object — `observe` plus `carriedBy`, gated by
+   * `radiant:reconcile/observe-perseids@0.1.0` — and keeping the two apart is
+   * what lets a grant say "may see peers" without saying "may see this one".
+   *
+   * ⛔ ***THE OP IS `'carry'` AND THE WIT FUNCTION IS `get`. THAT DIVERGENCE IS
+   * DELIBERATE AND IS THE ONE IN THIS TABLE.*** `Handler<E>` is keyed on the OP
+   * ALONE — `readonly [K in Exclude<E['op'], StructuralOp>]` — so the interface
+   * id is not part of the key, and `observe.get` and `observeCluster.get`
+   * already SHARE one `get` handler. That sharing is fine for those two: both
+   * take a path and return an `Obs`, so one function answers both.
+   *
+   * A third `get` here would join them and it is not compatible — this one takes
+   * `void` and returns a bare `string`. The collision does not fail to compile;
+   * it produces a handler typed as the UNION, so a wiring that answered `get` by
+   * calling `hostGet(path)` would be handed `undefined` and a probe would read
+   * its memory as whatever an observation of nothing returns.
+   *
+   * The op is an SDK-internal routing key and never reaches the wire — the
+   * `*-main.ts` wiring maps it to the real import, and `tools/derive-wit.ts`
+   * emits the world from `WIT_CARRY`, not from this string — so renaming it
+   * costs nothing and removes a whole class of silent misrouting.
+   */
+  carry: () => defineEffect<void, string>()(WIT_CARRY, 'carry'),
 } as const
 
 // ---------------------------------------------------------------------------
