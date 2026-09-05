@@ -2096,6 +2096,57 @@ export function* select<T extends readonly Step<any, any>[]>(
   return (yield { op: '@select', args: steps } as SelectEff) as any
 }
 
+/**
+ * Run sub-steps concurrently and bind their results to NAMES.
+ *
+ *     const { dep, pods } = yield* where({
+ *       dep:  observe(deployment),
+ *       pods: count('app=api'),
+ *     })
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***THE NAMED SIBLING OF `group`, AND THE DIFFERENCE IS THE WHOLE POINT.***
+ * `group(a, b)` returns `[ra, rb]` and a reader has to count to know which is
+ * which. This package already states the objection in another context -
+ * `SubjectsOfEffect`: *"position is a convention nothing enforces, and it breaks
+ * silently the first time a symbol takes two paths"* - and a positional
+ * destructure breaks the same way the first time somebody inserts an arm in the
+ * middle. Renaming a binding here is a compile error; reordering one is a no-op.
+ *
+ * ***IT IS `group` UNDERNEATH, NOT A SECOND MECHANISM.*** Same `@group` effect,
+ * same concurrency, same runner - so there is one thing to reason about and one
+ * thing that can be wrong. What this adds is the zip back to names, which is
+ * exactly the part a caller would otherwise write by hand at every call site.
+ *
+ * ⚠ ***THE ARMS RUN CONCURRENTLY, SO A BINDING CANNOT SEE ANOTHER BINDING.***
+ * Haskell's `where` is mutually recursive; this is not, and cannot be - the arms
+ * are dispatched together and their results arrive together. A value derived
+ * from another belongs in ordinary code after the yield, where the dependency is
+ * visible. Naming it `where` is about the SHAPE (bind several names beside the
+ * expression that uses them), not about the semantics of the Haskell one.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export function* where<T extends Record<string, Step<any, any>>>(
+  bindings: T,
+): Step<YieldOf<T[keyof T]> | GroupEff, { [K in keyof T]: ReturnOf<T[K]> }> {
+  // ***INSERTION ORDER, WHICH JavaScript GUARANTEES FOR STRING KEYS.*** The
+  // names are zipped back by position against this same list, so the only
+  // requirement is that the two walks agree - and reading them from one array
+  // is what makes that true by construction rather than by care.
+  const names = Object.keys(bindings)
+  const results = (yield {
+    op: '@group',
+    args: names.map((n) => bindings[n]!),
+  } as GroupEff) as unknown as unknown[]
+
+  const out = {} as { [K in keyof T]: ReturnOf<T[K]> }
+  names.forEach((n, i) => {
+    out[n as keyof T] = results[i] as ReturnOf<T[keyof T]>
+  })
+
+  return out
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // THE GENERALIZED OBJECT BUILDER: ONE MECHANISM, KIND-BRANDED.
 //
