@@ -155,15 +155,17 @@ const intText = (v: IntLike): string => (typeof v === 'number' ? String(Math.tru
  *
  *     1  2026-09-02  ADR-0101: list, fields
  *     2  2026-09-05  the object graph: ownedBy, nodeOf
- *     3  PENDING     ⚠ NOT YET TAKEN, and the host says why: the field-path
- *                    SELECTOR `a[?k=v]` moves no SYMBOL, so the host's digest
- *                    could not see it and a program using the form was ADMITTED
- *                    by a radiant that cannot parse it, then dropped silently to
- *                    its backstop. `pathGrammarDigest` closes that; the bump
- *                    itself waits on a tagged SDK release, because the host's
- *                    parity guard reads the RUST SDK through the module cache.
+ *     3  2026-09-06  the field-path SELECTOR `a[?k=v]` - the first bump for
+ *                    something that moves NO SYMBOL. A field path reaches the
+ *                    language as a string ARGUMENT, so the symbol digest could
+ *                    not see it: a program using the new form was ADMITTED by a
+ *                    radiant that cannot parse it, and the resume then went
+ *                    unevaluable and dropped silently to its backstop -
+ *                    "degrades safely" and "degrades visibly" are not the same
+ *                    property. The host's `pathGrammarDigest` closes it by
+ *                    folding parser behaviour into the fingerprint.
  */
-export const LANGUAGE_VERSION = 2
+export const LANGUAGE_VERSION = 3
 
 // ---------------------------------------------------------------------------
 // Symbols. One per entry in aperture's `signatures` table.
