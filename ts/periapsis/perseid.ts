@@ -1421,7 +1421,13 @@ export const WIT_CARRY = 'radiant:reconcile/carry@0.1.0'
 // Which arms of this program's OWN resume held at the wake that started this
 // pass - the host half of keyed dispatch, so `on()` can run the handler for the
 // condition that actually holds instead of re-deriving which of N states it is
-// in. An index is a key's POSITION in the map `on()` was given.
+// in.
+//
+// ⚠ ***AN INDEX NAMES AN OPERAND OF THE HOST'S FLATTENED DISJUNCTION, NOT A KEY'S
+// POSITION.*** This said "a key's POSITION in the map" until 2026-09-06, which is
+// true only while every arm is ONE operand wide - and the builders worth using
+// are not: `fieldNoLonger` emits `(!exists) || (!= v)`. `on()` maps the reported
+// index back through each arm's width; see `topLevelOrCount`.
 export const WIT_WOKE = 'radiant:reconcile/woke@0.1.0'
 
 /** The interfaces this SDK knows. Autocompletion comes from this union. */
@@ -2456,11 +2462,21 @@ export const objects = {
  *	  returns a Resume      the disjunction of every key, for the NEXT park
  *
  * ⛔ ***THE MAP MUST BE THE SAME ON EVERY PASS, AND THIS IS THE ONE WAY TO
- * MISUSE IT.*** An index is a key's POSITION in the map the program parked on;
- * if a later pass builds a different map, the host's indices name arms that have
- * moved. Build it from constants, never inside a branch. The failure is silent -
- * a handler for the wrong condition - which is why it is stated here rather than
- * guarded: nothing on either side can see the map the previous pass used.
+ * MISUSE IT.*** The host reports an index into its FLATTENED disjunction, and
+ * `on()` maps it back to an arm using each key's own width - so a later pass that
+ * builds a different map, or reorders one, has the host naming operands this map
+ * assigns to somebody else. Build it from constants, never inside a branch. The
+ * failure is silent - a handler for the wrong condition - which is why it is
+ * stated here rather than guarded: nothing on either side can see the map the
+ * previous pass used.
+ *
+ * ⚠ ***AN INDEX IS NOT A KEY'S POSITION, AND THIS DOC SAID IT WAS UNTIL
+ * 2026-09-06.*** The two coincide only while every arm is ONE operand wide.
+ * `fieldNoLonger` emits `(!exists) || (!= v)`, because an absent operand
+ * propagates as unknown - so the builder that is CORRECT for a field Kubernetes
+ * may omit is exactly the one that makes them diverge. Measured live: four such
+ * arms, a wake on the fourth, and the third arm's handler ran - publishing a
+ * healthy verdict about a Deployment with no pods.
  *
  * ⚠ ***A HINT, NEVER CORRECTNESS.*** An empty result means "nothing you named is
  * true" - what a backstop tick says, and what an older host returns. So a step
