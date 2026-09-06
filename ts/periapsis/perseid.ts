@@ -2710,9 +2710,55 @@ export const topLevelOrCount = (expr: string): number => {
   return operands
 }
 
-export function* on<A extends Record<string, () => Generator<AnyEffect, unknown, unknown>>>(
+/** One arm of the PAIR form: what to wake on, and what to do about it. */
+export type Arm<E extends AnyEffect> = readonly [
+  when: Resume,
+  then: () => Generator<E, unknown, unknown>,
+]
+
+/**
+ * The ARMS-OBJECT form. Returns the resume; the caller parks with it.
+ *
+ * ⚠ Kept because it is what deployed programs are written in. New code should
+ * prefer the pair form below, which returns the park itself.
+ */
+export function on<A extends Record<string, () => Generator<AnyEffect, unknown, unknown>>>(
   arms: A,
-): Generator<ArmEffects<A> | Effect<typeof WIT_WOKE, 'held', void>, Resume, unknown> {
+): Generator<ArmEffects<A> | Effect<typeof WIT_WOKE, 'held', void>, Resume, unknown>
+/**
+ * The PAIR form - the one to write.
+ *
+ *     return yield* on(
+ *       [fieldNe(TARGET, 'spec.replicas', WANT), function* () { yield* ensure(…) }],
+ *       [objectGone(TARGET),                     function* () { yield* recreate() }],
+ *     )
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***IT RETURNS THE OUTCOME, NOT THE RESUME, AND THAT IS THE SIMPLIFICATION.***
+ * `on` already knows every arm, so `quiesce(anyOf(resume, …))` asks the author
+ * to restate what they have just finished saying - and every existing caller
+ * writes exactly that, plus a `deadline(Date.now() + RECHECK_MS)` arm which is
+ * redundant: the host disjoins `|| Backstop()` onto EVERY park
+ * (`internal/aperture/eval.go`, `WithBackstop`). So the tail was two combinators
+ * and a wall-clock read that were all saying "and otherwise, eventually".
+ *
+ * The pairs also keep `when` and `then` ADJACENT and in source order, which a
+ * computed key does not: `{[expr]: handler}` reads as a map when it is really a
+ * sequence, and the key is stringified at construction so the expression's
+ * structure is gone before `on` ever sees it.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export function on<E extends AnyEffect>(
+  ...arms: readonly Arm<E>[]
+): Generator<E | Effect<typeof WIT_WOKE, 'held', void>, Outcome, unknown>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function* on(...args: any[]): Generator<any, any, unknown> {
+  // ***`Array.isArray` IS THE DISCRIMINATOR***: a pair is an array, an arms
+  // object is not. Nothing else distinguishes the two call shapes at runtime.
+  const asPairs = Array.isArray(args[0])
+  const arms: Record<string, () => Generator<AnyEffect, unknown, unknown>> = asPairs
+    ? Object.fromEntries((args as Arm<AnyEffect>[]).map(([when, then]) => [String(when), then]))
+    : (args[0] as Record<string, () => Generator<AnyEffect, unknown, unknown>>)
   const keys = Object.keys(arms)
   // ⛔⛔ ***THE HOST INDEXES FLATTENED OPERANDS; THIS MAP INDEXES ARMS, AND THEY
   // ARE NOT THE SAME NUMBER THE MOMENT AN ARM CONTAINS ITS OWN `||`.***
@@ -2770,9 +2816,14 @@ export function* on<A extends Record<string, () => Generator<AnyEffect, unknown,
     // program declared ONE handler for that condition.
     if (alreadyRun.has(key)) continue
     alreadyRun.add(key)
-    const arm = arms[key] as () => Generator<ArmEffects<A>, unknown, unknown>
+    const arm = arms[key] as () => Generator<AnyEffect, unknown, unknown>
     yield* arm()
   }
 
-  return anyOf(...(keys as unknown as Resume[]))
+  const resume = anyOf(...(keys as unknown as Resume[]))
+
+  // The pair form returns the PARK; the arms-object form returns the RESUME and
+  // leaves the parking to the caller. Same dispatch either way - only the tail
+  // the author has to write differs.
+  return asPairs ? quiesce(resume) : resume
 }
