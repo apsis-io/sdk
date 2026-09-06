@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { expect, test } from 'bun:test'
-import { on, reconcile, runStep, fieldIs, path, type Handler, type Resume } from './perseid.js'
+import { on, reconcile, runStep, fieldIs, fieldNoLonger, topLevelOrCount, path, type Handler, type Resume } from './perseid.js'
 
 const POD = path.ns('default').core('v1', 'pods', 'web')
 const A = fieldIs(POD, 'status.phase', 'Running')
@@ -137,4 +137,64 @@ test('arms yielding DIFFERENT effect types unify rather than fixing on the first
   } as unknown as Handler<never>)
 
   expect(ran).toEqual(['cluster'])
+})
+
+// ⛔⛔ ***AN ARM THAT IS ITSELF A DISJUNCTION SHIFTS EVERY HOST INDEX AFTER IT.***
+//
+// `HeldDisjuncts` flattens `||` recursively - it must, because the host wraps the
+// resume as `(<own>) || Backstop()`. It cannot distinguish that from an arm's own
+// nesting, and `fieldNoLonger` is nested by necessity: `(!exists) || (!= v)`.
+//
+// MEASURED LIVE on `sentinel-demo`: four `fieldNoLonger` arms became EIGHT
+// operands, the host reported an index into the eight, `keys[i]` was undefined
+// and the program dispatched nothing - `via 4 of 4, no dispatch` - while its park
+// had correctly fired. `on()` now maps the flat index through each arm's width.
+const NODE = path.nodes('n1')
+const WIDE_A = fieldNoLonger(POD, 'status.phase', 'Running') // (!exists) || (!=)
+const WIDE_B = fieldNoLonger(NODE, 'spec.unschedulable', true)
+
+test('topLevelOrCount counts what the host flattens', () => {
+  expect(topLevelOrCount(String(A))).toBe(1) // fieldIs: one comparison
+  expect(topLevelOrCount(String(WIDE_A))).toBe(2) // fieldNoLonger: !exists || !=
+  // ***QUOTE-AWARE.*** A field path is a quoted string and may contain anything;
+  // a naive split would see an operand that is not there.
+  expect(topLevelOrCount('Get("a", "b || c") == "x"')).toBe(1)
+  // ***AND PAREN-AWARE.*** Only TOP-level bars separate operands.
+  expect(topLevelOrCount('((a || b)) || c')).toBe(2)
+})
+
+function driveWide(heldArms: number[]): string[] {
+  const ran: string[] = []
+  const step = function* () {
+    yield* on({
+      // eslint-disable-next-line require-yield
+      [WIDE_A]: function* () { ran.push('A') },
+      // eslint-disable-next-line require-yield
+      [WIDE_B]: function* () { ran.push('B') },
+    })
+
+    return { o: 'yield' as const }
+  }
+  runStep(step as never, { held: () => heldArms } as unknown as Handler<never>)
+
+  return ran
+}
+
+test('a flat index lands in the right ARM when arms are two operands wide', () => {
+  // Arm A occupies host indices 0..1, arm B occupies 2..3.
+  expect(driveWide([0])).toEqual(['A'])
+  expect(driveWide([1])).toEqual(['A'])
+  expect(driveWide([2])).toEqual(['B'])
+  expect(driveWide([3])).toEqual(['B'])
+  // Past the end is still skipped rather than wrapped.
+  expect(driveWide([4])).toEqual([])
+})
+
+// ⛔ ONCE PER ARM, NOT ONCE PER OPERAND. Both halves of `(!exists) || (!= v)` can
+// hold at the same wake - an absent field satisfies the first and is `!=`
+// anything - and the program declared ONE handler for that condition.
+test('both operands of one arm run its handler once', () => {
+  expect(driveWide([0, 1])).toEqual(['A'])
+  expect(driveWide([2, 3])).toEqual(['B'])
+  expect(driveWide([0, 1, 2, 3])).toEqual(['A', 'B'])
 })

@@ -690,8 +690,7 @@ export const fieldIs = (path: E.ReadPathLike, field: string, value: string | boo
   E.eqScalar(E.get(path, field), value)
 
 /**
- * Wake when a STRING or BOOLEAN field STOPS being `value` - including by being
- * DELETED.
+ * Wake when a field STOPS being `value` - including by being DELETED.
  *
  * ⛔ ***THE `|| !exists` HALF IS THE WHOLE POINT AND A BARE `!=` IS A BUG
  * HERE.*** Removing an annotation makes the field ABSENT, and `absent != "true"`
@@ -703,9 +702,41 @@ export const fieldIs = (path: E.ReadPathLike, field: string, value: string | boo
  * `.exists` is a real question on a field precisely because the host narrows to
  * the field before evaluating - a missing one is absent, not unknown - which is
  * what makes this expressible at all.
+ *
+ * ⭐ ***IT TAKES A NUMBER TOO, SINCE 2026-09-06, AND THE REASON IS MEASURED.***
+ * It was string|boolean only, so a NUMERIC field that Kubernetes omits had no
+ * builder that could fire on its absence - and `status.readyReplicas` is the
+ * canonical one: ***KUBERNETES OMITS IT AT ZERO***, which is precisely the state
+ * a watchdog exists to catch. Measured live: a Deployment scaled to 0 carried a
+ * `status` of only `conditions`, `observedGeneration` and `terminatingReplicas`,
+ * so a `fieldNe(..., 1)` park read ABSENT, propagated UNKNOWN, and never fired.
+ * The program noticed on its 60s timer instead - correct, late, and looking
+ * subscribed the whole time.
+ *
+ * So the string case and the numeric case have the SAME trap and now have the
+ * same remedy. `fieldNe` remains right where the field is always present.
+ *
+ * ⚠ ***THE `typeof value === 'number'` BRANCH IS RENDERING-EQUIVALENT TODAY AND
+ * IS STILL NOT REDUNDANT.*** `scalarText` does `String(v)` for anything
+ * non-string, so `neScalar(get, 1)` emits `!= 1` exactly as `ne` does - a
+ * mutation replacing the numeric arm with the scalar one is EQUIVALENT and no
+ * test can catch it, which is why one is not written. What the branch buys is at
+ * the TYPE level: `neScalar` takes `ScalarLike` (string|boolean), so without it a
+ * caller must cast a number, and a cast is where the next wrong type gets in.
+ * Dispatching to the numeric comparator is also what stays correct if either
+ * renderer ever stops coinciding.
  */
-export const fieldNoLonger = (path: E.ReadPathLike, field: string, value: string | boolean): Resume =>
-  E.or(E.not(E.exists(E.get(path, field))), E.neScalar(E.get(path, field), value))
+export const fieldNoLonger = (
+  path: E.ReadPathLike,
+  field: string,
+  value: string | boolean | number,
+): Resume =>
+  E.or(
+    E.not(E.exists(E.get(path, field))),
+    typeof value === 'number'
+      ? E.ne(E.get(path, field), value)
+      : E.neScalar(E.get(path, field), value),
+  )
 
 // ---------------------------------------------------------------------------
 // DERIVING A RESUME FROM WHAT THE STEP ACTUALLY OBSERVED.
@@ -2460,18 +2491,85 @@ export const objects = {
  */
 type ArmEffects<A> = A[keyof A] extends () => Generator<infer E, unknown, unknown> ? E : never
 
+/**
+ * How many operands an expression contributes to the host's FLATTENED
+ * disjunction: its top-level `||` count plus one.
+ *
+ * ***PAREN- AND QUOTE-AWARE, BECAUSE BOTH APPEAR IN REAL ARMS.*** A path is a
+ * quoted string that can contain anything, and every builder parenthesises its
+ * operands - so a naive `split('||')` miscounts an arm containing a literal
+ * `||` in a field path and one whose nesting is deeper than one level.
+ *
+ * ⚠ It counts what `HeldDisjuncts` flattens, so the two definitions must agree.
+ * They are tested against each other rather than assumed: the host's own test
+ * asserts the operand count for the same shapes this counts.
+ */
+export const topLevelOrCount = (expr: string): number => {
+  let depth = 0
+  let inString = false
+  let operands = 1
+  for (let i = 0; i < expr.length; i++) {
+    const c = expr[i]!
+    if (inString) {
+      if (c === '\\') i++
+      else if (c === '"') inString = false
+      continue
+    }
+    if (c === '"') inString = true
+    else if (c === '(') depth++
+    else if (c === ')') depth--
+    else if (c === '|' && expr[i + 1] === '|' && depth === 0) {
+      operands++
+      i++
+    }
+  }
+
+  return operands
+}
+
 export function* on<A extends Record<string, () => Generator<AnyEffect, unknown, unknown>>>(
   arms: A,
 ): Generator<ArmEffects<A> | Effect<typeof WIT_WOKE, 'held', void>, Resume, unknown> {
   const keys = Object.keys(arms)
+  // ⛔⛔ ***THE HOST INDEXES FLATTENED OPERANDS; THIS MAP INDEXES ARMS, AND THEY
+  // ARE NOT THE SAME NUMBER THE MOMENT AN ARM CONTAINS ITS OWN `||`.***
+  //
+  // `HeldDisjuncts` flattens `||` RECURSIVELY - it must, because the host wraps
+  // the author's whole resume as `(<own>) || Backstop()` and a top-level split
+  // would map every key to 0. But it cannot tell that nesting apart from an
+  // arm's OWN nesting, and the builders authors should reach for are nested:
+  // `fieldNoLonger` emits `(!exists) || (!= v)` precisely because an absent
+  // operand propagates as unknown.
+  //
+  // So four `fieldNoLonger` arms are EIGHT operands to the host. Measured live on
+  // `sentinel-demo`: the park fired on its condition, the host reported an index
+  // into the eight, `keys[i]` was undefined, and the program dispatched NOTHING -
+  // status `via 4 of 4, no dispatch`. The out-of-range guard failed SAFE, which
+  // is the only reason this was a lost optimisation and not a wrong handler.
+  //
+  // ⇒ THE ARM'S WIDTH IS RECOVERABLE FROM ITS OWN TEXT, so the mapping is done
+  // here rather than asking the host for something it cannot know. Each key
+  // occupies `width` consecutive host indices; a reported index lands in exactly
+  // one arm's range.
+  const widths = keys.map(topLevelOrCount)
+  const armOfIndex = (i: number): string | undefined => {
+    let at = 0
+    for (let k = 0; k < keys.length; k++) {
+      if (i < at + widths[k]!) return keys[k]
+      at += widths[k]!
+    }
+
+    return undefined
+  }
   // ***READ BEFORE RUNNING ANYTHING.*** The indices describe the wake that
   // started this pass; a handler that yields could change the world underneath
   // a later read of them.
   const woke = reconcile.woke()
   const heldArms = ((yield* woke()) as number[] | undefined) ?? []
 
+  const alreadyRun = new Set<string>()
   for (const i of heldArms) {
-    const key = keys[i]
+    const key = armOfIndex(i)
     if (key === undefined) {
       // The host named an arm this map does not have - the map changed between
       // passes (see above). Skipping is the only safe answer: running SOME
@@ -2483,6 +2581,12 @@ export function* on<A extends Record<string, () => Generator<AnyEffect, unknown,
     // cannot see it from inside, because it checks the body against the widened
     // constraint rather than against the caller's `A`. The assertion carries the
     // fact the signature already states.
+    // ***ONCE PER ARM, NOT ONCE PER OPERAND.*** Both halves of a
+    // `(!exists) || (!= v)` arm can hold at the same wake - an absent field
+    // satisfies the first and, being absent, is also `!=` nothing - and the
+    // program declared ONE handler for that condition.
+    if (alreadyRun.has(key)) continue
+    alreadyRun.add(key)
     const arm = arms[key] as () => Generator<ArmEffects<A>, unknown, unknown>
     yield* arm()
   }
