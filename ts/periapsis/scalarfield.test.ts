@@ -101,3 +101,37 @@ test('a cluster-scoped path can be parked on', () => {
   expect(withdrawn).toContain('/api/v1/nodes/worker-1')
   expect(withdrawn).toContain('.exists')
 })
+
+// ⭐ ***AND IT TAKES A NUMBER, BECAUSE `status.readyReplicas` IS OMITTED AT
+// ZERO.*** `fieldNoLonger` was string|boolean only, so a numeric field that
+// Kubernetes DELETES rather than writing 0 had no builder that could fire on its
+// absence - and zero is exactly the state a watchdog exists to catch.
+//
+// MEASURED LIVE, not reasoned: `examples/.../sentinel.ts` parked on
+// `fieldNe(dep, 'status.readyReplicas', 1)`; scaling that Deployment to 0 left a
+// `status` of only `conditions`, `observedGeneration` and `terminatingReplicas`,
+// so the Get read ABSENT, propagated UNKNOWN, and the park did not fire. The
+// program caught it on its 60s timer instead - correct, late, and subscribed to
+// something it could never be woken by.
+test('fieldNoLonger takes a NUMBER and keeps the !exists half', () => {
+  const dep = path.ns('default').deployments('api')
+  const r = String(fieldNoLonger(dep, 'status.readyReplicas', 1))
+
+  // The absence half must be there, or this is `fieldNe` with extra steps and
+  // the scale-to-zero case is invisible again.
+  expect(r).toContain('.exists')
+  expect(r).toContain('||')
+  // A NUMERIC comparison, unquoted - `!= "1"` would compare against a string and
+  // never match an integer field.
+  expect(r).toContain('!= 1')
+  expect(r).not.toContain('!= "1"')
+})
+
+// The string arm must be unchanged by the widening - a quoted comparison, not a
+// bare one, or every annotation park silently starts comparing against a number.
+test('widening fieldNoLonger to numbers left the string arm quoted', () => {
+  const n = path.nodes('n1')
+  const r = String(fieldNoLonger(n, 'metadata.annotations["k"]', 'true'))
+  expect(r).toContain('!= "true"')
+  expect(r).toContain('.exists')
+})
