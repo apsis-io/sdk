@@ -2763,25 +2763,16 @@ export const objects = {
  * conditional is distributive because `A[keyof A]` is a union of the arm
  * functions and the checked type is a naked parameter.
  */
-/** The effects one arm's `then` yields - thunk, list of steps, or a bare step. */
-type ThenEffects<H> = H extends () => Generator<infer E, unknown, unknown>
-  ? E
-  : H extends readonly Generator<infer E, unknown, unknown>[]
-    ? E
-    : H extends Generator<infer E, unknown, unknown>
-      ? E
-      : never
-
-/**
- * The UNION over every arm.
- *
- * ⚠ ***`T[number][1]` IS WHAT MAKES ARMS WITH DIFFERENT EFFECTS UNIFY.*** A
- * plain `...arms: readonly Arm<E>[]` fixes `E` on the FIRST arm and then rejects
- * every other one - which is not a type-noise problem, it is a program that
- * cannot observe two kinds of thing in one park. Indexing the tuple distributes,
- * exactly as the arms-object form's `A[keyof A]` did.
- */
-type ArmsEffects<T extends readonly Arm<AnyEffect>[]> = ThenEffects<T[number][1]>
+// ⚠ ***HOW ARMS WITH DIFFERENT EFFECTS UNIFY, AND WHY IT IS NOT A TUPLE TYPE
+// ANY MORE.*** A variadic `...arms: readonly Arm<E>[]` fixed `E` on the FIRST
+// arm and rejected every other one - not a type-noise problem but a program
+// unable to observe two kinds of thing in one park, which is `on`'s whole point.
+// The tuple form recovered the union with `ThenEffects<T[number][1]>`.
+//
+// The builder does it structurally instead: `.when<E2>()` returns
+// `OnBuilder<E | E2>`, so the union GROWS one call at a time and there is no
+// tuple to index. Same property, and it survives `.each` - which a tuple type
+// could not have expressed, because the arm count is not known statically.
 
 /**
  * How many operands an expression contributes to the host's FLATTENED
@@ -2844,39 +2835,15 @@ export type Arm<E extends AnyEffect> = readonly [
 ]
 
 /**
- * Park on several conditions and run the handler for whichever HELD.
+ * Run the handlers for the arms the host reported as held, then return the
+ * disjunction of every arm's condition as the next park.
  *
- *     return quiesce(
- *       yield* on(
- *         [drifted(TARGET),  report({ type: 'Ready', status: 'False', … })],
- *         [objectGone(POD),  function* () { yield* create(…); yield* report(…) }],
- *       ),
- *     )
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * ***PAIRS, NOT A COMPUTED-KEY OBJECT.*** `{[expr]: handler}` reads as a map
- * when it is really a SEQUENCE, and object keys DEDUPLICATE - two arms watching
- * the same condition collapsed into one silently. A list keeps both, keeps
- * source order, and keeps `when` and `then` adjacent.
- *
- * ***A SINGLE-EFFECT ARM NEEDS NO `function*`.*** An effect call already returns
- * a generator, so `report({…})` is a Step and can be the arm itself. Reach for a
- * thunk when the arm does several things or its arguments depend on other work -
- * see `Arm`.
- *
- * ***IT RETURNS THE RESUME AND THE CALLER PARKS.*** `quiesce` is where a step
- * says what would change its mind; hiding it inside `on` would make the park
- * invisible in the program that owns it.
- *
- * ⚠ You do NOT need a `deadline(Date.now() + …)` arm for liveness: the host
- * renders `(<the whole user resume>) || Backstop()` onto every park
- * (`internal/aperture/eval.go`, `WithBackstop`). If you want to SAY so, use
- * `backstop()`, which `anyOf` folds away rather than spending an operand on.
- * ═══════════════════════════════════════════════════════════════════════════
+ * The mechanism; `on` (below) is the surface. Kept separate so the index-to-arm
+ * mapping has one home regardless of how the arms were assembled.
  */
-export function* on<T extends readonly Arm<AnyEffect>[]>(
-  ...arms: T
-): Generator<ArmsEffects<T> | Effect<typeof WIT_WOKE, 'held', void>, Resume, unknown> {
+function* dispatch<E extends AnyEffect>(
+  arms: readonly Arm<AnyEffect>[],
+): Generator<E | Effect<typeof WIT_WOKE, 'held', void>, Resume, unknown> {
   // ***A LIST, NOT AN OBJECT, AND THE DEDUP IS ONE REASON.*** Keying handlers by
   // the rendered expression made two arms with the same condition collapse into
   // one silently, and object key order is a convention rather than a guarantee
@@ -2949,7 +2916,7 @@ export function* on<T extends readonly Arm<AnyEffect>[]>(
     // TypeScript cannot see it from in here because it checks the body against
     // the widened constraint rather than against the caller's `T`. The assertion
     // carries the fact the signature already states.
-    type S = Generator<ArmsEffects<T>, unknown, unknown>
+    type S = Generator<E, unknown, unknown>
     const then = arms[key]![1] as S | readonly S[] | (() => S)
 
     // ***NORMALISED TO A LIST RATHER THAN NARROWED.*** `Array.isArray` does not
@@ -2971,3 +2938,81 @@ export function* on<T extends readonly Arm<AnyEffect>[]>(
   // would make the park invisible in the program that owns it.
   return anyOf(...(keys as unknown as Resume[]))
 }
+
+/**
+ * The fluent builder behind `on`.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***IMMUTABLE, AND THAT IS THE WHOLE REASON IT IS A CLASS RATHER THAN AN
+ * ACCUMULATOR.*** `on` is a MODULE-LEVEL value shared by every pass. A builder
+ * that pushed onto its own array would grow by one arm per `.when()` per pass,
+ * for the life of the instance - the park would gain duplicate operands, every
+ * arm index after the first would shift, and the wrong handler would run. Each
+ * call returns a NEW builder, so the shared root is always empty.
+ *
+ * ***IT IS ITERABLE, SO THERE IS NO TERMINAL CALL TO FORGET.*** `yield*` works
+ * on anything with `[Symbol.iterator]`, so the chain is yielded directly - no
+ * `.done()`, and no way to build a chain and silently never run it.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+class OnBuilder<E extends AnyEffect> {
+  constructor(private readonly arms: readonly Arm<AnyEffect>[]) {}
+
+  /** Add one arm: what to wake on, and what to do about it. */
+  when<E2 extends AnyEffect>(when: Resume, then: Arm<E2>[1]): OnBuilder<E | E2> {
+    return new OnBuilder<E | E2>([...this.arms, [when, then] as unknown as Arm<AnyEffect>])
+  }
+
+  /**
+   * Add one arm PER ITEM of a list.
+   *
+   * ⭐ ***THE REASON THE FLUENT FORM DOES NOT REGRESS A MAPPED SUBJECT LIST.***
+   * `sentinel.ts` watches N deployments; with a chain of `.when()` calls alone
+   * those arms would have to be transcribed one per subject again, which is
+   * exactly what moving off the computed-key OBJECT fixed. Here the arms are
+   * DERIVED from the subject list, so they cannot disagree with it.
+   */
+  each<I, E2 extends AnyEffect>(
+    items: readonly I[],
+    arm: (item: I) => Arm<E2>,
+  ): OnBuilder<E | E2> {
+    return new OnBuilder<E | E2>([
+      ...this.arms,
+      ...items.map((i) => arm(i) as unknown as Arm<AnyEffect>),
+    ])
+  }
+
+  /** Run the handlers for whatever held, and return the resume to park on. */
+  *[Symbol.iterator](): Generator<E | Effect<typeof WIT_WOKE, 'held', void>, Resume, unknown> {
+    return yield* dispatch<E>(this.arms)
+  }
+}
+
+/**
+ * Park on several conditions and run the handler for whichever HELD.
+ *
+ *     return quiesce(
+ *       yield* on
+ *         .when(drifted(TARGET), report(unready('Drifted', …)))
+ *         .when(objectGone(POD), [create(…), report(unready('Gone', …))])
+ *         .each(DEPLOYMENTS, (d) => [drifted(d.at), () => check(d)]),
+ *     )
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***AN ARM NEEDS NO `function*` UNLESS IT NEEDS ONE.*** An effect call already
+ * returns a generator, so `report(…)` is a handler and a list of them runs in
+ * order. Reach for a thunk when an arm has logic, or when its arguments depend
+ * on other work in the pass - see `Arm`.
+ *
+ * ***IT RETURNS THE RESUME AND THE CALLER PARKS.*** `quiesce` is where a step
+ * says what would change its mind; hiding it in here would make the park
+ * invisible in the program that owns it.
+ *
+ * ⚠ You do NOT need a `deadline(Date.now() + …)` arm for liveness: the host
+ * renders `(<the whole user resume>) || Backstop()` onto every park
+ * (`internal/aperture/eval.go`, `WithBackstop`). To SAY so, use `backstop()`,
+ * which `anyOf` folds away rather than spending an operand - and an operand
+ * costs an arm INDEX.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export const on: OnBuilder<never> = new OnBuilder<never>([])

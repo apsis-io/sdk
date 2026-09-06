@@ -31,12 +31,11 @@ function drive(heldArms: number[]): { ran: string[]; resume: string } {
   let resume = ''
   const step = function* () {
     resume = String(
-      yield* on(
+      yield* on
         // eslint-disable-next-line require-yield
-        [A, function* () { ran.push('A') }],
+        .when(A, function* () { ran.push('A') })
         // eslint-disable-next-line require-yield
-        [B, function* () { ran.push('B') }],
-      ),
+        .when(B, function* () { ran.push('B') }),
     )
 
     return { o: 'yield' as const }
@@ -133,22 +132,15 @@ const clusterRead = reconcile.observeCluster<string>()
 test('arms yielding DIFFERENT effect types unify rather than fixing on the first', () => {
   const ran: string[] = []
   const step = function* () {
-    yield* on(
-      [
-        A,
-        function* () {
-          yield* nsRead(POD)
-          ran.push('ns')
-        },
-      ],
-      [
-        B,
-        function* () {
-          yield* clusterRead(path.nodes('n1'))
-          ran.push('cluster')
-        },
-      ],
-    )
+    yield* on
+      .when(A, function* () {
+        yield* nsRead(POD)
+        ran.push('ns')
+      })
+      .when(B, function* () {
+        yield* clusterRead(path.nodes('n1'))
+        ran.push('cluster')
+      })
 
     return { o: 'yield' as const }
   }
@@ -188,12 +180,11 @@ test('topLevelOrCount counts what the host flattens', () => {
 function driveWide(heldArms: number[]): string[] {
   const ran: string[] = []
   const step = function* () {
-    yield* on(
+    yield* on
       // eslint-disable-next-line require-yield
-      [WIDE_A, function* () { ran.push('A') }],
+      .when(WIDE_A, function* () { ran.push('A') })
       // eslint-disable-next-line require-yield
-      [WIDE_B, function* () { ran.push('B') }],
-    )
+      .when(WIDE_B, function* () { ran.push('B') })
 
     return { o: 'yield' as const }
   }
@@ -267,7 +258,7 @@ test('allOf does NOT fold a backstop', () => {
 test('a bare Step arm needs no function* wrapper', () => {
   const seen: string[] = []
   const step = function* () {
-    yield* on([A, nsRead(POD)])
+    yield* on.when(A, nsRead(POD))
 
     return { o: 'yield' as const }
   }
@@ -290,7 +281,7 @@ test('a LIST arm runs every step, in order', () => {
   const seen: string[] = []
   const OTHER = path.ns('default').core('v1', 'pods', 'other')
   const step = function* () {
-    yield* on([A, [nsRead(POD), nsRead(OTHER)]])
+    yield* on.when(A, [nsRead(POD), nsRead(OTHER)])
 
     return { o: 'yield' as const }
   }
@@ -311,7 +302,7 @@ test('a LIST arm runs every step, in order', () => {
 test('an unheld list arm runs nothing', () => {
   const seen: string[] = []
   const step = function* () {
-    yield* on([A, [nsRead(POD)]])
+    yield* on.when(A, [nsRead(POD)])
 
     return { o: 'yield' as const }
   }
@@ -341,4 +332,79 @@ test('ready/unready/unsure differ only in status, and Unknown is not False', () 
   // the three-valued defect arriving in what an operator is told.
   expect(unsure('Unreadable', 'm').status).toBe('Unknown')
   expect(unsure('Unreadable', 'm').status).not.toBe(unready('Unreadable', 'm').status)
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE FLUENT BUILDER: `.each`, and the immutability the shared root depends on.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const SUBJECTS = [
+  { at: path.ns('default').core('v1', 'pods', 'a'), tag: 'a' },
+  { at: path.ns('default').core('v1', 'pods', 'b'), tag: 'b' },
+  { at: path.ns('default').core('v1', 'pods', 'c'), tag: 'c' },
+]
+
+function driveEach(heldArms: number[]): { ran: string[]; resume: string } {
+  const ran: string[] = []
+  let resume = ''
+  const step = function* () {
+    resume = String(
+      // eslint-disable-next-line require-yield
+      yield* on.each(SUBJECTS, (s) => [fieldIs(s.at, 'status.phase', 'Running'),
+        // eslint-disable-next-line require-yield
+        function* () { ran.push(s.tag) }]),
+    )
+
+    return { o: 'yield' as const }
+  }
+  runStep(step as never, { held: () => heldArms } as unknown as Handler<never>)
+
+  return { ran, resume }
+}
+
+// ⭐ ONE ARM PER ITEM, IN LIST ORDER - so an index still names a position.
+test('each adds one arm per item, in order', () => {
+  expect(driveEach([0]).ran).toEqual(['a'])
+  expect(driveEach([1]).ran).toEqual(['b'])
+  expect(driveEach([2]).ran).toEqual(['c'])
+  expect(driveEach([0, 2]).ran).toEqual(['a', 'c'])
+  // Past the end is skipped, not wrapped.
+  expect(driveEach([3]).ran).toEqual([])
+})
+
+test('each contributes every subject to the resume', () => {
+  const r = driveEach([]).resume
+  for (const s of SUBJECTS) expect(r).toContain(String(s.at))
+})
+
+// ⛔⛔ ***THE SHARED ROOT MUST NOT ACCUMULATE.*** `on` is a MODULE-LEVEL value
+// reached by every pass. If `.when` pushed onto its own array instead of
+// returning a new builder, the root would grow by one arm per call per pass -
+// the park would gain duplicate operands and every index after the first would
+// shift, so the wrong handler would run. The failure is silent and cumulative:
+// pass 1 is correct, pass 40 is not.
+test('the shared on root is never mutated by building a chain', () => {
+  const first = driveEach([]).resume
+  // Build several unrelated chains off the same root, and use them.
+  drive([])
+  driveWide([])
+  driveEach([])
+  const again = driveEach([]).resume
+
+  expect(again).toBe(first)
+  // And the root itself still has no arms: a chain of one arm has no `||`.
+  const solo = function* () {
+    // eslint-disable-next-line require-yield
+    return String(yield* on.when(A, function* () {}))
+  }
+  let seen = ''
+  runStep(
+    function* () {
+      seen = yield* solo()
+
+      return { o: 'yield' as const }
+    } as never,
+    { held: () => [] } as unknown as Handler<never>,
+  )
+  expect(seen).not.toContain('||')
 })
