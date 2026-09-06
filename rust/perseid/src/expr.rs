@@ -331,8 +331,22 @@ pub fn now() -> Expr<Int> {
 ///
 /// ```text
 /// 1  2026-09-02  ADR-0101: list, fields
+/// 2  2026-09-05  the object graph: owned_by, node_of
+/// 3  2026-09-06  the field-path SELECTOR `a[?k=v]`, and the version digest
+///                widened to cover the field-path GRAMMAR at all. A field path
+///                is a string ARGUMENT, so it moves no symbol and the host's
+///                digest could not see it: a program using the form was
+///                ADMITTED by a radiant that cannot parse it and then dropped
+///                silently to its backstop.
 /// ```
-pub const LANGUAGE_VERSION: u32 = 2;
+///
+/// ⚠ ***THE HOST AND THIS CONSTANT MUST MOVE TOGETHER, AND THE ORDER IS A TRAP.***
+/// The comment above says "bump it there first", and the host's parity guard
+/// reads THIS file through the module cache - so bumping the host first leaves
+/// its tree red until a tagged release carries this value, and releasing this
+/// first means a program built here declares a language the fleet's radiant
+/// refuses. Tag the release and bump the host in the same change.
+pub const LANGUAGE_VERSION: u32 = 3;
 
 // ---------------------------------------------------------------------------
 // Properties.
