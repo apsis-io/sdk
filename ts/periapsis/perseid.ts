@@ -2059,11 +2059,47 @@ type HandlerArg<E extends AnyEffect> = NoInfer<Handler<E>>
  * loops forever — bounding that is the host's job (fuel or a deadline), not the
  * type system's.
  */
+/**
+ * A step short-circuiting to an outcome, thrown rather than yielded.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***A THROW AND NOT AN EFFECT, BECAUSE OF `@group`.*** The obvious design is a
+ * structural `@bail` op beside `@group`/`@select`. It is wrong: `driveSync`
+ * RECURSES for each group arm, so a bail raised inside one would be returned as
+ * THAT ARM'S VALUE and the step would carry on with an `Outcome` where an
+ * observation should be. The failure is silent and typed.
+ *
+ * An exception unwinds every frame including the recursion, which is exactly
+ * short-circuit semantics, and `Promise.all` in the async driver rejects on the
+ * first throw and propagates it for free. Nothing in `group`/`select` had to
+ * learn about this.
+ *
+ * ⚠ It is caught at the two runner boundaries and nowhere else, so a `try`
+ * around a `yield*` in program code will swallow it. Do not catch broadly
+ * between a `need()` and the runner.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+class Bail {
+  constructor(readonly outcome: Outcome) {}
+}
+
+/** Short-circuit the step with `outcome`. See `Bail`. */
+export const bail = (outcome: Outcome): never => {
+  throw new Bail(outcome)
+}
+
 export function runStep<E extends AnyEffect, A>(
   step: () => Step<E, A>,
   handler: HandlerArg<E>,
 ): A {
-  return driveSync(step(), handler as Record<string, (a: unknown) => unknown>)
+  try {
+    return driveSync(step(), handler as Record<string, (a: unknown) => unknown>)
+  } catch (e) {
+    // The cast is sound for every step `defineStep` accepts: it pins the return
+    // to `Outcome`, and a bail carries one.
+    if (e instanceof Bail) return e.outcome as A
+    throw e
+  }
 }
 
 function driveSync(it: Step<any, any>, handler: Record<string, (a: unknown) => unknown>): any {
@@ -2102,7 +2138,15 @@ export async function runStepAsync<E extends AnyEffect, A>(
   step: () => Step<E, A>,
   handler: HandlerArg<E>,
 ): Promise<A> {
-  return driveAsync(step(), handler as Record<string, (a: unknown) => unknown>)
+  try {
+    return await driveAsync(step(), handler as Record<string, (a: unknown) => unknown>)
+  } catch (e) {
+    // ⚠ `await` inside the `try` is load-bearing: `return driveAsync(...)`
+    // resolves the promise OUTSIDE this frame, so a rejection would skip the
+    // catch entirely and a bail would surface to the host as a crash.
+    if (e instanceof Bail) return e.outcome as A
+    throw e
+  }
 }
 
 async function driveAsync(
@@ -2127,6 +2171,85 @@ async function driveAsync(
       continue
     }
     sent = await handler[eff.op](eff.args)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// READING, SUGARED.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+// ***MEASURED, NOT GUESSED: THIS IS THE SHAPE THE CORPUS IS MADE OF.*** Across
+// the example programs, 36 hand-written three-valued unwraps and 16 `JSON.parse`
+// calls follow a read - and only 6 uses of the exhaustive `match`. The safe form
+// was losing to the `if`-chain because it cost more to type, so the sugar's job
+// is to make the safe form the CHEAP one.
+//
+//	const seen = yield* observe(TARGET)          ->   const dep = yield* read.need(TARGET)
+//	if (seen.t === 'absent') return terminate
+//	if (seen.t === 'unknown') return yieldStep
+//	const dep = JSON.parse(seen.v) as …
+//
+// ⚠ ***`need` DECIDES A POLICY, SO THE POLICY IS AN ARGUMENT.*** `absent ->
+// terminate` is right when the object is the thing you maintain and wrong when
+// its absence is what you are waiting for. The defaults are the common case and
+// are overridable per call; they are not a claim about your program.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Decode a read body, `null` if it is not a JSON object. */
+const asRecord = (raw: string): Record<string, unknown> | null => {
+  try {
+    const v: unknown = JSON.parse(raw)
+
+    return typeof v === 'object' && v !== null && !Array.isArray(v)
+      ? (v as Record<string, unknown>)
+      : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Wrap a read effect so its result arrives decoded, and optionally unwrapped.
+ *
+ *     const read = reader(observe)              // once, beside the capability
+ *     const dep  = yield* read.need(TARGET)     // decoded; bails on absent/unknown
+ *     const obs  = yield* read.get(TARGET)      // Obs<T>, decide for yourself
+ *
+ * Generic in the PATH type, so one factory serves `observe` (ApiPath),
+ * `observeCluster` (ClusterPath) and `enumerate` (CollectionPath) without three
+ * spellings. The effect union `E` passes straight through, so `derive-wit` still
+ * reads the same capabilities out of the step's yield type.
+ */
+export function reader<P, E extends AnyEffect, T = Record<string, unknown>>(
+  read: (p: P) => Step<E, Obs<string>>,
+  decode: (raw: string) => T | null = asRecord as unknown as (raw: string) => T | null,
+) {
+  return {
+    /**
+     * The read, decoded, still three-valued.
+     *
+     * ⚠ A body that does not decode is reported `unknown`, NOT `absent`: we got
+     * an answer and could not interpret it, which is a failure to read and not
+     * a statement that the object is gone. Collapsing those is the defect `Obs`
+     * is three-valued to prevent.
+     */
+    *get(path: P): Step<E, Obs<T>> {
+      const seen = yield* read(path)
+      if (seen.t !== 'known') return seen
+      const v = decode(seen.v)
+
+      return v === null ? unknown : known(v)
+    },
+
+    /** The read, decoded and unwrapped; short-circuits the step otherwise. */
+    *need(path: P, on: { absent?: Outcome; unknown?: Outcome } = {}): Step<E, T> {
+      const seen = yield* read(path)
+      if (seen.t === 'absent') return bail(on.absent ?? terminate)
+      if (seen.t === 'unknown') return bail(on.unknown ?? yieldStep)
+      const v = decode(seen.v)
+
+      return v === null ? bail(on.unknown ?? yieldStep) : v
+    },
   }
 }
 
