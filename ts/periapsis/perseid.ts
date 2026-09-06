@@ -517,6 +517,20 @@ export function unsafeApiPath(candidate: string): ApiPath {
  * `Wit`. `quiesce` can afford the conditional because there is no vocabulary to
  * complete there, only an empty string to refuse; here there is, so the worse
  * error message is the right trade.
+ *
+ * ⛔ ***NOTHING REFERENCES THIS ANY MORE, AND THAT IS NOT A REASON TO DELETE
+ * IT.*** The paragraph below records why the guard stopped being needed — the
+ * `Get(path, field)` inversion made a bare name the unresolvable thing — so this
+ * is a documented vestige rather than an oversight. An audit that greps for
+ * unreferenced exports finds it, correctly, and the next step is the wrong one:
+ *
+ * ***IT IS AN EXPORTED TYPE IN A PUBLISHED PACKAGE.*** `@apsis-io/periapsis-sdk`
+ * has shipped to npm through `periapsis-sdk-v0.1.0 … v0.2.0`, so removing it is a
+ * BREAKING CHANGE for anyone importing it, not a tidy-up. Whether that is worth a
+ * major is a release decision and belongs to whoever cuts one — not to a sweep
+ * that measured only this repo, which cannot see a downstream consumer at all.
+ *
+ * Kept deliberately. Delete it in a release that says so.
  */
 export type RefusesAPath<N extends string> = N extends `/${string}`
   ? [ERROR_a_PATH_was_passed_where_a_NAME_goes_the_grant_supplies_the_namespace: never]
