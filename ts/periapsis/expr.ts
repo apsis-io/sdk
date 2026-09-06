@@ -154,6 +154,14 @@ const intText = (v: IntLike): string => (typeof v === 'number' ? String(Math.tru
  * `aperture.LanguageVersion` by a guard in the host's tests; bump it there first.
  *
  *     1  2026-09-02  ADR-0101: list, fields
+ *     2  2026-09-05  the object graph: ownedBy, nodeOf
+ *     3  PENDING     ⚠ NOT YET TAKEN, and the host says why: the field-path
+ *                    SELECTOR `a[?k=v]` moves no SYMBOL, so the host's digest
+ *                    could not see it and a program using the form was ADMITTED
+ *                    by a radiant that cannot parse it, then dropped silently to
+ *                    its backstop. `pathGrammarDigest` closes that; the bump
+ *                    itself waits on a tagged SDK release, because the host's
+ *                    parity guard reads the RUST SDK through the module cache.
  */
 export const LANGUAGE_VERSION = 2
 
