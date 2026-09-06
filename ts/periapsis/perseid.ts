@@ -1373,6 +1373,12 @@ export const WIT_CREATE = 'radiant:reconcile/create@0.1.0'
 // holding a value no pass ever concluded.
 export const WIT_CARRY = 'radiant:reconcile/carry@0.1.0'
 
+// Which arms of this program's OWN resume held at the wake that started this
+// pass - the host half of keyed dispatch, so `on()` can run the handler for the
+// condition that actually holds instead of re-deriving which of N states it is
+// in. An index is a key's POSITION in the map `on()` was given.
+export const WIT_WOKE = 'radiant:reconcile/woke@0.1.0'
+
 /** The interfaces this SDK knows. Autocompletion comes from this union. */
 export type KnownWit =
   | typeof WIT_TYPES
@@ -1383,6 +1389,7 @@ export type KnownWit =
   | typeof WIT_DELETE
   | typeof WIT_CREATE
   | typeof WIT_CARRY
+  | typeof WIT_WOKE
 
 /**
  * The SHAPE of a WIT interface id: `namespace:package/interface@major.minor.patch`.
@@ -1809,6 +1816,22 @@ export const reconcile = {
    * costs nothing and removes a whole class of silent misrouting.
    */
   carry: () => defineEffect<void, string>()(WIT_CARRY, 'carry'),
+
+  /**
+   * `woke.held() -> list<u32>`. Which arms of this program's own resume were
+   * TRUE at the wake that started this pass.
+   *
+   * ⚠ ***A HINT, NEVER A CORRECTNESS INPUT.*** A step must stay a total function
+   * of the world. "Do the work for the condition that holds" is fine, because a
+   * missed wake makes it LATE; "skip work because nothing is listed" turns a
+   * level-triggered program edge-triggered and a missed wake into a MISSING
+   * action. `on()` is built so the safe use is the easy one.
+   *
+   * EMPTY is the common answer and means "nothing you named is true" - what a
+   * backstop tick says. It is also what an older host returns, so a program
+   * using this degrades to re-deriving, which is what every step does today.
+   */
+  woke: () => defineEffect<void, number[]>()(WIT_WOKE, 'held'),
 } as const
 
 // ---------------------------------------------------------------------------
@@ -2366,4 +2389,65 @@ export const objects = {
         kinded<K>(p.resource(group, version, plural, name)),
     }
   },
+}
+
+/**
+ * Park on several conditions and run the handler for whichever HOLDS.
+ *
+ *     return quiesce(yield* on({
+ *       [fieldIs(NODE, DRAIN_KEY, 'true')]: function* () { yield* startDrain() },
+ *       [taintAppeared(NODE)]:              function* () { yield* autoDrain() },
+ *     }))
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***THE EXPRESSION IS THE KEY*** (engi, 2026-09-06). `Resume` is a branded
+ * string and object keys are strings, so this is literal TypeScript with no
+ * naming layer to keep in sync between the park and the dispatch.
+ *
+ * It does two things in one call, and they are for DIFFERENT passes:
+ *
+ *	  reads `woke.held()`   which arms held at the wake that started THIS pass,
+ *	                        and runs their handlers
+ *	  returns a Resume      the disjunction of every key, for the NEXT park
+ *
+ * ⛔ ***THE MAP MUST BE THE SAME ON EVERY PASS, AND THIS IS THE ONE WAY TO
+ * MISUSE IT.*** An index is a key's POSITION in the map the program parked on;
+ * if a later pass builds a different map, the host's indices name arms that have
+ * moved. Build it from constants, never inside a branch. The failure is silent -
+ * a handler for the wrong condition - which is why it is stated here rather than
+ * guarded: nothing on either side can see the map the previous pass used.
+ *
+ * ⚠ ***A HINT, NEVER CORRECTNESS.*** An empty result means "nothing you named is
+ * true" - what a backstop tick says, and what an older host returns. So a step
+ * must remain correct when NO handler runs: `on()` makes the late case safe, not
+ * the missing case. Do the work for a condition that holds; never skip work
+ * because nothing was listed.
+ *
+ * ***EVERY ARM THAT HOLDS RUNS, NOT THE FIRST.*** Two conditions can be true at
+ * once and the program declared a handler for each; a `switch` would silently
+ * drop one and pick a different one on a different day.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export function* on<E extends AnyEffect>(
+  arms: Record<string, () => Generator<E, unknown, unknown>>,
+): Generator<E | Effect<typeof WIT_WOKE, 'held', void>, Resume, unknown> {
+  const keys = Object.keys(arms)
+  // ***READ BEFORE RUNNING ANYTHING.*** The indices describe the wake that
+  // started this pass; a handler that yields could change the world underneath
+  // a later read of them.
+  const woke = reconcile.woke()
+  const heldArms = ((yield* woke()) as number[] | undefined) ?? []
+
+  for (const i of heldArms) {
+    const key = keys[i]
+    if (key === undefined) {
+      // The host named an arm this map does not have - the map changed between
+      // passes (see above). Skipping is the only safe answer: running SOME
+      // other handler would act on a condition nobody asserted.
+      continue
+    }
+    yield* arms[key]!()
+  }
+
+  return anyOf(...(keys as unknown as Resume[]))
 }
