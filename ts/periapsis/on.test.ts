@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { expect, test } from 'bun:test'
-import { on, runStep, fieldIs, path, type Handler, type Resume } from './perseid.js'
+import { on, reconcile, runStep, fieldIs, path, type Handler, type Resume } from './perseid.js'
 
 const POD = path.ns('default').core('v1', 'pods', 'web')
 const A = fieldIs(POD, 'status.phase', 'Running')
@@ -66,4 +66,75 @@ test('the resume is every key, in order', () => {
   expect(r).toContain(String(B))
   expect(r.indexOf(String(A))).toBeLessThan(r.indexOf(String(B)))
   expect(r).toContain('||')
+})
+
+// ⭐ ***HETEROGENEOUS ARMS MUST TYPECHECK, AND UNTIL 2026-09-06 THEY DID NOT.***
+//
+// `on()` took `Record<string, () => Generator<E, …>>` with a naked `E`, so
+// TypeScript fixed `E` to the FIRST arm's effect and reported every other arm as
+// `not assignable`. That breaks it in precisely its intended case: the reason to
+// dispatch on several arms is that they watch DIFFERENT subjects, and different
+// subjects are read with different effects - a namespaced `observe` against a
+// cluster-scoped `observe-cluster`.
+//
+// ***THE FIRST PROGRAM WRITTEN TO USE `on()` FOR ITS PURPOSE DID NOT COMPILE***
+// (examples/wasm/perseid-ts/src/sentinel.ts). Found by writing a real user, not
+// by reading the signature - the unit tests above all use arms that yield
+// NOTHING, so every one of them passed against the broken form and would pass
+// against it again.
+//
+// ⚠ THIS IS A TYPE-LEVEL GUARD AND `bun test` STRIPS TYPES. It fails under
+// `tsc --noEmit`, which is a different instrument and the only one that can see
+// it - the same split that let the SDK's `tsc` sit red for three days while
+// `bun test` was green. The runtime assertion below is deliberately trivial; the
+// compile is the assertion.
+
+// ⭐ ***HETEROGENEOUS ARMS MUST TYPECHECK, AND UNTIL 2026-09-06 THEY DID NOT.***
+//
+// `on()` took `Record<string, () => Generator<E, …>>` with a naked `E`, so
+// TypeScript fixed `E` to the FIRST arm's effect and reported every other arm as
+// `not assignable`. That breaks it in precisely its intended case: the reason to
+// dispatch on several arms is that they watch DIFFERENT subjects, and different
+// subjects are read with different effects.
+//
+// ***THE FIRST PROGRAM WRITTEN TO USE `on()` FOR ITS PURPOSE DID NOT COMPILE***
+// (examples/wasm/perseid-ts/src/sentinel.ts). Found by writing a real user, not
+// by reading the signature: every test above uses arms that yield NOTHING, so
+// all of them passed against the broken form.
+//
+// ⛔ ***THE EFFECTS MUST BE REAL ONES FROM `reconcile`, AND THE FIRST VERSION OF
+// THIS TEST WAS VACUOUS FOR MISSING THAT.*** It yielded `{...} as never` to
+// satisfy the fake handler - and `never` unifies with everything, so both arms
+// had the SAME yield type and the old signature accepted them. Mutation-checked:
+// with `as never`, reverting `on()` to the old signature left `tsc` at rc=0.
+// With the real `observe`/`observeCluster` effects below it goes red.
+//
+// ⚠ AND IT IS A TYPE-LEVEL GUARD, SO `bun test` CANNOT SEE IT - it strips types.
+// Only `tsc --noEmit` runs this assertion; the runtime expectation is incidental.
+const nsRead = reconcile.observe<string>()
+const clusterRead = reconcile.observeCluster<string>()
+
+test('arms yielding DIFFERENT effect types unify rather than fixing on the first', () => {
+  const ran: string[] = []
+  const step = function* () {
+    yield* on({
+      [A]: function* () {
+        yield* nsRead(POD)
+        ran.push('ns')
+      },
+      [B]: function* () {
+        yield* clusterRead(path.nodes('n1'))
+        ran.push('cluster')
+      },
+    })
+
+    return { o: 'yield' as const }
+  }
+  runStep(step as never, {
+    held: () => [1],
+    get: () => ({ t: 'absent' }),
+    getCluster: () => ({ t: 'absent' }),
+  } as unknown as Handler<never>)
+
+  expect(ran).toEqual(['cluster'])
 })

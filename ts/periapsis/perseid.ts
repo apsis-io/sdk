@@ -2442,9 +2442,27 @@ export const objects = {
  * drop one and pick a different one on a different day.
  * ═══════════════════════════════════════════════════════════════════════════
  */
-export function* on<E extends AnyEffect>(
-  arms: Record<string, () => Generator<E, unknown, unknown>>,
-): Generator<E | Effect<typeof WIT_WOKE, 'held', void>, Resume, unknown> {
+/**
+ * The union of every effect the arms of `A` can yield.
+ *
+ * ⛔ ***A NAKED `Record<string, () => Generator<E, …>>` INFERS `E` FROM ONE ARM
+ * AND REJECTS THE REST, WHICH BREAKS `on()` IN EXACTLY ITS INTENDED CASE.*** The
+ * whole reason to dispatch on several arms is that they watch DIFFERENT
+ * subjects, and different subjects are read with different effects - a namespaced
+ * `observe` and a cluster-scoped `observe-cluster`, say. Against the old
+ * signature TypeScript fixed `E` to the first arm's effect and then reported the
+ * second as `not assignable`, so the first program to use `on()` for its purpose
+ * did not compile.
+ *
+ * Inferring over the RECORD TYPE and distributing lets `E` be the union. The
+ * conditional is distributive because `A[keyof A]` is a union of the arm
+ * functions and the checked type is a naked parameter.
+ */
+type ArmEffects<A> = A[keyof A] extends () => Generator<infer E, unknown, unknown> ? E : never
+
+export function* on<A extends Record<string, () => Generator<AnyEffect, unknown, unknown>>>(
+  arms: A,
+): Generator<ArmEffects<A> | Effect<typeof WIT_WOKE, 'held', void>, Resume, unknown> {
   const keys = Object.keys(arms)
   // ***READ BEFORE RUNNING ANYTHING.*** The indices describe the wake that
   // started this pass; a handler that yields could change the world underneath
@@ -2460,7 +2478,13 @@ export function* on<E extends AnyEffect>(
       // other handler would act on a condition nobody asserted.
       continue
     }
-    yield* arms[key]!()
+    // The CONSTRAINT says an arm yields `AnyEffect`; the RETURN TYPE promises the
+    // narrower `ArmEffects<A>`. Both are true of the same value and TypeScript
+    // cannot see it from inside, because it checks the body against the widened
+    // constraint rather than against the caller's `A`. The assertion carries the
+    // fact the signature already states.
+    const arm = arms[key] as () => Generator<ArmEffects<A>, unknown, unknown>
+    yield* arm()
   }
 
   return anyOf(...(keys as unknown as Resume[]))
