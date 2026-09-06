@@ -1451,6 +1451,55 @@ export type Condition = {
   readonly message: string
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ***MEASURED: `type: 'Ready'` IN 37 OF 37 `report()` CALLS ACROSS THE EXAMPLE
+// PROGRAMS.*** A field that is constant at every real call site is noise at
+// every real call site, and it sits in the arms of every `on()`.
+//
+//	report({ type: 'Ready', status: 'False', reason: r, message: m })
+//	report(unready(r, m))
+//
+// ⚠ ***THEY DEFAULT THE TYPE, THEY DO NOT REMOVE IT.*** 37 of 37 is this
+// corpus, not a proof that no program will ever report `Available` or a kind's
+// own condition - `report` still takes a full `Condition` and is the general
+// form. These are the shorthand for the case everything currently is.
+//
+// `reason` stays REQUIRED on both. Kubernetes treats it as machine-readable and
+// an operator filters on it; making it optional would produce conditions that
+// say `False` and nothing about why.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** `Ready=True`. */
+export const ready = (reason: string, message: string): Condition => ({
+  type: 'Ready',
+  status: 'True',
+  reason,
+  message,
+})
+
+/** `Ready=False`. */
+export const unready = (reason: string, message: string): Condition => ({
+  type: 'Ready',
+  status: 'False',
+  reason,
+  message,
+})
+
+/**
+ * `Ready=Unknown` - we could not tell.
+ *
+ * ***NOT A SYNONYM FOR `unready`.*** `False` asserts the thing is not ready;
+ * `Unknown` asserts nothing, which is the honest report after a failed read.
+ * Collapsing them is the same defect three-valued `Obs` exists to prevent,
+ * arriving in what the program TELLS AN OPERATOR rather than in what it decides.
+ */
+export const unsure = (reason: string, message: string): Condition => ({
+  type: 'Ready',
+  status: 'Unknown',
+  reason,
+  message,
+})
+
 // ---------------------------------------------------------------------------
 // The WIT interface vocabulary.
 //
@@ -2714,12 +2763,14 @@ export const objects = {
  * conditional is distributive because `A[keyof A]` is a union of the arm
  * functions and the checked type is a naked parameter.
  */
-/** The effects one arm's `then` yields, whether it is a Step or a thunk. */
+/** The effects one arm's `then` yields - thunk, list of steps, or a bare step. */
 type ThenEffects<H> = H extends () => Generator<infer E, unknown, unknown>
   ? E
-  : H extends Generator<infer E, unknown, unknown>
+  : H extends readonly Generator<infer E, unknown, unknown>[]
     ? E
-    : never
+    : H extends Generator<infer E, unknown, unknown>
+      ? E
+      : never
 
 /**
  * The UNION over every arm.
@@ -2771,19 +2822,25 @@ export const topLevelOrCount = (expr: string): number => {
 /**
  * One arm: what to wake on, and what to do about it.
  *
- * `then` is a Step OR a thunk returning one. An effect call already returns a
- * generator, so the common single-effect arm is just the call:
+ * `then` is a Step, a LIST of steps run in order, or a thunk returning a step.
+ * An effect call already returns a generator, so the common arms need no
+ * `function*` at all:
  *
- *     [objectGone(POD), report({ type: 'Ready', status: 'False', … })]
- *     [drifted(DEP),    function* () { yield* ensure(…); yield* report(…) }]
+ *     [objectGone(POD), report(unready('Gone', `${POD} was deleted`))]
+ *     [drifted(DEP),    [ensure({ … }), report(unready('Drifted', …))]]
+ *     [tainted(NODE),   function* () { const o = yield* read.need(N); … }]
  *
- * ⚠ A bare Step has its ARGUMENTS evaluated when the arm is built, not when it
- * fires. That is fine for the literal above and wrong for anything derived from
- * work another arm does - use a thunk there, and the laziness is explicit.
+ * ⚠ ***A STEP AND A LIST HAVE THEIR ARGUMENTS EVALUATED WHEN THE ARM IS BUILT,
+ * NOT WHEN IT FIRES.*** That is fine for the literals above and wrong for
+ * anything derived from work done elsewhere in the pass - reach for the thunk
+ * there, where the laziness is explicit and visible.
  */
 export type Arm<E extends AnyEffect> = readonly [
   when: Resume,
-  then: Generator<E, unknown, unknown> | (() => Generator<E, unknown, unknown>),
+  then:
+    | Generator<E, unknown, unknown>
+    | readonly Generator<E, unknown, unknown>[]
+    | (() => Generator<E, unknown, unknown>),
 ]
 
 /**
@@ -2892,10 +2949,21 @@ export function* on<T extends readonly Arm<AnyEffect>[]>(
     // TypeScript cannot see it from in here because it checks the body against
     // the widened constraint rather than against the caller's `T`. The assertion
     // carries the fact the signature already states.
-    const then = arms[key]![1] as
-      | Generator<ArmsEffects<T>, unknown, unknown>
-      | (() => Generator<ArmsEffects<T>, unknown, unknown>)
-    yield* typeof then === 'function' ? then() : then
+    type S = Generator<ArmsEffects<T>, unknown, unknown>
+    const then = arms[key]![1] as S | readonly S[] | (() => S)
+
+    // ***NORMALISED TO A LIST RATHER THAN NARROWED.*** `Array.isArray` does not
+    // reliably remove a `readonly T[]` member from a union, so the else-branch
+    // kept the array and `yield*` over it typed as yielding GENERATORS. One
+    // shape in, one loop out - and it makes the ordering explicit below.
+    const steps: readonly S[] =
+      typeof then === 'function' ? [then()] : Array.isArray(then) ? (then as readonly S[]) : [then as S]
+
+    // ***A LIST RUNS IN ORDER, NOT CONCURRENTLY.*** An arm declares obligations;
+    // `group`/`where` are where concurrency is asked for explicitly. An arm that
+    // quietly interleaved would make the order of two writes depend on which
+    // sugar the author happened to reach for.
+    for (const s of steps) yield* s
   }
 
   // ***THE RESUME, AND THE CALLER PARKS.*** `quiesce` stays at the call site: it

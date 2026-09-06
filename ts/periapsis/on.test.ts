@@ -13,6 +13,9 @@ import {
   fieldIs,
   fieldNoLonger,
   topLevelOrCount,
+  ready,
+  unready,
+  unsure,
   path,
   type Handler,
 } from './perseid.js'
@@ -252,4 +255,90 @@ test('a park of nothing but backstops is the backstop-only park', () => {
 // one that can never fire, which is the opposite of the intent.
 test('allOf does NOT fold a backstop', () => {
   expect(String(allOf(A, backstop()))).toContain('false')
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ARM SHAPES: a thunk, a bare Step, or a LIST of steps.
+//
+// The list is what removes `function* () { yield* a; yield* b }` from an arm
+// that just declares two obligations.
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('a bare Step arm needs no function* wrapper', () => {
+  const seen: string[] = []
+  const step = function* () {
+    yield* on([A, nsRead(POD)])
+
+    return { o: 'yield' as const }
+  }
+  runStep(step as never, {
+    held: () => [0],
+    get: (p: unknown) => {
+      seen.push(String(p))
+
+      return { t: 'absent' }
+    },
+  } as unknown as Handler<never>)
+
+  expect(seen).toEqual([String(POD)])
+})
+
+// ⭐ IN ORDER. An arm declares obligations; `group`/`where` are where
+// concurrency is asked for explicitly. If a list interleaved, the order of two
+// writes would depend on which sugar the author reached for.
+test('a LIST arm runs every step, in order', () => {
+  const seen: string[] = []
+  const OTHER = path.ns('default').core('v1', 'pods', 'other')
+  const step = function* () {
+    yield* on([A, [nsRead(POD), nsRead(OTHER)]])
+
+    return { o: 'yield' as const }
+  }
+  runStep(step as never, {
+    held: () => [0],
+    get: (p: unknown) => {
+      seen.push(String(p))
+
+      return { t: 'absent' }
+    },
+  } as unknown as Handler<never>)
+
+  expect(seen).toEqual([String(POD), String(OTHER)])
+})
+
+// An arm that does not fire is never advanced - generators are lazy, so building
+// the Step costs nothing but running it.
+test('an unheld list arm runs nothing', () => {
+  const seen: string[] = []
+  const step = function* () {
+    yield* on([A, [nsRead(POD)]])
+
+    return { o: 'yield' as const }
+  }
+  runStep(step as never, {
+    held: () => [],
+    get: (p: unknown) => {
+      seen.push(String(p))
+
+      return { t: 'absent' }
+    },
+  } as unknown as Handler<never>)
+
+  expect(seen).toEqual([])
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The condition shorthands. `type: 'Ready'` was constant in 37 of 37 report()
+// calls across the example programs.
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('ready/unready/unsure differ only in status, and Unknown is not False', () => {
+  expect(ready('Converged', 'm')).toEqual({
+    type: 'Ready', status: 'True', reason: 'Converged', message: 'm',
+  })
+  expect(unready('Drifted', 'm').status).toBe('False')
+  // ⛔ `Unknown` asserts NOTHING; `False` asserts not-ready. Collapsing them is
+  // the three-valued defect arriving in what an operator is told.
+  expect(unsure('Unreadable', 'm').status).toBe('Unknown')
+  expect(unsure('Unreadable', 'm').status).not.toBe(unready('Unreadable', 'm').status)
 })
