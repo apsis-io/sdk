@@ -613,6 +613,50 @@ export const objectGone = (path: E.ReadPathLike): Resume =>
   E.not(E.exists(E.get(path, 'metadata.name')))
 
 /** Wake when the pods matching a LABEL SELECTOR stop numbering n. */
+/**
+ * Wake when ANY object matching `selector` has `field` other than `want`.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⭐ ***ONE PARK OVER A WHOLE KIND - THE THING THAT WAS INEXPRESSIBLE UNTIL
+ * 2026-09-06.*** Before `min`/`max`, the only question a park could ask of a set
+ * was its SIZE, so a program watching N objects had to NAME all N. `sentinel.ts`
+ * hard-codes four subjects and `drainer.ts` one node for exactly this reason,
+ * and a fleet-wide watchdog meant one Perseid per node.
+ *
+ *     anyFieldNe(path.ns('default').deployments(), 'tier=web', 'status.readyReplicas', 3)
+ *
+ * ⚠ ***THE SET IS ONE SUBJECT TO THE WAKE INDEX***, keyed by (collection,
+ * selector) - so this costs one watch however many objects match, and objects
+ * ENTERING or LEAVING the selector are covered without the program knowing their
+ * names. That is the half a per-object park cannot do at all.
+ *
+ * ⛔ NUMERIC FIELDS ONLY, and an EMPTY match is an ERROR rather than "nothing is
+ * wrong". A selector matching nothing usually means the selector is wrong, and
+ * answering `false` there would report a healthy fleet for a typo.
+ */
+export const anyFieldNe = (
+  collection: CollectionPath,
+  selector: LabelSelector | '',
+  field: string,
+  want: number,
+): Resume =>
+  E.or(E.ne(E.minOf(E.fields(collection, selector, field)), want),
+       E.ne(E.maxOf(E.fields(collection, selector, field)), want))
+
+/**
+ * Wake when EVERY object matching `selector` has `field` equal to `want` - the
+ * convergence half of `anyFieldNe`, for a program that parks until a fleet is
+ * uniform rather than until it breaks.
+ */
+export const allFieldsAre = (
+  collection: CollectionPath,
+  selector: LabelSelector | '',
+  field: string,
+  want: number,
+): Resume =>
+  E.and(E.eq(E.minOf(E.fields(collection, selector, field)), want),
+        E.eq(E.maxOf(E.fields(collection, selector, field)), want))
+
 export const countNe = (selector: LabelSelector, n: number): Resume =>
   E.ne(E.length(E.listPods(selector)), n)
 

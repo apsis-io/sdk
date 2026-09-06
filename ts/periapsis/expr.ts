@@ -164,8 +164,17 @@ const intText = (v: IntLike): string => (typeof v === 'number' ? String(Math.tru
  *                    "degrades safely" and "degrades visibly" are not the same
  *                    property. The host's `pathGrammarDigest` closes it by
  *                    folding parser behaviour into the fingerprint.
+ *     4  2026-09-06  `.min`/`.max` on a `fields` result - THE LANGUAGE'S
+ *                    QUANTIFIERS. `.length` was the whole surface of a set, so
+ *                    a park could ask HOW MANY objects match and never whether
+ *                    ANY of them differs; every program watching N objects had
+ *                    to NAME all N, and a fleet-wide watchdog meant one Perseid
+ *                    per node. A MEMBER PROPERTY is a third thing the symbol
+ *                    table cannot see, alongside the field-path grammar - so
+ *                    the host now folds `listProperties` into the fingerprint
+ *                    for the same reason version 3 folded in the parser.
  */
-export const LANGUAGE_VERSION = 3
+export const LANGUAGE_VERSION = 4
 
 // ---------------------------------------------------------------------------
 // Symbols. One per entry in aperture's `signatures` table.
@@ -264,6 +273,29 @@ export const exists = (o: Observed): Expr<'bool'> => mk(`${o}.exists`)
 
 /** `.length` - how many. Only for a set: pods, or a `list`/`fields` result. */
 export const length = (p: Expr<'pods'> | Expr<'list'>): Expr<'int'> => mk(`${p}.length`)
+
+/**
+ * `.min` / `.max` - the extremes of a NUMERIC `fields` result.
+ *
+ * ⭐ ***THESE ARE THE LANGUAGE'S QUANTIFIERS, AND THEY ARE THE ONLY WAY TO ASK
+ * ANYTHING OF A SET BEYOND ITS SIZE.*** Until 2026-09-06 `.length` was the whole
+ * surface, so a park could say "how many objects match" and never "does ANY of
+ * them differ from what I want" - which is why every program watching N objects
+ * had to NAME them, and a fleet-wide watchdog meant one Perseid per node.
+ *
+ * Combined with the comparison operators the language already has, they recover
+ * both quantifiers without a new symbol:
+ *
+ *	any element != n   min != n || max != n
+ *	all elements == n  min == n && max == n
+ *
+ * ⛔ NUMERIC FIELDS ONLY. A ConfigMap's `data` values are strings by API type, so
+ * these refuse them - use `fields(...) != fields(...)` for that. `min` of an
+ * EMPTY set is an error rather than 0: the extreme of nothing is not a number,
+ * and a park would compare against whatever came back.
+ */
+export const minOf = (p: Expr<'list'>): Expr<'int'> => mk(`${p}.min`)
+export const maxOf = (p: Expr<'list'>): Expr<'int'> => mk(`${p}.max`)
 
 // ---------------------------------------------------------------------------
 // ⛔ EIGHT PER-KIND CONSTRUCTORS WERE HERE AND ARE DELETED, 2026-08-30.

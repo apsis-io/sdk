@@ -346,7 +346,7 @@ pub fn now() -> Expr<Int> {
 /// its tree red until a tagged release carries this value, and releasing this
 /// first means a program built here declares a language the fleet's radiant
 /// refuses. Tag the release and bump the host in the same change.
-pub const LANGUAGE_VERSION: u32 = 3;
+pub const LANGUAGE_VERSION: u32 = 4;
 
 // ---------------------------------------------------------------------------
 // Properties.
