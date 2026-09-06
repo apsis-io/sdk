@@ -2,7 +2,20 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { expect, test } from 'bun:test'
-import { on, reconcile, runStep, fieldIs, fieldNoLonger, topLevelOrCount, path, type Handler, type Resume } from './perseid.js'
+import {
+  on,
+  reconcile,
+  runStep,
+  anyOf,
+  allOf,
+  backstop,
+  untilBackstop,
+  fieldIs,
+  fieldNoLonger,
+  topLevelOrCount,
+  path,
+  type Handler,
+} from './perseid.js'
 
 const POD = path.ns('default').core('v1', 'pods', 'web')
 const A = fieldIs(POD, 'status.phase', 'Running')
@@ -15,12 +28,12 @@ function drive(heldArms: number[]): { ran: string[]; resume: string } {
   let resume = ''
   const step = function* () {
     resume = String(
-      yield* on({
+      yield* on(
         // eslint-disable-next-line require-yield
-        [A]: function* () { ran.push('A') },
+        [A, function* () { ran.push('A') }],
         // eslint-disable-next-line require-yield
-        [B]: function* () { ran.push('B') },
-      }),
+        [B, function* () { ran.push('B') }],
+      ),
     )
 
     return { o: 'yield' as const }
@@ -117,16 +130,22 @@ const clusterRead = reconcile.observeCluster<string>()
 test('arms yielding DIFFERENT effect types unify rather than fixing on the first', () => {
   const ran: string[] = []
   const step = function* () {
-    yield* on({
-      [A]: function* () {
-        yield* nsRead(POD)
-        ran.push('ns')
-      },
-      [B]: function* () {
-        yield* clusterRead(path.nodes('n1'))
-        ran.push('cluster')
-      },
-    })
+    yield* on(
+      [
+        A,
+        function* () {
+          yield* nsRead(POD)
+          ran.push('ns')
+        },
+      ],
+      [
+        B,
+        function* () {
+          yield* clusterRead(path.nodes('n1'))
+          ran.push('cluster')
+        },
+      ],
+    )
 
     return { o: 'yield' as const }
   }
@@ -166,12 +185,12 @@ test('topLevelOrCount counts what the host flattens', () => {
 function driveWide(heldArms: number[]): string[] {
   const ran: string[] = []
   const step = function* () {
-    yield* on({
+    yield* on(
       // eslint-disable-next-line require-yield
-      [WIDE_A]: function* () { ran.push('A') },
+      [WIDE_A, function* () { ran.push('A') }],
       // eslint-disable-next-line require-yield
-      [WIDE_B]: function* () { ran.push('B') },
-    })
+      [WIDE_B, function* () { ran.push('B') }],
+    )
 
     return { o: 'yield' as const }
   }
@@ -197,4 +216,40 @@ test('both operands of one arm run its handler once', () => {
   expect(driveWide([0, 1])).toEqual(['A'])
   expect(driveWide([2, 3])).toEqual(['B'])
   expect(driveWide([0, 1, 2, 3])).toEqual(['A', 'B'])
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// `backstop()` - SAYING "and otherwise, eventually" WITHOUT SPENDING AN INDEX.
+//
+// The host renders `(<the whole user resume>) || Backstop()` onto every park, so
+// this adds no liveness. What it must not do is COST AN OPERAND: the host
+// reports which flattened operand held, so a `false` that can never hold would
+// still shift every arm after it and dispatch the wrong handler.
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('anyOf FOLDS a backstop operand away - X || false is X', () => {
+  const plain = anyOf(A, B)
+  expect(String(anyOf(A, B, backstop()))).toBe(String(plain))
+  // Position must not matter: folding is not "drop the last one".
+  expect(String(anyOf(A, backstop(), B))).toBe(String(plain))
+  expect(String(anyOf(backstop(), A, B))).toBe(String(plain))
+})
+
+// ⭐ THE PROPERTY THAT MATTERS, STATED AS THE THING on() ACTUALLY READS.
+test('a backstop operand does not shift arm indices', () => {
+  expect(topLevelOrCount(String(anyOf(A, B, backstop())))).toBe(
+    topLevelOrCount(String(anyOf(A, B))),
+  )
+})
+
+// Alone it IS the park: `false`, which is what untilBackstop means.
+test('a park of nothing but backstops is the backstop-only park', () => {
+  expect(String(anyOf(backstop()))).toBe(String(untilBackstop))
+  expect(String(anyOf(backstop(), backstop()))).toBe(String(untilBackstop))
+})
+
+// ⛔ NOT IN allOf. `X && false` is `false` - folding there would turn a park into
+// one that can never fire, which is the opposite of the intent.
+test('allOf does NOT fold a backstop', () => {
+  expect(String(allOf(A, backstop()))).toContain('false')
 })

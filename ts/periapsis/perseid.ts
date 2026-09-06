@@ -1046,8 +1046,50 @@ export const changed = (ref: string): Resume => {
 
 // `paren`, not `group`: this file already EXPORTS a `group` Step combinator
 // (see below), and a second declaration merges with it rather than shadowing.
-/** Wake when ANY sub-condition holds. */
-export const anyOf = (...of: Resume[]): Resume => E.or(...of)
+/**
+ * Wake at the host's BACKSTOP, and nothing else of your own.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***THE HOST ALREADY DOES THIS TO EVERY PARK*** - `internal/aperture/eval.go`
+ * renders `(<the whole user resume>) || Backstop()` in `WithBackstop`. So this
+ * does not ADD liveness; it lets a program SAY that a bounded recheck is the
+ * intent, instead of the idiom it replaces:
+ *
+ *     anyOf(resume, deadline(Date.now() + RECHECK_MS))   // three things wrong
+ *     anyOf(resume, backstop())                          // says it, costs nothing
+ *
+ * The old idiom is REDUNDANT (the host adds its own), STALE BY CONSTRUCTION
+ * (`Date.now()` runs when the step builds the expression, and the host evaluates
+ * it at wake time), and it SPENDS A DISJUNCT - an operand `on()` then has to
+ * skip when mapping a held index back to an arm.
+ *
+ * ⚠ ***ALONE IT IS ONLY AS BOUNDED AS THE BACKSTOP IS.*** Under
+ * `-perseid-backstop=off` a program parked on this waits forever, and the only
+ * symptom is that its passes counter stops climbing. Reach for a real condition
+ * unless the wake is genuinely time-only.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export const backstop = (): Resume => untilBackstop
+
+/**
+ * Wake when ANY sub-condition holds.
+ *
+ * ***`backstop()` OPERANDS ARE FOLDED AWAY, BECAUSE `X || false` IS `X`.*** The
+ * point is not brevity - it is that an operand costs an INDEX. The host flattens
+ * `||` and reports which operand held; a `false` that can never hold would still
+ * shift every arm after it, so writing the intent would silently change the
+ * dispatch. Folding is what makes `backstop()` free to say.
+ *
+ * ⚠ Only here. In `allOf`, `X && false` is `false` - folding there would turn a
+ * park into one that can never fire.
+ */
+export const anyOf = (...of: Resume[]): Resume => {
+  const live = of.filter((r) => (r as unknown as string) !== (untilBackstop as unknown as string))
+
+  // Every operand was a backstop, so that IS the park - `false` alone, which is
+  // exactly what `untilBackstop` means.
+  return live.length === 0 ? untilBackstop : E.or(...live)
+}
 
 /**
  * Wake when EVERY sub-condition holds.
@@ -2672,7 +2714,23 @@ export const objects = {
  * conditional is distributive because `A[keyof A]` is a union of the arm
  * functions and the checked type is a naked parameter.
  */
-type ArmEffects<A> = A[keyof A] extends () => Generator<infer E, unknown, unknown> ? E : never
+/** The effects one arm's `then` yields, whether it is a Step or a thunk. */
+type ThenEffects<H> = H extends () => Generator<infer E, unknown, unknown>
+  ? E
+  : H extends Generator<infer E, unknown, unknown>
+    ? E
+    : never
+
+/**
+ * The UNION over every arm.
+ *
+ * ⚠ ***`T[number][1]` IS WHAT MAKES ARMS WITH DIFFERENT EFFECTS UNIFY.*** A
+ * plain `...arms: readonly Arm<E>[]` fixes `E` on the FIRST arm and then rejects
+ * every other one - which is not a type-noise problem, it is a program that
+ * cannot observe two kinds of thing in one park. Indexing the tuple distributes,
+ * exactly as the arms-object form's `A[keyof A]` did.
+ */
+type ArmsEffects<T extends readonly Arm<AnyEffect>[]> = ThenEffects<T[number][1]>
 
 /**
  * How many operands an expression contributes to the host's FLATTENED
@@ -2710,56 +2768,63 @@ export const topLevelOrCount = (expr: string): number => {
   return operands
 }
 
-/** One arm of the PAIR form: what to wake on, and what to do about it. */
+/**
+ * One arm: what to wake on, and what to do about it.
+ *
+ * `then` is a Step OR a thunk returning one. An effect call already returns a
+ * generator, so the common single-effect arm is just the call:
+ *
+ *     [objectGone(POD), report({ type: 'Ready', status: 'False', … })]
+ *     [drifted(DEP),    function* () { yield* ensure(…); yield* report(…) }]
+ *
+ * ⚠ A bare Step has its ARGUMENTS evaluated when the arm is built, not when it
+ * fires. That is fine for the literal above and wrong for anything derived from
+ * work another arm does - use a thunk there, and the laziness is explicit.
+ */
 export type Arm<E extends AnyEffect> = readonly [
   when: Resume,
-  then: () => Generator<E, unknown, unknown>,
+  then: Generator<E, unknown, unknown> | (() => Generator<E, unknown, unknown>),
 ]
 
 /**
- * The ARMS-OBJECT form. Returns the resume; the caller parks with it.
+ * Park on several conditions and run the handler for whichever HELD.
  *
- * ⚠ Kept because it is what deployed programs are written in. New code should
- * prefer the pair form below, which returns the park itself.
- */
-export function on<A extends Record<string, () => Generator<AnyEffect, unknown, unknown>>>(
-  arms: A,
-): Generator<ArmEffects<A> | Effect<typeof WIT_WOKE, 'held', void>, Resume, unknown>
-/**
- * The PAIR form - the one to write.
- *
- *     return yield* on(
- *       [fieldNe(TARGET, 'spec.replicas', WANT), function* () { yield* ensure(…) }],
- *       [objectGone(TARGET),                     function* () { yield* recreate() }],
+ *     return quiesce(
+ *       yield* on(
+ *         [drifted(TARGET),  report({ type: 'Ready', status: 'False', … })],
+ *         [objectGone(POD),  function* () { yield* create(…); yield* report(…) }],
+ *       ),
  *     )
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * ***IT RETURNS THE OUTCOME, NOT THE RESUME, AND THAT IS THE SIMPLIFICATION.***
- * `on` already knows every arm, so `quiesce(anyOf(resume, …))` asks the author
- * to restate what they have just finished saying - and every existing caller
- * writes exactly that, plus a `deadline(Date.now() + RECHECK_MS)` arm which is
- * redundant: the host disjoins `|| Backstop()` onto EVERY park
- * (`internal/aperture/eval.go`, `WithBackstop`). So the tail was two combinators
- * and a wall-clock read that were all saying "and otherwise, eventually".
+ * ***PAIRS, NOT A COMPUTED-KEY OBJECT.*** `{[expr]: handler}` reads as a map
+ * when it is really a SEQUENCE, and object keys DEDUPLICATE - two arms watching
+ * the same condition collapsed into one silently. A list keeps both, keeps
+ * source order, and keeps `when` and `then` adjacent.
  *
- * The pairs also keep `when` and `then` ADJACENT and in source order, which a
- * computed key does not: `{[expr]: handler}` reads as a map when it is really a
- * sequence, and the key is stringified at construction so the expression's
- * structure is gone before `on` ever sees it.
+ * ***A SINGLE-EFFECT ARM NEEDS NO `function*`.*** An effect call already returns
+ * a generator, so `report({…})` is a Step and can be the arm itself. Reach for a
+ * thunk when the arm does several things or its arguments depend on other work -
+ * see `Arm`.
+ *
+ * ***IT RETURNS THE RESUME AND THE CALLER PARKS.*** `quiesce` is where a step
+ * says what would change its mind; hiding it inside `on` would make the park
+ * invisible in the program that owns it.
+ *
+ * ⚠ You do NOT need a `deadline(Date.now() + …)` arm for liveness: the host
+ * renders `(<the whole user resume>) || Backstop()` onto every park
+ * (`internal/aperture/eval.go`, `WithBackstop`). If you want to SAY so, use
+ * `backstop()`, which `anyOf` folds away rather than spending an operand on.
  * ═══════════════════════════════════════════════════════════════════════════
  */
-export function on<E extends AnyEffect>(
-  ...arms: readonly Arm<E>[]
-): Generator<E | Effect<typeof WIT_WOKE, 'held', void>, Outcome, unknown>
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function* on(...args: any[]): Generator<any, any, unknown> {
-  // ***`Array.isArray` IS THE DISCRIMINATOR***: a pair is an array, an arms
-  // object is not. Nothing else distinguishes the two call shapes at runtime.
-  const asPairs = Array.isArray(args[0])
-  const arms: Record<string, () => Generator<AnyEffect, unknown, unknown>> = asPairs
-    ? Object.fromEntries((args as Arm<AnyEffect>[]).map(([when, then]) => [String(when), then]))
-    : (args[0] as Record<string, () => Generator<AnyEffect, unknown, unknown>>)
-  const keys = Object.keys(arms)
+export function* on<T extends readonly Arm<AnyEffect>[]>(
+  ...arms: T
+): Generator<ArmsEffects<T> | Effect<typeof WIT_WOKE, 'held', void>, Resume, unknown> {
+  // ***A LIST, NOT AN OBJECT, AND THE DEDUP IS ONE REASON.*** Keying handlers by
+  // the rendered expression made two arms with the same condition collapse into
+  // one silently, and object key order is a convention rather than a guarantee
+  // for anything but string keys. A list keeps both arms and keeps source order.
+  const keys = arms.map(([when]) => String(when))
   // ⛔⛔ ***THE HOST INDEXES FLATTENED OPERANDS; THIS MAP INDEXES ARMS, AND THEY
   // ARE NOT THE SAME NUMBER THE MOMENT AN ARM CONTAINS ITS OWN `||`.***
   //
@@ -2781,10 +2846,10 @@ export function* on(...args: any[]): Generator<any, any, unknown> {
   // occupies `width` consecutive host indices; a reported index lands in exactly
   // one arm's range.
   const widths = keys.map(topLevelOrCount)
-  const armOfIndex = (i: number): string | undefined => {
+  const armOfIndex = (i: number): number | undefined => {
     let at = 0
     for (let k = 0; k < keys.length; k++) {
-      if (i < at + widths[k]!) return keys[k]
+      if (i < at + widths[k]!) return k
       at += widths[k]!
     }
 
@@ -2796,7 +2861,7 @@ export function* on(...args: any[]): Generator<any, any, unknown> {
   const woke = reconcile.woke()
   const heldArms = ((yield* woke()) as number[] | undefined) ?? []
 
-  const alreadyRun = new Set<string>()
+  const alreadyRun = new Set<number>()
   for (const i of heldArms) {
     const key = armOfIndex(i)
     if (key === undefined) {
@@ -2816,14 +2881,25 @@ export function* on(...args: any[]): Generator<any, any, unknown> {
     // program declared ONE handler for that condition.
     if (alreadyRun.has(key)) continue
     alreadyRun.add(key)
-    const arm = arms[key] as () => Generator<AnyEffect, unknown, unknown>
-    yield* arm()
+    // ***A GENERATOR OBJECT OR A THUNK.*** `report({…})` IS a Step - an effect
+    // call returns a generator - so a single-effect arm needs no `function*`
+    // wrapper at all. Generators are lazy, so an arm that never fires is never
+    // advanced; only its ARGUMENTS are built up front, which is why a handler
+    // whose arguments depend on another arm having run must stay a thunk.
+    //
+    // The CONSTRAINT says an arm yields `AnyEffect`; the RETURN TYPE promises
+    // the narrower `ArmsEffects<T>`. Both are true of the same value, and
+    // TypeScript cannot see it from in here because it checks the body against
+    // the widened constraint rather than against the caller's `T`. The assertion
+    // carries the fact the signature already states.
+    const then = arms[key]![1] as
+      | Generator<ArmsEffects<T>, unknown, unknown>
+      | (() => Generator<ArmsEffects<T>, unknown, unknown>)
+    yield* typeof then === 'function' ? then() : then
   }
 
-  const resume = anyOf(...(keys as unknown as Resume[]))
-
-  // The pair form returns the PARK; the arms-object form returns the RESUME and
-  // leaves the parking to the caller. Same dispatch either way - only the tail
-  // the author has to write differs.
-  return asPairs ? quiesce(resume) : resume
+  // ***THE RESUME, AND THE CALLER PARKS.*** `quiesce` stays at the call site: it
+  // is the one place a step says what would change its mind, and hiding it here
+  // would make the park invisible in the program that owns it.
+  return anyOf(...(keys as unknown as Resume[]))
 }
