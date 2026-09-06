@@ -31,6 +31,9 @@
 // never-started). Collapsing the two into `undefined` reintroduces that whole
 // family, so the type will not let you.
 import * as E from './expr'
+import { ResumeNode } from './resume.js'
+
+export { ResumeNode }
 
 export type Obs<T> =
   | { readonly t: 'known'; readonly v: T }
@@ -92,7 +95,15 @@ export const unknown: Obs<never> = { t: 'unknown' }
 // an effect expression IS refused in a resume position, so the checks are not
 // inert.
 // ═══════════════════════════════════════════════════════════════════════════
-export type Resume = E.Expr<'bool'>
+// ***A TREE, NOT A STRING, SINCE 2026-09-06*** (engi: "in sdk we should generate
+// resume object, instead of ... rendering (A || B)"). It renders to exactly the
+// text the string form produced - `toJSON` puts that on the wire, so the host
+// and the WIT contract are unchanged - and keeping the shape deletes the
+// re-parsing `on()` used to need. See `resume.ts`.
+export type Resume = ResumeNode
+
+/** Build a leaf from an already-rendered comparison. */
+const leaf = (e: E.Expr<'bool'>): Resume => ResumeNode.leaf(e)
 
 // ---------------------------------------------------------------------------
 // THE THREE VOCABULARIES, AND WHY THEY ARE THREE TYPES RATHER THAN THREE
@@ -594,7 +605,7 @@ export type RefusesAPath<N extends string> = N extends `/${string}`
 // program already holds for its own workloads.
 // ═══════════════════════════════════════════════════════════════════════════
 export const objectExists = (path: E.ReadPathLike): Resume =>
-  E.exists(E.get(path, 'metadata.name'))
+  leaf(E.exists(E.get(path, 'metadata.name')))
 
 /**
  * Wake when an object is GONE.
@@ -610,7 +621,7 @@ export const objectExists = (path: E.ReadPathLike): Resume =>
  * only in which kind their symbol named, and the path says that now.
  */
 export const objectGone = (path: E.ReadPathLike): Resume =>
-  E.not(E.exists(E.get(path, 'metadata.name')))
+  leaf(E.not(E.exists(E.get(path, 'metadata.name'))))
 
 /** Wake when the pods matching a LABEL SELECTOR stop numbering n. */
 /**
@@ -640,8 +651,12 @@ export const anyFieldNe = (
   field: string,
   want: number,
 ): Resume =>
-  E.or(E.ne(E.minOf(E.fields(collection, selector, field)), want),
-       E.ne(E.maxOf(E.fields(collection, selector, field)), want))
+  // ⭐ A REAL `or` NODE, SO ITS WIDTH IS TWO BY CONSTRUCTION. This arm is the
+  // shape that broke `on()` when widths were re-parsed from text.
+  ResumeNode.or([
+    leaf(E.ne(E.minOf(E.fields(collection, selector, field)), want)),
+    leaf(E.ne(E.maxOf(E.fields(collection, selector, field)), want)),
+  ])
 
 /**
  * Wake when EVERY object matching `selector` has `field` equal to `want` - the
@@ -654,11 +669,15 @@ export const allFieldsAre = (
   field: string,
   want: number,
 ): Resume =>
-  E.and(E.eq(E.minOf(E.fields(collection, selector, field)), want),
-        E.eq(E.maxOf(E.fields(collection, selector, field)), want))
+  // An `and` node: the host's flatten does not descend into `&&`, so this
+  // contributes ONE operand however many comparisons it carries.
+  ResumeNode.and([
+    leaf(E.eq(E.minOf(E.fields(collection, selector, field)), want)),
+    leaf(E.eq(E.maxOf(E.fields(collection, selector, field)), want)),
+  ])
 
 export const countNe = (selector: LabelSelector, n: number): Resume =>
-  E.ne(E.length(E.listPods(selector)), n)
+  leaf(E.ne(E.length(E.listPods(selector)), n))
 
 /**
  * Wake when the pods matching a SELECTOR stop numbering what the WORKLOAD asks
@@ -688,7 +707,7 @@ export const countNeField = (
   selector: LabelSelector,
   workload: ApiPath,
   field = 'spec.replicas',
-): Resume => E.ne(E.length(E.listPods(selector)), E.get(workload, field))
+): Resume => leaf(E.ne(E.length(E.listPods(selector)), E.get(workload, field)))
 
 /**
  * Wake when a FIELD of an object stops being n.
@@ -716,7 +735,7 @@ export const countNeField = (
  * shape the collapse removed.
  */
 export const fieldNe = (path: E.ReadPathLike, field: string, n: number): Resume =>
-  E.ne(E.get(path, field), n)
+  leaf(E.ne(E.get(path, field), n))
 
 /**
  * Wake when a STRING or BOOLEAN field becomes `value`.
@@ -731,7 +750,7 @@ export const fieldNe = (path: E.ReadPathLike, field: string, n: number): Resume 
  * appears" must not resume instantly on a node that has no such annotation.
  */
 export const fieldIs = (path: E.ReadPathLike, field: string, value: string | boolean): Resume =>
-  E.eqScalar(E.get(path, field), value)
+  leaf(E.eqScalar(E.get(path, field), value))
 
 /**
  * Wake when a field STOPS being `value` - including by being DELETED.
@@ -775,12 +794,17 @@ export const fieldNoLonger = (
   field: string,
   value: string | boolean | number,
 ): Resume =>
-  E.or(
-    E.not(E.exists(E.get(path, field))),
-    typeof value === 'number'
-      ? E.ne(E.get(path, field), value)
-      : E.neScalar(E.get(path, field), value),
-  )
+  // ⭐ A REAL `or` NODE, TWO OPERANDS BY CONSTRUCTION. This is the builder whose
+  // width `on()` used to recover by scanning the rendered text, and getting it
+  // wrong is what dispatched the wrong handler on a live cluster.
+  ResumeNode.or([
+    leaf(E.not(E.exists(E.get(path, field)))),
+    leaf(
+      typeof value === 'number'
+        ? E.ne(E.get(path, field), value)
+        : E.neScalar(E.get(path, field), value),
+    ),
+  ])
 
 // ---------------------------------------------------------------------------
 // DERIVING A RESUME FROM WHAT THE STEP ACTUALLY OBSERVED.
@@ -900,7 +924,7 @@ export const untilDrift = (observed: ApiPath, seen: number): Resume => {
 // to remember (radiant-main found this; comet is unaffected because its `now`
 // is a `defineEffect<void, number>` rather than the WIT import).
 export const deadline = (atEpochMillis: number | bigint): Resume =>
-  E.ge(E.now(), Math.trunc(Number(atEpochMillis)))
+  leaf(E.ge(E.now(), Math.trunc(Number(atEpochMillis))))
 
 /**
  * `deadline`, computed from the guest's clock: wake `ms` from `nowEpochMillis`.
@@ -1084,11 +1108,23 @@ export const backstop = (): Resume => untilBackstop
  * park into one that can never fire.
  */
 export const anyOf = (...of: Resume[]): Resume => {
-  const live = of.filter((r) => (r as unknown as string) !== (untilBackstop as unknown as string))
+  // ***BY KIND, NOT BY RENDERED TEXT.*** The string form compared against
+  // `'false'`, which would also have folded a literal `false` an author wrote
+  // for some other reason. A backstop is now its own node and nothing else
+  // matches it.
+  const live = of.filter((r) => r.kind !== 'backstop')
 
   // Every operand was a backstop, so that IS the park - `false` alone, which is
   // exactly what `untilBackstop` means.
-  return live.length === 0 ? untilBackstop : E.or(...live)
+  if (live.length === 0) return untilBackstop
+
+  // ⚠ ***A SINGLE OPERAND IS STILL WRAPPED, AND THAT IS DELIBERATE.*** Returning
+  // `live[0]` renders `x` where the string form rendered `(x)` - equivalent to
+  // the host, and a DIFFERENT emitted expression. It was caught by the goldens:
+  // one line of 22 moved. The parens are kept because this refactor's entire
+  // safety case is that no park's text changed; tidying the output is a separate
+  // decision that should be made on its own and measured on its own.
+  return ResumeNode.or(live)
 }
 
 /**
@@ -1099,7 +1135,7 @@ export const anyOf = (...of: Resume[]): Resume => {
  * `reconcilehost.hasTimeBound`. If you want a guaranteed wake, put the deadline
  * in an `anyOf`.
  */
-export const allOf = (...of: Resume[]): Resume => E.and(...of)
+export const allOf = (...of: Resume[]): Resume => ResumeNode.and(of)
 
 /**
  * Park until the BACKSTOP. Nothing but time will wake this.
@@ -1117,7 +1153,7 @@ export const allOf = (...of: Resume[]): Resume => E.and(...of)
  * ADR-0075 invariant 5 exists to prevent. Reach for a real condition unless the
  * wake is genuinely time-only.
  */
-export const untilBackstop: Resume = 'false' as Resume
+export const untilBackstop: Resume = ResumeNode.backstop
 
 /**
  * Re-run at the next poll: a yield that is PACED rather than immediate.
@@ -1127,7 +1163,7 @@ export const untilBackstop: Resume = 'false' as Resume
  * parks properly and comes back at the poll interval, so the pacing is the
  * host's configuration rather than a floor the driver has to enforce.
  */
-export const nextPoll: Resume = 'true' as Resume
+export const nextPoll: Resume = ResumeNode.always
 
 // ---------------------------------------------------------------------------
 // Outcome. `quiesce` REQUIRES a resume expression — there is no way to say "I am
@@ -1272,12 +1308,25 @@ export function carriedBy(rawPerseid: string): string | null {
  * `reconcile.wit` calls *"a program correctly asleep on a condition nobody will
  * satisfy, indistinguishable from a program correctly asleep."*
  */
-export function quiesce<R extends Resume>(resume: R extends '' ? never : R): Outcome {
-  if (resume === '') {
+export function quiesce(resume: Resume): Outcome {
+  // ⛔ ***THE RUNTIME CHECK STAYS, AND I TRIED TO DELETE IT.*** The reasoning
+  // was that `Resume` is a NODE now, so there is no empty string to pass and the
+  // conditional parameter type was guarding a value the type can no longer hold.
+  // The first half is true and the conclusion is wrong: `perseid.test.ts` forces
+  // `'' as unknown as Resume` precisely because that is *"the path a value from
+  // outside the program takes: config, an env var, an annotation, or any untyped
+  // JS caller"*. A type does not reach those callers. The test caught it.
+  //
+  // ***IT CHECKS THE RENDERED TEXT, WHICH IS STRICTLY MORE THAN THE OLD `=== ''`
+  // DID.*** `String()` covers a forced bare string AND a node that renders
+  // empty, so the check is about what will actually go on the wire rather than
+  // about which shape the argument happened to have.
+  if (String(resume) === '') {
     throw new Error(
       'quiesce: empty resume. A park must say what would change its mind - the host ' +
         'refuses this ("step parked with an EMPTY resume") and a step that ignored ' +
-        'the refusal would wait for a condition nothing can satisfy.',
+        'the refusal would wait for a condition nothing can satisfy. For a park that ' +
+        'is deliberately time-only, say so: `untilBackstop`.',
     )
   }
 
@@ -2155,14 +2204,14 @@ type HandlerArg<E extends AnyEffect> = NoInfer<Handler<E>>
  *
  * ═══════════════════════════════════════════════════════════════════════════
  * ***A THROW AND NOT AN EFFECT, BECAUSE OF `@group`.*** The obvious design is a
- * structural `@bail` op beside `@group`/`@select`. It is wrong: `driveSync`
+ * structural `@bail` op beside `@group`/`@race`. It is wrong: `driveSync`
  * RECURSES for each group arm, so a bail raised inside one would be returned as
  * THAT ARM'S VALUE and the step would carry on with an `Outcome` where an
  * observation should be. The failure is silent and typed.
  *
  * An exception unwinds every frame including the recursion, which is exactly
  * short-circuit semantics, and `Promise.all` in the async driver rejects on the
- * first throw and propagates it for free. Nothing in `group`/`select` had to
+ * first throw and propagates it for free. Nothing in `group`/`race` had to
  * learn about this.
  *
  * ⚠ It is caught at the two runner boundaries and nowhere else, so a `try`
@@ -2205,12 +2254,12 @@ function driveSync(it: Step<any, any>, handler: Record<string, (a: unknown) => u
       sent = (eff.args as Step<any, any>[]).map((sub) => driveSync(sub, handler))
       continue
     }
-    if (eff.op === '@select') {
+    if (eff.op === '@race') {
       // FAIL CLOSED rather than pick one. Under sequential execution "whichever
       // finishes first" has no meaning, so any answer here would be a silent
       // semantic difference between this runner and runStepAsync — which is the
       // exact class of bug the rest of this contract exists to prevent.
-      throw new Error('select requires an async runner: use runStepAsync')
+      throw new Error('race requires an async runner: use runStepAsync')
     }
     sent = handler[eff.op](eff.args)
   }
@@ -2253,7 +2302,7 @@ async function driveAsync(
       sent = await Promise.all((eff.args as Step<any, any>[]).map((sub) => driveAsync(sub, handler)))
       continue
     }
-    if (eff.op === '@select') {
+    if (eff.op === '@race') {
       sent = await Promise.race(
         (eff.args as Step<any, any>[]).map((sub, index) =>
           driveAsync(sub, handler).then((value) => ({ index, value })),
@@ -2345,7 +2394,14 @@ export function reader<P, E extends AnyEffect, T = Record<string, unknown>>(
 }
 
 // ---------------------------------------------------------------------------
-// Structured concurrency — `group` and `select`, after Zig 0.16's std.Io.
+// Structured concurrency — `group` and `race`, after Zig 0.16's std.Io.
+//
+// ***`race` WAS CALLED `select` UNTIL 2026-09-06.*** It moved so the field-path
+// selector could take that name: `sel(...)` reads as an abbreviation, and the
+// thing it does IS selecting an element of a list. `race` is the more accurate
+// name for this one anyway - it races sub-steps and returns the first to settle.
+// The rule is field.ts's own: two unrelated things sharing a name in one SDK is
+// a collision the reader pays for later.
 //
 // A step yields one effect at a time and waits, so three independent
 // observations cost three round trips. These let a step ask for several at once
@@ -2361,15 +2417,15 @@ export function reader<P, E extends AnyEffect, T = Record<string, unknown>>(
 
 /** Reserved `wit` value: this effect is control flow, not a capability. */
 export const STRUCTURAL = '@structural'
-export type StructuralOp = '@group' | '@select'
+export type StructuralOp = '@group' | '@race'
 
 export type GroupEff = {
   readonly op: '@group'
   readonly args: readonly Step<any, any>[]
   readonly wit?: typeof STRUCTURAL
 }
-export type SelectEff = {
-  readonly op: '@select'
+export type RaceEff = {
+  readonly op: '@race'
   readonly args: readonly Step<any, any>[]
   readonly wit?: typeof STRUCTURAL
 }
@@ -2394,7 +2450,7 @@ export type SelectEff = {
  * ***`EffectsOf` AND `YieldOf` ARE NOT DUPLICATES AND THE DIFFERENCE IS ONE
  * `ReturnType`.*** `YieldOf` takes a STEP — the generator object; `EffectsOf`
  * takes the FUNCTION that returns one, which is what you have a `typeof` for.
- * Both are here because `group`/`select` compose over steps while call sites
+ * Both are here because `group`/`race` compose over steps while call sites
  * name functions, and collapsing them would force a `ReturnType` at whichever
  * end lost.
  */
@@ -2422,10 +2478,10 @@ export function* group<T extends readonly Step<any, any>[]>(
  * meaningful. Zig's Io can cancel because its operations are I/O; ours are
  * declarations. Losers run to completion and their results are discarded.
  */
-export function* select<T extends readonly Step<any, any>[]>(
+export function* race<T extends readonly Step<any, any>[]>(
   ...steps: T
-): Step<YieldOf<T[number]> | SelectEff, { index: number; value: ReturnOf<T[number]> }> {
-  return (yield { op: '@select', args: steps } as SelectEff) as any
+): Step<YieldOf<T[number]> | RaceEff, { index: number; value: ReturnOf<T[number]> }> {
+  return (yield { op: '@race', args: steps } as RaceEff) as any
 }
 
 /**
@@ -2774,41 +2830,23 @@ export const objects = {
 // tuple to index. Same property, and it survives `.each` - which a tuple type
 // could not have expressed, because the arm count is not known statically.
 
-/**
- * How many operands an expression contributes to the host's FLATTENED
- * disjunction: its top-level `||` count plus one.
- *
- * ***PAREN- AND QUOTE-AWARE, BECAUSE BOTH APPEAR IN REAL ARMS.*** A path is a
- * quoted string that can contain anything, and every builder parenthesises its
- * operands - so a naive `split('||')` miscounts an arm containing a literal
- * `||` in a field path and one whose nesting is deeper than one level.
- *
- * ⚠ It counts what `HeldDisjuncts` flattens, so the two definitions must agree.
- * They are tested against each other rather than assumed: the host's own test
- * asserts the operand count for the same shapes this counts.
- */
-export const topLevelOrCount = (expr: string): number => {
-  let depth = 0
-  let inString = false
-  let operands = 1
-  for (let i = 0; i < expr.length; i++) {
-    const c = expr[i]!
-    if (inString) {
-      if (c === '\\') i++
-      else if (c === '"') inString = false
-      continue
-    }
-    if (c === '"') inString = true
-    else if (c === '(') depth++
-    else if (c === ')') depth--
-    else if (c === '|' && expr[i + 1] === '|' && depth === 0) {
-      operands++
-      i++
-    }
-  }
-
-  return operands
-}
+// ═══════════════════════════════════════════════════════════════════════════
+// ***`topLevelOrCount` LIVED HERE AND IS GONE (2026-09-06).***
+//
+// It counted an arm's `||` operands by SCANNING THE RENDERED TEXT - paren- and
+// quote-aware, because a field path is a quoted string that may contain `||`
+// and every builder parenthesises its operands. It was careful and it was
+// correct, and it existed only because the builders concatenated strings and
+// threw the shape away before `on()` could ask about it.
+//
+// `ResumeNode.operands` is that question answered by walking the tree, which
+// mirrors the host's `flattenOr` by construction. There is nothing left to
+// parse, so there is nothing left to disagree.
+//
+// ⚠ Do not reintroduce a text scanner here. If something needs an operand
+// count it needs the NODE, and a caller holding only a string has already lost
+// the thing that makes the count trustworthy.
+// ═══════════════════════════════════════════════════════════════════════════
 
 /**
  * One arm: what to wake on, and what to do about it.
@@ -2848,7 +2886,7 @@ function* dispatch<E extends AnyEffect>(
   // the rendered expression made two arms with the same condition collapse into
   // one silently, and object key order is a convention rather than a guarantee
   // for anything but string keys. A list keeps both arms and keeps source order.
-  const keys = arms.map(([when]) => String(when))
+  const conditions = arms.map(([when]) => when)
   // ⛔⛔ ***THE HOST INDEXES FLATTENED OPERANDS; THIS MAP INDEXES ARMS, AND THEY
   // ARE NOT THE SAME NUMBER THE MOMENT AN ARM CONTAINS ITS OWN `||`.***
   //
@@ -2869,10 +2907,14 @@ function* dispatch<E extends AnyEffect>(
   // here rather than asking the host for something it cannot know. Each key
   // occupies `width` consecutive host indices; a reported index lands in exactly
   // one arm's range.
-  const widths = keys.map(topLevelOrCount)
+  // ⭐ ***STRUCTURAL, NOT RE-PARSED.*** This was `keys.map(topLevelOrCount)` - a
+  // paren- and quote-aware scanner over the RENDERED text, recovering the shape
+  // the builders had just thrown away. `operands` walks the tree the arm is,
+  // mirroring the host's `flattenOr` by construction rather than by care.
+  const widths = conditions.map((c) => c.operands)
   const armOfIndex = (i: number): number | undefined => {
     let at = 0
-    for (let k = 0; k < keys.length; k++) {
+    for (let k = 0; k < conditions.length; k++) {
       if (i < at + widths[k]!) return k
       at += widths[k]!
     }
@@ -2936,7 +2978,7 @@ function* dispatch<E extends AnyEffect>(
   // ***THE RESUME, AND THE CALLER PARKS.*** `quiesce` stays at the call site: it
   // is the one place a step says what would change its mind, and hiding it here
   // would make the park invisible in the program that owns it.
-  return anyOf(...(keys as unknown as Resume[]))
+  return anyOf(...conditions)
 }
 
 /**

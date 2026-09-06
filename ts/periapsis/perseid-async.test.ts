@@ -24,7 +24,7 @@ import { expect, test } from 'bun:test'
 import {
   defineEffect,
   group,
-  select,
+  race,
   retry,
   runFinalize,
   runFinalizeAsync,
@@ -33,7 +33,7 @@ import {
   type FinalizeOutcome,
   type GroupEff,
   type Handler,
-  type SelectEff,
+  type RaceEff,
   type Step,
 } from './perseid'
 
@@ -42,8 +42,8 @@ const read = defineEffect<string, string>()(WIT, 'get')
 
 type Effs = ReturnType<typeof read> extends Step<infer E, unknown> ? E : never
 
-// ⚠ ***A STEP THAT USES `group` OR `select` YIELDS MORE THAN ITS OWN EFFECTS.***
-// Both are COMBINATORS: they yield a `@group`/`@select` record the runner
+// ⚠ ***A STEP THAT USES `group` OR `race` YIELDS MORE THAN ITS OWN EFFECTS.***
+// Both are COMBINATORS: they yield a `@group`/`@race` record the runner
 // interprets, so a generator using one has that in its yield union too. Four
 // annotations here said `Step<Effs, …>` and were wrong from the day the
 // combinators landed - `tsc` reported it and nothing ran `tsc`.
@@ -51,7 +51,7 @@ type Effs = ReturnType<typeof read> extends Step<infer E, unknown> ? E : never
 // Deliberately NOT folded into `Effs`: these are structural yields, not
 // capabilities, and a step's effect union is what capability tracking reads.
 // Widening `Effs` would make every step look like it needs them.
-type Composed = Effs | GroupEff | SelectEff
+type Composed = Effs | GroupEff | RaceEff
 
 /** The same pure step both runners are given. Sees only values, never promises. */
 function* readTwo(): Step<Effs, string> {
@@ -122,7 +122,7 @@ test('group runs its arms concurrently rather than in sequence', async () => {
   expect(Date.now() - began).toBeLessThan(55)
 })
 
-test('select returns the arm that settled first, with its index', async () => {
+test('race returns the arm that settled first, with its index', async () => {
   const handler = {
     get: async (p: string) => {
       await new Promise((r) => setTimeout(r, p === 'slow' ? 40 : 0))
@@ -131,27 +131,29 @@ test('select returns the arm that settled first, with its index', async () => {
     },
   } as unknown as Handler<Effs>
 
-  function* race(): Step<Composed, { index: number; value: unknown }> {
-    return (yield* select(read('slow'), read('quick'))) as { index: number; value: unknown }
+  // ⚠ NOT named `race` any more - that is the imported combinator now, and a
+  // local of the same name would shadow it silently.
+  function* firstToSettle(): Step<Composed, { index: number; value: unknown }> {
+    return (yield* race(read('slow'), read('quick'))) as { index: number; value: unknown }
   }
 
-  const won = await runStepAsync(race, handler)
+  const won = await runStepAsync(firstToSettle, handler)
   expect(won.index).toBe(1)
   expect(won.value).toBe('quick')
 })
 
-test('the SYNC runner refuses select rather than picking an arm', () => {
+test('the SYNC runner refuses race rather than picking an arm', () => {
   // ⛔ ***FAIL CLOSED.*** Under sequential execution "whichever finishes first"
   // has no meaning, so any answer would be a silent semantic difference between
   // the two runners - which is the one thing the colorless property forbids. A
   // throw is the only honest result, and it must name the remedy.
   const handler = { get: (p: string) => p } as unknown as Handler<Effs>
 
-  function* race(): Step<Composed, unknown> {
-    return yield* select(read('a'), read('b'))
+  function* twoArms(): Step<Composed, unknown> {
+    return yield* race(read('a'), read('b'))
   }
 
-  expect(() => runStep(race, handler)).toThrow(/runStepAsync/)
+  expect(() => runStep(twoArms, handler)).toThrow(/runStepAsync/)
 })
 
 test('runFinalizeAsync awaits, and returns a finalize outcome', async () => {

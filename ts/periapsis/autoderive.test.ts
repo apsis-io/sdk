@@ -49,7 +49,14 @@ describe('untilDrift', () => {
   // wake behaviour changes silently on upgrade.
   test('emits exactly what the hand-written resume emitted', () => {
     const deployment = path.ns('default').deployments('api')
-    expect(untilDrift(deployment, 2)).toBe(fieldNe(deployment, 'spec.replicas', 2))
+    // ⚠ ***STRUCTURAL, NOT IDENTITY AND NOT TEXT.*** A `Resume` is a NODE since
+    // 2026-09-06. `toBe` is identity, so two builder calls can never match and
+    // the assertion would pass for ANY two resumes; `String()` would compare the
+    // RENDERING, which throws away the structure this type exists to keep - two
+    // differently-shaped trees can render alike. `toEqual` compares the trees.
+    expect(untilDrift(deployment, 2)).toEqual(fieldNe(deployment, 'spec.replicas', 2))
+    // And one assertion that IS about the text, because the emitted expression
+    // is what the host parses.
     expect(String(untilDrift(deployment, 2))).toBe(`Get("${D}", "spec.replicas") != 2`)
   })
 
@@ -60,15 +67,17 @@ describe('untilDrift', () => {
     const before = untilDrift(path.ns('default').deployments('api'), 2)
     const after = untilDrift(path.ns('default').deployments('api-v2'), 2)
 
-    expect(before).not.toBe(after)
+    // ⚠ STRUCTURAL - see the note above. `not.toBe` on two nodes holds for any
+    // two resumes and would assert nothing.
+    expect(before).not.toEqual(after)
     expect(String(after)).toContain('api-v2')
 
     // And the control that shows the OLD shape really was broken: a resume
     // written against a stale name is unchanged by the path moving, which is
     // what made the defect invisible.
     const handWritten = fieldNe(path.ns('default').deployments('api'), 'spec.replicas', 2)
-    expect(handWritten).toBe(before)
-    expect(handWritten).not.toBe(after)
+    expect(handWritten).toEqual(before)
+    expect(handWritten).not.toEqual(after)
   })
 
   test('parks on the value observed, not on a restated constant', () => {

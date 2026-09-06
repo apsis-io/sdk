@@ -28,7 +28,7 @@ import {
   create,
   setCondition,
 } from './expr'
-import { type Resume, quiesce, path, objects } from './perseid'
+import { type Resume, ResumeNode, quiesce, path, objects } from './perseid'
 
 const DEP = path.ns('default').deployments('api')
 const POD = path.ns('default').pods('web')
@@ -69,10 +69,25 @@ export type _EffectAndBoolAreDisjoint = Assert<
 
 // A resume built from the algebra IS a Resume - or the assertion above would
 // also pass for a brand nothing satisfies.
-export const _aBooleanExpressionIsAResume = (): Resume => ne(depReplicas(), 3)
+//
+// ⚠ ***IT NEEDS THE LEAF CONSTRUCTOR NOW, AND THAT IS THE POINT OF THE CHANGE.***
+// A `Resume` was `Expr<'bool'>` until 2026-09-06; it is a TREE now, so a bare
+// boolean expression is the CONTENTS of a resume rather than a resume. The seam
+// this file guards is unchanged: what may become a leaf is exactly `Expr<'bool'>`.
+export const _aBooleanExpressionIsAResume = (): Resume => ResumeNode.leaf(ne(depReplicas(), 3))
 
-export type _ResumeIsABooleanExpression = Assert<
-  Same<Resume, Expr<'bool'>, 'Resume drifted from Expr<bool>'>
+// ***WHAT REPLACED `Same<Resume, Expr<'bool'>>`.*** That assertion said the two
+// types were the SAME and is now false by construction. The property worth
+// keeping is the one it was really protecting: the only thing that can become a
+// resume leaf is a BOOLEAN expression, so an effect or an int cannot slip in
+// through the tree. `ResumeNode.leaf` is where that is enforced, and these pin
+// both directions of it.
+export type _OnlyABoolCanBeALeaf = Assert<
+  Parameters<typeof ResumeNode.leaf>[0] extends Expr<'bool'>
+    ? Expr<'bool'> extends Parameters<typeof ResumeNode.leaf>[0]
+      ? true
+      : 'a boolean expression is no longer accepted as a resume leaf'
+    : 'ResumeNode.leaf accepts something other than a boolean expression'
 >
 
 // ⭐ ***THE FOUR SHAPES THE HOST EVALUATES INTO NONSENSE.***
@@ -122,7 +137,8 @@ export const _theCorrectShapesAreAccepted = () => {
 // the host, which resolves the property on a three-valued observation and
 // refuses it on the clock. This is the one place the SDK's types are finer than
 // aperture's `signatures` table, which gives both the same `TInt`.
-export const _existsIsValidOnAnObservedInt = (): Resume => not(exists(depReplicas()))
+export const _existsIsValidOnAnObservedInt = (): Resume =>
+  ResumeNode.leaf(not(exists(depReplicas())))
 
 export function runtimeGuards(): void {
   const eq = (got: string, want: string, what: string) => {

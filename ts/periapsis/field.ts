@@ -43,26 +43,33 @@ export type Seg = string | { readonly selKey: string; readonly selVal: string }
 /**
  * Select the element of a LIST whose `key` equals `value`.
  *
- *     field('status', 'conditions', sel('type', 'Ready'), 'status')
+ *     field('status', 'conditions', select('type', 'Ready'), 'status')
  *
- * ***NAMED `sel` AND NOT `where`***, because `where` is the step combinator that
- * binds concurrent sub-step results. Two unrelated things called `where` in one
- * SDK is the collision a reader pays for later.
+ * ***NOT `where`***, because `where` is the step combinator that binds
+ * concurrent sub-step results. Two unrelated things called `where` in one SDK is
+ * the collision a reader pays for later.
+ *
+ * ***AND IT WAS `sel` UNTIL 2026-09-06.*** The abbreviation saved four
+ * characters and cost the reader the word - the thing this does IS selecting an
+ * element of a list, which the first line of this comment had to say anyway. The
+ * name was free because the racing combinator that held it moved to `race`,
+ * which is the more accurate name for THAT one: it races sub-steps and returns
+ * the first to settle. Same rule as the paragraph above, applied twice.
  */
-export const sel = (key: string, value: string): Seg => {
+export const select = (key: string, value: string): Seg => {
   // ⛔ THE HOST REFUSES A SELECTOR FIELD THAT IS NOT A PLAIN NAME, because
   // `[?k!=v]` used to parse as a field called `k!`. Refusing here too turns that
   // into a build error instead of a program that reads Absent forever.
   if (!/^[A-Za-z0-9._/-]+$/.test(key)) {
     throw new Error(
-      `sel(${JSON.stringify(key)}): a selector compares ONE field for equality, and the ` +
+      `select(${JSON.stringify(key)}): a selector compares ONE field for equality, and the ` +
         `field must be a plain name. Punctuation here means an operator the aperture does ` +
         `not have - there is no !=, no &&, no wildcard.`,
     )
   }
   if (value.includes(']')) {
     throw new Error(
-      `sel(${key}, ${JSON.stringify(value)}): a selector value runs to the first ']', so a ` +
+      `select(${key}, ${JSON.stringify(value)}): a selector value runs to the first ']', so a ` +
         `value containing one cannot be expressed.`,
     )
   }
@@ -79,7 +86,7 @@ const bare = /^[A-Za-z0-9_-]+$/
  *
  *     field('spec', 'replicas')                        spec.replicas
  *     field('metadata', 'annotations', 'a.b/c')        metadata.annotations["a.b/c"]
- *     field('status', 'conditions', sel('type','Ready'), 'status')
+ *     field('status', 'conditions', select('type','Ready'), 'status')
  *                                   status.conditions[?type=Ready].status
  *
  * ***QUOTING IS DECIDED HERE, NOT BY THE AUTHOR.*** A key containing a dot or a

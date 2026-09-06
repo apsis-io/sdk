@@ -43,7 +43,12 @@ test('an ordinary outcome carries NO key, so the host keeps the previous value',
 test('remember sets the value and preserves the outcome it wraps', () => {
   const o = remember(quiesce(nextPoll), '{"n":1}')
 
-  expect(wire(o)).toEqual({ o: 'quiesce', resume: nextPoll, carry: '{"n":1}' })
+  // ⭐ `resume` COMES OUT AS A STRING, AND THAT IS THE PROPERTY THAT LETS A
+  // RESUME BE A TREE. `wire` is `JSON.parse(JSON.stringify(o))` - the real path
+  // a program's `-main.ts` takes - so this asserts that `ResumeNode.toJSON`
+  // renders, and therefore that the host and the WIT contract see exactly what
+  // they saw when a resume was a string.
+  expect(wire(o)).toEqual({ o: 'quiesce', resume: String(nextPoll), carry: '{"n":1}' })
 })
 
 test('remember works on every outcome variant', () => {

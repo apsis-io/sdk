@@ -12,12 +12,12 @@ import {
   untilBackstop,
   fieldIs,
   fieldNoLonger,
-  topLevelOrCount,
   ready,
   unready,
   unsure,
   path,
   type Handler,
+  type Resume,
 } from './perseid.js'
 
 const POD = path.ns('default').core('v1', 'pods', 'web')
@@ -26,17 +26,19 @@ const B = fieldIs(POD, 'spec.hostNetwork', true)
 
 // drive runs one pass of a step whose only content is an `on()` dispatch, with
 // the host reporting `heldArms`.
-function drive(heldArms: number[]): { ran: string[]; resume: string } {
+function drive(heldArms: number[]): { ran: string[]; resume: Resume | null } {
   const ran: string[] = []
-  let resume = ''
+  // ***THE NODE, NOT ITS RENDERING.*** A resume is a tree; keeping it lets the
+  // assertions below compare STRUCTURE, which is the thing `on` is responsible
+  // for building. Rendering here would put the tests back on the text the SDK
+  // stopped reasoning about.
+  let resume: Resume | null = null
   const step = function* () {
-    resume = String(
-      yield* on
-        // eslint-disable-next-line require-yield
-        .when(A, function* () { ran.push('A') })
-        // eslint-disable-next-line require-yield
-        .when(B, function* () { ran.push('B') }),
-    )
+    resume = yield* on
+      // eslint-disable-next-line require-yield
+      .when(A, function* () { ran.push('A') })
+      // eslint-disable-next-line require-yield
+      .when(B, function* () { ran.push('B') })
 
     return { o: 'yield' as const }
   }
@@ -75,12 +77,15 @@ test('an out-of-range index runs nothing rather than the wrong handler', () => {
 
 // ***THE RESUME IS THE DISJUNCTION OF THE KEYS, IN MAP ORDER*** - which is what
 // makes an index a key's position on the next pass.
-test('the resume is every key, in order', () => {
+test('the resume is every arm, in order', () => {
   const r = drive([]).resume
-  expect(r).toContain(String(A))
-  expect(r).toContain(String(B))
-  expect(r.indexOf(String(A))).toBeLessThan(r.indexOf(String(B)))
-  expect(r).toContain('||')
+
+  // ***THE TREE, ASSERTED DIRECTLY.*** This used to be three substring checks
+  // and an `indexOf` comparison over the rendered text - a way of asking about
+  // ORDER without being able to see it. The disjunction's children ARE the order.
+  expect(r?.kind).toBe('or')
+  expect(r?.of).toEqual([A, B])
+  expect(r?.operands).toBe(2)
 })
 
 // ⭐ ***HETEROGENEOUS ARMS MUST TYPECHECK, AND UNTIL 2026-09-06 THEY DID NOT.***
@@ -167,14 +172,29 @@ const NODE = path.nodes('n1')
 const WIDE_A = fieldNoLonger(POD, 'status.phase', 'Running') // (!exists) || (!=)
 const WIDE_B = fieldNoLonger(NODE, 'spec.unschedulable', true)
 
-test('topLevelOrCount counts what the host flattens', () => {
-  expect(topLevelOrCount(String(A))).toBe(1) // fieldIs: one comparison
-  expect(topLevelOrCount(String(WIDE_A))).toBe(2) // fieldNoLonger: !exists || !=
-  // ***QUOTE-AWARE.*** A field path is a quoted string and may contain anything;
-  // a naive split would see an operand that is not there.
-  expect(topLevelOrCount('Get("a", "b || c") == "x"')).toBe(1)
-  // ***AND PAREN-AWARE.*** Only TOP-level bars separate operands.
-  expect(topLevelOrCount('((a || b)) || c')).toBe(2)
+// ⭐ ***THE OPERAND COUNT IS STRUCTURAL NOW, NOT SCANNED.*** This replaces
+// `topLevelOrCount`, which recovered the same number from the rendered text.
+// Same shapes, including the two the scanner was written to survive - they are
+// kept because they are what a text-based count got WRONG, and a walk should be
+// shown to handle them rather than assumed to.
+test('operands counts what the host flattens', () => {
+  expect(A.operands).toBe(1) // fieldIs: one comparison
+  expect(WIDE_A.operands).toBe(2) // fieldNoLonger: !exists || !=
+
+  // ***A `||` INSIDE A QUOTED PATH IS NOT AN OPERAND.*** A scanner had to know
+  // about string literals to get this right; a tree never sees the text.
+  const weird = fieldIs(path.ns('default').core('v1', 'pods', 'web'), 'metadata.annotations["a||b"]', 'x')
+  expect(weird.operands).toBe(1)
+
+  // ***NESTING IS SUMMED, NOT TOP-LEVEL-ONLY.*** `anyOf(anyOf(a,b), c)` is three
+  // operands to the host, which flattens `||` recursively on both sides - the
+  // asymmetry that made an arm's index depend on where a nested disjunction sat.
+  expect(anyOf(anyOf(A, B), WIDE_A).operands).toBe(4)
+  expect(anyOf(A, anyOf(B, WIDE_A)).operands).toBe(4)
+
+  // ⛔ AND `&&` IS NOT DESCENDED INTO: the host flattens disjunction only, so a
+  // conjunction of any width is ONE operand.
+  expect(allOf(A, B, WIDE_A).operands).toBe(1)
 })
 
 function driveWide(heldArms: number[]): string[] {
@@ -222,30 +242,37 @@ test('both operands of one arm run its handler once', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 test('anyOf FOLDS a backstop operand away - X || false is X', () => {
+  // ***THE TREE, NOT ITS RENDERING.*** Folding is a structural operation - a
+  // child is dropped - so asserting it through the text would be checking a
+  // consequence instead of the thing itself.
   const plain = anyOf(A, B)
-  expect(String(anyOf(A, B, backstop()))).toBe(String(plain))
+  expect(anyOf(A, B, backstop())).toEqual(plain)
   // Position must not matter: folding is not "drop the last one".
-  expect(String(anyOf(A, backstop(), B))).toBe(String(plain))
-  expect(String(anyOf(backstop(), A, B))).toBe(String(plain))
+  expect(anyOf(A, backstop(), B)).toEqual(plain)
+  expect(anyOf(backstop(), A, B)).toEqual(plain)
+  // And the fold really removed a child rather than rendering around it.
+  expect(anyOf(A, B, backstop()).of).toHaveLength(2)
 })
 
 // ⭐ THE PROPERTY THAT MATTERS, STATED AS THE THING on() ACTUALLY READS.
 test('a backstop operand does not shift arm indices', () => {
-  expect(topLevelOrCount(String(anyOf(A, B, backstop())))).toBe(
-    topLevelOrCount(String(anyOf(A, B))),
-  )
+  expect(anyOf(A, B, backstop()).operands).toBe(anyOf(A, B).operands)
 })
 
 // Alone it IS the park: `false`, which is what untilBackstop means.
 test('a park of nothing but backstops is the backstop-only park', () => {
-  expect(String(anyOf(backstop()))).toBe(String(untilBackstop))
-  expect(String(anyOf(backstop(), backstop()))).toBe(String(untilBackstop))
+  expect(anyOf(backstop())).toBe(untilBackstop)
+  expect(anyOf(backstop(), backstop())).toBe(untilBackstop)
+  // `toBe` is right HERE and nowhere else in this file: the backstop is a
+  // singleton node, so folding to it should return that exact instance rather
+  // than an equal-looking copy.
+  expect(backstop()).toBe(untilBackstop)
 })
 
 // ⛔ NOT IN allOf. `X && false` is `false` - folding there would turn a park into
 // one that can never fire, which is the opposite of the intent.
 test('allOf does NOT fold a backstop', () => {
-  expect(String(allOf(A, backstop()))).toContain('false')
+  expect(allOf(A, backstop()).of).toEqual([A, backstop()])
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
