@@ -1079,13 +1079,31 @@ export const changed = (ref: string): Resume => {
  * does not ADD liveness; it lets a program SAY that a bounded recheck is the
  * intent, instead of the idiom it replaces:
  *
- *     anyOf(resume, deadline(Date.now() + RECHECK_MS))   // three things wrong
- *     anyOf(resume, backstop())                          // says it, costs nothing
+ *     anyOf(resume, deadline(Date.now() + RECHECK_MS))   // a 60s CADENCE
+ *     anyOf(resume, backstop())                          // the host's bound
  *
- * The old idiom is REDUNDANT (the host adds its own), STALE BY CONSTRUCTION
- * (`Date.now()` runs when the step builds the expression, and the host evaluates
- * it at wake time), and it SPENDS A DISJUNCT - an operand that belongs to no arm,
- * so it shows up in the park text and in `held` while dispatching nothing.
+ * ⛔⛔ ***THESE ARE NOT EQUIVALENT, AND THIS DOC SAID THEY WERE UNTIL
+ * 2026-09-07.*** It called the old idiom "REDUNDANT (the host adds its own)" and
+ * "STALE BY CONSTRUCTION". Measured, both were wrong:
+ *
+ *	REDUNDANT      only about BOUNDEDNESS. `RECHECK_MS` is 60_000 in every
+ *	               program that uses it; `-perseid-backstop` defaults to TEN
+ *	               MINUTES (`cmd/radiant/main.go`). Swapping one for the other
+ *	               is a 10x LOSS OF CADENCE, not a cleanup.
+ *	STALE          false. Each pass builds a FRESH `Now() >= <instant>`, and it
+ *	               fires 60s after that pass ran - exactly what it says.
+ *
+ * ***THE DIFFERENCE BITES HARDEST WHERE IT IS LEAST VISIBLE: A PARK THAT CANNOT
+ * HOLD.*** When an operand reads something ABSENT the whole park evaluates to
+ * unknown and NO condition can ever fire it - live on `canary-demo`, whose
+ * events read `could not be evaluated: something it reads is ABSENT`. The timer
+ * is then the program's ONLY wake, and it is the one thing this swap changes.
+ *
+ * ⇒ Use `backstop()` to SAY "and otherwise, eventually", at the host's bound.
+ * Use `deadline(Date.now() + …)` when the program wants a CADENCE of its own,
+ * and keep it. The operand it spends is no longer a reason to avoid it: since
+ * dispatch matches operand TEXT, an operand no condition owns simply matches
+ * nothing.
  *
  * ⚠ ***ALONE IT IS ONLY AS BOUNDED AS THE BACKSTOP IS.*** Under
  * `-perseid-backstop=off` a program parked on this waits forever, and the only
@@ -1553,7 +1571,8 @@ export type Condition = {
 // ═══════════════════════════════════════════════════════════════════════════
 // ***MEASURED: `type: 'Ready'` IN 37 OF 37 `report()` CALLS ACROSS THE EXAMPLE
 // PROGRAMS.*** A field that is constant at every real call site is noise at
-// every real call site, and it sits in the arms of every `on()`.
+// every real call site, and it sat in the arms of every `on()` before that
+// surface was replaced.
 //
 //	report({ type: 'Ready', status: 'False', reason: r, message: m })
 //	report(unready(r, m))
@@ -1652,15 +1671,16 @@ export const WIT_CREATE = 'radiant:reconcile/create@0.1.0'
 // holding a value no pass ever concluded.
 export const WIT_CARRY = 'radiant:reconcile/carry@0.1.0'
 
-// Which arms of this program's OWN resume held at the wake that started this
-// pass - the host half of keyed dispatch, so `on()` can run the handler for the
+// Which operands of this program's OWN resume held at the wake that started
+// this pass - the host half of keyed dispatch, so a step can do the work for the
 // condition that actually holds instead of re-deriving which of N states it is
-// in.
+// in. `held()` is the surface.
 //
 // ⚠ ***THERE IS NO INDEX ANY MORE - AN OPERAND NAMES ITSELF*** (2026-09-07).
-// `held` answers with each holding operand's own SOURCE TEXT, and `on()` matches
-// that text against the leaves of its own arms. No width arithmetic, nothing to
-// map, and `topLevelOrCount` - the scanner that used to recover the widths from
+// `held` answers with each holding operand's own SOURCE TEXT, and `has(cond)`
+// matches that text against the leaves of the condition it is given. No width
+// arithmetic, nothing to map, and `topLevelOrCount` - the scanner that used to
+// recover the widths from
 // rendered text - is deleted.
 //
 // The two corrections this replaces are kept because they are why the mechanism
@@ -2120,7 +2140,8 @@ export const reconcile = {
    * of the world. "Do the work for the condition that holds" is fine, because a
    * missed wake makes it LATE; "skip work because nothing is listed" turns a
    * level-triggered program edge-triggered and a missed wake into a MISSING
-   * action. `on()` is built so the safe use is the easy one.
+   * action. `held()` is shaped so the safe use is the easy one: it answers a
+   * question and runs nothing, so skipping work is something you have to write.
    *
    * EMPTY is the common answer and means "nothing you named is true" - what a
    * backstop tick says. It is also what an older host returns, so a program
