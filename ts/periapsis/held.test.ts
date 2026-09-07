@@ -19,6 +19,7 @@
 import { expect, test } from 'bun:test'
 import {
   held,
+  reconcile,
   runStep,
   anyOf,
   allOf,
@@ -224,6 +225,49 @@ test('each contributes every subject to the resume', () => {
 
 test('each adds one condition per item, in order', () => {
   expect(driveEach([]).resume?.of.length).toBe(1 + SUBJECTS.length)
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⭐ DYNAMIC: a condition DERIVED DURING THE PASS, asked about after other work.
+//
+// ***THIS IS THE CAPABILITY NEITHER `on` NOR `watch` HAD.*** `on` needed its
+// arms before it dispatched; `watch` needed its set before `held()` could be
+// called. Both fixed the question at the top of the pass. `held()` reads the
+// host ONCE and returns DATA, so the answer outlives the call and any condition
+// can be tested against it whenever the program is able to build one.
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('a condition built from a READ done later in the pass can still be asked about', () => {
+  const seen: string[] = []
+  const out: { matched: boolean | null } = { matched: null }
+  const observe = reconcile.observe<string>()
+
+  const target = fieldNoLonger(path.ns('default').deployments('discovered'), 'status.readyReplicas', 3)
+
+  const step = function* () {
+    // 1. ask FIRST, before anything else has happened
+    const woke = yield* held()
+
+    // 2. do work that yields - the name of the subject is not known until here
+    const got = yield* observe(path.ns('default').core('v1', 'configmaps', 'index'))
+    seen.push(got.t)
+    const name = got.t === 'known' ? got.v : 'none'
+
+    // 3. build a condition from what was read, and ask about it
+    const derived = fieldNoLonger(path.ns('default').deployments(name), 'status.readyReplicas', 3)
+    out.matched = woke.has(derived)
+
+    return { o: 'yield' as const }
+  }
+
+  runStep(step as never, {
+    held: () => [leafOf(target, 0)],
+    get: () => ({ t: 'known', v: 'discovered' }),
+  } as unknown as Handler<never>)
+
+  expect(seen).toEqual(['known'])
+  // The condition did not exist when `held()` ran, and matches anyway.
+  expect(out.matched).toBe(true)
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
