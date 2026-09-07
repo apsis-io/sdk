@@ -1082,28 +1082,29 @@ export const changed = (ref: string): Resume => {
  *     anyOf(resume, deadline(Date.now() + RECHECK_MS))   // a 60s CADENCE
  *     anyOf(resume, backstop())                          // the host's bound
  *
- * ⛔⛔ ***THESE ARE NOT EQUIVALENT, AND THIS DOC SAID THEY WERE UNTIL
- * 2026-09-07.*** It called the old idiom "REDUNDANT (the host adds its own)" and
- * "STALE BY CONSTRUCTION". Measured, both were wrong:
+ * ***"REDUNDANT" IS RIGHT, AND THE REASON IS `declareBackstop` - NOT the host
+ * default.*** A program states its own bound in a wasm custom section
+ * (`backstop.ts`), and the host takes the ***MINIMUM*** of that and its flag
+ * (`internal/perseidrun/assemble.go`, `backstopFor`). So a program that declares
+ * 30s is bounded at 30s, and `-perseid-backstop`'s ten-minute default only ever
+ * applies to a program that declares NOTHING. Every example program declares.
  *
- *	REDUNDANT      only about BOUNDEDNESS. `RECHECK_MS` is 60_000 in every
- *	               program that uses it; `-perseid-backstop` defaults to TEN
- *	               MINUTES (`cmd/radiant/main.go`). Swapping one for the other
- *	               is a 10x LOSS OF CADENCE, not a cleanup.
- *	STALE          false. Each pass builds a FRESH `Now() >= <instant>`, and it
- *	               fires 60s after that pass ran - exactly what it says.
+ * ⇒ ***A `deadline(Date.now() + RECHECK_MS)` OPERAND IS A SECOND, CONTRADICTORY
+ * STATEMENT OF THE SAME INTENT.*** The declared section is the one an operator
+ * can read and admission can refuse; an operand buried in a park is neither. Two
+ * places to say "how long may I sleep" is one too many, and when they disagree
+ * the tighter silently wins.
  *
- * ***THE DIFFERENCE BITES HARDEST WHERE IT IS LEAST VISIBLE: A PARK THAT CANNOT
- * HOLD.*** When an operand reads something ABSENT the whole park evaluates to
- * unknown and NO condition can ever fire it - live on `canary-demo`, whose
- * events read `could not be evaluated: something it reads is ABSENT`. The timer
- * is then the program's ONLY wake, and it is the one thing this swap changes.
+ * ⚠ ***BUT CHECK WHICH ONE IS TIGHTER BEFORE DELETING THE OPERAND.*** If the
+ * declared bound is LOOSER, the operand is the effective cadence and removing it
+ * loosens the program - move the number into `declareBackstop` instead of
+ * dropping it.
  *
- * ⇒ Use `backstop()` to SAY "and otherwise, eventually", at the host's bound.
- * Use `deadline(Date.now() + …)` when the program wants a CADENCE of its own,
- * and keep it. The operand it spends is no longer a reason to avoid it: since
- * dispatch matches operand TEXT, an operand no condition owns simply matches
- * nothing.
+ * ⚠ ***AND "STALE BY CONSTRUCTION" WAS ALWAYS WRONG*** - this doc said it until
+ * 2026-09-07. Each pass builds a FRESH `Now() >= <instant>`, which fires
+ * RECHECK_MS after that pass ran, exactly as written. The idiom is redundant,
+ * not broken. `deadlineIn(ms, nowMs())` remains right for a genuine sampling
+ * cadence that is not a bound - see `probe.ts`.
  *
  * ⚠ ***ALONE IT IS ONLY AS BOUNDED AS THE BACKSTOP IS.*** Under
  * `-perseid-backstop=off` a program parked on this waits forever, and the only
