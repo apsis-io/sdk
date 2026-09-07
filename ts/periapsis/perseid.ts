@@ -2874,38 +2874,38 @@ export const objects = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * What held at the wake that started this pass, answered by NAME.
+ * What held at the wake that started this pass.
  *
- *     const held = yield* WATCH.held()
- *     if (held.has('node')) yield* report(unready('NodeNotReady', …))
- *     for (const d of DEPLOYMENTS) if (held.hasItem(d)) yield* check(d)
+ *     const woke = yield* held()
+ *     if (woke.has(NODE_DOWN)) yield* report(unready('NodeNotReady', …))
  *
- * ***`has` IS CHECKED AGAINST THE DECLARED KEYS***, so a typo or a renamed
- * condition is a compile error rather than a branch that silently never runs -
- * which is the failure a stringly-keyed lookup would reintroduce.
+ * ***`has` TAKES THE CONDITION ITSELF, NOT A NAME FOR IT.*** A condition owns an
+ * operand when one of its own leaves renders to the text the host reported, and
+ * that comparison is STRUCTURAL - so a condition rebuilt from the same inputs
+ * matches, and nothing has to be registered, keyed or declared in advance.
  *
  * ⚠ ***EMPTY IS ORDINARY, NOT AN ERROR.*** It is what a backstop tick says, what
  * the FIRST pass says, and what a host not serving `woke` says. A step must
- * reach the same verdict having matched nothing - see `WatchSet.held`.
+ * reach the same verdict having matched nothing - see `held`.
  */
-export interface Held<K extends string, I> {
-  /** How many operands held. Zero on a backstop tick. */
-  readonly size: number
-  /** Did the condition declared under this name hold? */
-  has(name: K): boolean
+export interface Held {
   /**
-   * Did the condition derived for this ITEM hold?
+   * How many OPERANDS the host reported. Zero on a backstop tick.
    *
-   * Matched by reference identity against the array given to `.each`, so a
-   * mapped subject list needs no name strings at all - iterate the same array
-   * and ask about each element.
+   * ⚠ ***OPERANDS, NOT CONDITIONS.*** A `fieldNoLonger` renders two leaves and
+   * both can hold at one wake, so this can exceed the number of conditions that
+   * matched. It answers "did the host tell me anything" - the fallback's
+   * question - and NOT "how many subjects moved"; count your own branches for
+   * that.
    */
-  hasItem(item: I): boolean
+  readonly size: number
+  /** Did this condition hold? True if any of its leaves is one the host named. */
+  has(condition: Resume): boolean
   /**
    * The raw operand text the host reported, in its order.
    *
-   * For publishing and debugging - a program that BRANCHES on this has gone
-   * back to matching strings by hand and given up what `has` checks for it.
+   * For publishing and debugging - a program that BRANCHES on this has gone back
+   * to matching strings by hand and given up what `has` does for it.
    */
   readonly texts: readonly string[]
 }
@@ -2945,54 +2945,80 @@ export type Cause =
   | 'backstop'
 
 /**
- * Which of `conditions` own an operand the host reported as held.
+ * What held at the wake that started this pass.
  *
- * The mechanism; `watch` (below) is the surface. Kept separate so operand-to-
- * condition matching has one home regardless of how the set was assembled.
+ *     const woke = yield* held()
  *
- * ***IT RUNS NOTHING.*** It answers a question and returns; the program decides
- * what to do with the answer. That is the whole difference from the `on` this
- * replaced, where the same match invoked a handler the condition carried.
+ *     if (woke.has(NODE_DOWN)) yield* checkNode()
+ *     for (const d of DEPLOYMENTS) if (woke.has(drifted(d))) yield* check(d)
+ *
+ *     return quiesce(anyOf(NODE_DOWN, ...DEPLOYMENTS.map(drifted), backstop()))
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⭐ ***IT DECLARES NOTHING, WHICH IS WHY IT CAN COME FIRST.*** The two designs
+ * before this one both had to be built BEFORE the question could be asked -
+ * `on` because the handler hung off the condition, `watch` because `held` was a
+ * method on the set. So the park, which is the LAST thing a pass decides, had to
+ * be written FIRST, and the source read backwards from the pass.
+ *
+ * Now a pass reads in the order it happens:
+ *
+ *	  1. why am I awake      `held()`
+ *	  2. do the work         the program's own `if`s
+ *	  3. what would wake me  `quiesce(anyOf(…))`
+ *
+ * ***THE PARK IS PLAIN `anyOf`.*** There is no set object to learn: the same
+ * condition values feed the branches above and the park below, so there is
+ * nothing to keep in sync that the compiler is not already checking - a `const`
+ * reference is as checked as a `keyof` name was, and neither can be misspelled
+ * silently.
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚠ ***ONE HOST READ PER CALL, AND CALL IT BEFORE DOING ANYTHING.*** The answer
+ * describes the wake that STARTED this pass; work that yields could change the
+ * world underneath a later read of it. Hold the result rather than asking twice.
+ *
+ * ⚠ ***A HINT, NEVER CORRECTNESS.*** Empty is ordinary - a backstop tick, the
+ * first pass, a host not serving `woke`. Do the work for a condition that held;
+ * never SKIP work because nothing was named (ADR-0107).
  */
-function* matchHeld(
-  conditions: readonly Resume[],
-): Generator<
-  Effect<typeof WIT_WOKE, 'held', void>,
-  { readonly owners: ReadonlySet<number>; readonly texts: readonly string[] },
-  unknown
-> {
-  // ⛔⛔ ***THE HOST INDEXES FLATTENED OPERANDS; THIS MAP INDEXES ARMS, AND THEY
-  // ARE NOT THE SAME NUMBER THE MOMENT AN ARM CONTAINS ITS OWN `||`.***
+export function* held(): Generator<Effect<typeof WIT_WOKE, 'held', void>, Held, unknown> {
+  // ***READ FIRST, BEFORE THE PROGRAM DOES ANYTHING.*** The answer describes the
+  // wake that STARTED this pass; work that yields could change the world
+  // underneath a later read of it. Asking first is why this is a generator.
+  const woke = reconcile.woke()
+  const texts = ((yield* woke()) as string[] | undefined) ?? []
+  const named = new Set(texts)
+
+  // ⛔⛔ ***THE HOST REPORTS FLATTENED OPERANDS, AND A CONDITION IS NOT ONE OF
+  // THEM THE MOMENT IT CONTAINS ITS OWN `||`.***
   //
-  // `HeldDisjuncts` flattens `||` RECURSIVELY - it must, because the host wraps
-  // the author's whole resume as `(<own>) || Backstop()` and a top-level split
-  // would map every key to 0. But it cannot tell that nesting apart from an
-  // arm's OWN nesting, and the builders authors should reach for are nested:
-  // `fieldNoLonger` emits `(!exists) || (!= v)` precisely because an absent
-  // operand propagates as unknown.
+  // The host flattens `||` RECURSIVELY - it must, because it wraps the author's
+  // whole resume as `(<own>) || Backstop()` and a top-level split would collapse
+  // everything to one operand. But it cannot tell that nesting apart from a
+  // CONDITION'S OWN nesting, and the builders authors should reach for are
+  // nested: `fieldNoLonger` emits `(!exists) || (!= v)` precisely because an
+  // absent operand propagates as unknown.
   //
-  // So four `fieldNoLonger` arms are EIGHT operands to the host. Measured live on
-  // `sentinel-demo`: the park fired on its condition, the host reported an index
-  // into the eight, `keys[i]` was undefined, and the program dispatched NOTHING -
-  // status `via 4 of 4, no dispatch`. The out-of-range guard failed SAFE, which
-  // is the only reason this was a lost optimisation and not a wrong handler.
+  // So four `fieldNoLonger` conditions are EIGHT operands to the host. That
+  // mismatch is what made INDICES unusable, measured live on `sentinel-demo`: a
+  // park fired on its condition, the host reported an index into the eight, and
+  // the program dispatched NOTHING - `via 4 of 4, no dispatch`. The out-of-range
+  // guard failed SAFE, which is the only reason it was a lost optimisation and
+  // not a wrong handler. Widening the mapping fixed the arithmetic and left the
+  // real defect: the host evaluates the park from the PREVIOUS pass, so an index
+  // was minted against one expression and read against another.
   //
-  // ⭐⭐ ***AND THE HOST ANSWERS WITH THE OPERAND ITSELF NOW, SO NONE OF THAT
-  // ARITHMETIC EXISTS.*** Everything above describes mapping an INDEX through
-  // each arm's operand width - correct within a pass, and quietly wrong across
-  // one: the index describes the park the program parked on LAST pass, while the
-  // widths are computed from the arms it built for THIS one. Insert an arm at
-  // the front and index 1 stops meaning what it meant, with no error anywhere.
+  // ⭐⭐ ***THE HOST ANSWERS WITH THE OPERAND'S OWN SOURCE TEXT NOW*** (radiant
+  // slices it from the very expression it parsed, `aperture.HeldDisjunctTexts`),
+  // so a condition owns an operand when one of its LEAVES renders to that text -
+  // a question about this pass alone, needing no previous list, no ordering and
+  // no width.
   //
-  // `woke.held()` returns each held operand's SOURCE TEXT (radiant slices it
-  // from the very expression it parsed, `aperture.HeldDisjunctTexts`). An arm
-  // OWNS an operand if one of its own leaves renders to that text - a question
-  // about this pass alone, needing no previous list, no stable ordering and no
-  // width.
-  //
-  // ***THE MEMBERSHIP TEST IS THE ARM'S OWN LEAVES***, which is why a
-  // multi-operand arm still runs once: `fieldNoLonger` renders two leaves and
-  // either matching means that arm held.
+  // ***THE MEMBERSHIP TEST IS THE CONDITION'S OWN LEAVES***, which is why a
+  // multi-operand condition answers TRUE ONCE rather than twice: both halves of
+  // a `(!exists) || (!= v)` can hold at one wake - an absent field satisfies the
+  // first and, being absent, is also `!=` anything - and `has` is a predicate,
+  // not a count.
   const leavesOf = (c: Resume): readonly string[] => {
     const out: string[] = []
     const walk = (n: Resume): void => {
@@ -3003,37 +3029,22 @@ function* matchHeld(
 
     return out
   }
-  const condLeaves = conditions.map(leavesOf)
-  const ownerOf = (text: string): number | undefined => {
-    const at = condLeaves.findIndex((ls) => ls.includes(text))
 
-    return at < 0 ? undefined : at
+  return {
+    size: texts.length,
+    texts,
+    // ***STRUCTURAL, NOT BY IDENTITY.*** Nothing was registered, so `has` cannot
+    // compare references - it compares what the condition RENDERS TO, which is
+    // the same thing the host compared. A condition rebuilt from the same inputs
+    // therefore matches, and that is what lets the park be assembled separately
+    // from the branches without a set object holding them together.
+    //
+    // An operand no condition owns simply matches nothing. That is the honest
+    // answer: what held is something this pass no longer watches, and naming
+    // some other condition would report one nobody asserted - exactly what an
+    // index did silently.
+    has: (condition: Resume) => leavesOf(condition).some((l) => named.has(l)),
   }
-  // ***READ BEFORE THE PROGRAM DOES ANYTHING.*** The answer describes the wake
-  // that started this pass; work that yields could change the world underneath a
-  // later read of it. Asking first is why this is a generator at all.
-  const woke = reconcile.woke()
-  const texts = ((yield* woke()) as string[] | undefined) ?? []
-
-  // ***A SET, SO A MULTI-OPERAND CONDITION IS REPORTED ONCE.*** Both halves of a
-  // `(!exists) || (!= v)` condition can hold at one wake - an absent field
-  // satisfies the first and, being absent, is also `!=` nothing - and the program
-  // declared ONE name for it.
-  const owners = new Set<number>()
-  for (const text of texts) {
-    const at = ownerOf(text)
-    if (at === undefined) {
-      // ***AN OPERAND NO CONDITION OWNS, AND THIS IS AN HONEST ANSWER RATHER THAN
-      // A GUESS.*** The set changed since the park was built, so what held is
-      // something this pass no longer watches. Reporting nothing for it is
-      // correct: naming some other condition would tell the program about one
-      // nobody asserted, which is exactly what an index did silently.
-      continue
-    }
-    owners.add(at)
-  }
-
-  return { owners, texts }
 }
 
 /**
@@ -3068,180 +3079,10 @@ function* matchHeld(
  * ═══════════════════════════════════════════════════════════════════════════
  */
 export function* wakeCause(): Generator<Effect<typeof WIT_WOKE, 'held', void>, Cause, unknown> {
-  const woke = reconcile.woke()
-  const held = ((yield* woke()) as string[] | undefined) ?? []
+  // ***ONE IMPLEMENTATION, NOT TWO.*** This read the host directly until
+  // 2026-09-07, which was a second copy of the same decode - and the two could
+  // disagree about what an absent answer means. `held()` is that decode.
+  const woke = yield* held()
 
-  return held.length > 0 ? 'resume' : 'backstop'
+  return woke.size > 0 ? 'resume' : 'backstop'
 }
-
-/**
- * A set of named conditions: what this program watches, declared once.
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * ***IT HOLDS NO CODE, AND THAT IS THE POINT.*** Its predecessor `on` paired
- * each condition with a handler, which read as an event registration and is not
- * one - a Perseid step returns a park and the instance is GONE, so nothing can
- * be called back. The handler ran at the top of the NEXT pass, and no amount of
- * documentation made that legible from the shape.
- *
- * Here the two questions are separate and each is answered where it belongs:
- *
- *	  .resume   an expression, available WITHOUT yielding - the next park
- *	  .held()   which of these conditions held at the wake that started THIS
- *	            pass; the program then does the work itself, in order
- *
- * ***THE CONDITION IS STILL WRITTEN ONCE.*** That was the argument for fusing
- * handler and condition - "no naming layer to keep in sync". A name is not a
- * second spelling of the condition: `has()` is checked against `keyof`, so a
- * name that does not exist is a compile error, where two hand-written copies of
- * an expression drift silently.
- *
- * ***IMMUTABLE.*** `.each` returns a NEW set rather than pushing, so a set built
- * at module level and refined per pass cannot accumulate duplicate operands for
- * the life of the instance.
- * ═══════════════════════════════════════════════════════════════════════════
- */
-export class WatchSet<K extends string, I> {
-  constructor(
-    private readonly named: readonly (readonly [K, Resume])[],
-    private readonly items: readonly (readonly [I, Resume])[],
-  ) {}
-
-  /**
-   * Add one condition PER ITEM of a list, keyed by the ITEM ITSELF.
-   *
-   * ⭐ ***NO NAME STRINGS FOR A MAPPED SUBJECT LIST.*** `sentinel.ts` watches N
-   * deployments; naming them would mean transcribing the subject list a second
-   * time, and a transcription can disagree with its source. The conditions are
-   * DERIVED from the list and recalled by reference identity, so iterate the
-   * same array and ask `hasItem(d)`.
-   */
-  each<I2>(items: readonly I2[], condition: (item: I2) => Resume): WatchSet<K, I | I2> {
-    return new WatchSet<K, I | I2>(this.named, [
-      ...(this.items as readonly (readonly [I | I2, Resume])[]),
-      ...items.map((i) => [i, condition(i)] as const),
-    ])
-  }
-
-  /** Every condition in the set, in declaration order: named first, then items. */
-  private get conditions(): readonly Resume[] {
-    return [...this.named.map(([, c]) => c), ...this.items.map(([, c]) => c)]
-  }
-
-  /**
-   * The park: the disjunction of every condition in the set.
-   *
-   * ***A PROPERTY, NOT A YIELD.*** A program may park without ever asking what
-   * held - the first pass has nothing to ask about - and `on` could not express
-   * that, because reading the host and building the park were one call.
-   */
-  get resume(): Resume {
-    return anyOf(...this.conditions)
-  }
-
-  /**
-   * Which of these conditions held at the wake that started this pass.
-   *
-   * The host names each held operand by its SOURCE TEXT; a condition owns an
-   * operand when one of its own leaves renders to that text. So rebuilding or
-   * reordering the set between passes is safe - a condition that is no longer
-   * declared matches nothing, rather than a neighbour being named in its place.
-   *
-   * ⚠ ***ONE HOST READ PER CALL.*** Call it once and hold the result; calling it
-   * twice asks the host twice and the second answer describes the same wake.
-   *
-   * ⚠ ***A HINT, NEVER CORRECTNESS.*** Empty is ordinary - a backstop tick, the
-   * first pass, a host not serving `woke`. Do the work for a condition that
-   * held; never SKIP work because nothing was named (ADR-0107).
-   */
-  *held(): Generator<Effect<typeof WIT_WOKE, 'held', void>, Held<K, I>, unknown> {
-    const named = this.named
-    const items = this.items
-    const { owners, texts } = yield* matchHeld(this.conditions)
-
-    return {
-      size: owners.size,
-      texts,
-      has: (name: K) => {
-        const at = named.findIndex(([k]) => k === name)
-
-        return at >= 0 && owners.has(at)
-      },
-      // Items are appended after the named conditions, so an item's position in
-      // `conditions` is offset by however many names there are.
-      hasItem: (item: I) => {
-        const at = items.findIndex(([i]) => i === item)
-
-        return at >= 0 && owners.has(named.length + at)
-      },
-    }
-  }
-}
-
-/**
- * Declare what this program watches. Ask what held. Do the work yourself.
- *
- *     const WATCH = watch({
- *       node:  fieldNoLonger(NODE, READY_COND, 'True'),
- *       stamp: objectGone(STATE.path),
- *     }).each(DEPLOYMENTS, (d) => drifted(d.at))
- *
- *     const held = yield* WATCH.held()
- *     if (held.has('node'))  yield* report(unready('NodeNotReady', …))
- *     if (held.has('stamp')) yield* create({ path: STATE.path, … })
- *     for (const d of DEPLOYMENTS) if (held.hasItem(d)) yield* check(d)
- *
- *     return quiesce(WATCH.resume)
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * ⭐ ***WHY THIS REPLACED `on`, WHICH PAIRED EACH CONDITION WITH A HANDLER.***
- * engi asked four times why an arm carried code. That is the finding: the shape
- * invited a reading of itself that was wrong, and no amount of documentation
- * fixed it.
- *
- * `on(cond, handler)` looks like `addEventListener`, and it is not one.
- * ***Nothing can be called back:*** a step runs, returns a park, and the
- * instance is GONE - there is no process holding your closure. So the handler
- * did not run when the condition fired; it ran at the top of the NEXT pass, and
- * one arm silently spanned two passes:
- *
- *	  pass N     declare the conditions -> quiesce -> the instance dies
- *	  (radiant watches; the Deployment drops to 0; the operand goes true)
- *	  pass N+1   ask what held, act on it
- *
- * That sequence has not changed - it is how a Perseid works. What changed is
- * that the program now WRITES it, in order, instead of encoding it in a pair.
- *
- * ***THE CONDITION IS STILL WRITTEN ONCE***, which was the argument for pairing
- * ("no naming layer to keep in sync"). That argument assumed the naming layer
- * would be unchecked. `has()` is typed by `keyof`, so a wrong name is a compile
- * error - and `.each` keys by the ITEM, so a mapped subject list has no names at
- * all.
- * ═══════════════════════════════════════════════════════════════════════════
- * ⚠ ***A HINT, NEVER CORRECTNESS.*** An empty answer means "nothing you named is
- * true" - what a backstop tick says, what the FIRST pass says, and what a host
- * not serving `woke` says. A step must stay correct when nothing matches: this
- * makes the late case cheap, not the missing case safe. Do the work for a
- * condition that held; never SKIP work because nothing was named (ADR-0107).
- *
- * ***YOU DO NOT NEED IT AT ALL.*** `sentinel.ts` ships the same program without
- * dispatch, as its own fallback: read every subject, decide. This only lets a
- * pass skip reads when the host could say what moved.
- *
- * ***`.resume` IS A PROPERTY AND `quiesce` STAYS AT THE CALL SITE.*** A step
- * says what would change its mind in the program that owns it; and a pass may
- * park without ever asking what held, which `on` could not express.
- *
- * ⚠ You do NOT need a `deadline(Date.now() + …)` condition for liveness: the
- * host renders `(<the whole user resume>) || Backstop()` onto every park
- * (`internal/aperture/eval.go`, `WithBackstop`). To SAY so, use `backstop()`,
- * which `anyOf` folds away rather than spending an operand.
- * ═══════════════════════════════════════════════════════════════════════════
- */
-export const watch = <R extends Record<string, Resume>>(
-  conditions: R,
-): WatchSet<keyof R & string, never> =>
-  new WatchSet<keyof R & string, never>(
-    Object.entries(conditions).map(([k, c]) => [k as keyof R & string, c] as const),
-    [],
-  )

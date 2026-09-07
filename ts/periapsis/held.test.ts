@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // ═══════════════════════════════════════════════════════════════════════════
-// `watch` - declare the conditions, ask which held, act yourself.
+// `held()` - ask what woke you FIRST, act, then declare the park.
 //
 // ***THIS FILE REPLACED `on.test.ts` (2026-09-07), AND ROUGHLY A THIRD OF THAT
 // FILE IS NOT REPRODUCED HERE.*** Those tests were about ARMS RUNNING: a plain
@@ -18,7 +18,7 @@
 
 import { expect, test } from 'bun:test'
 import {
-  watch,
+  held,
   runStep,
   anyOf,
   allOf,
@@ -74,12 +74,11 @@ function drive(texts: string[]): { named: string[]; resume: Resume | null; size:
   // stopped reasoning about.
   const out: { resume: Resume | null; size: number } = { resume: null, size: 0 }
   const step = function* () {
-    const W = watch({ a: A, b: B })
-    const held = yield* W.held()
-    if (held.has('a')) named.push('a')
-    if (held.has('b')) named.push('b')
-    out.resume = W.resume
-    out.size = held.size
+    const woke = yield* held()
+    if (woke.has(A)) named.push('a')
+    if (woke.has(B)) named.push('b')
+    out.resume = anyOf(A, B)
+    out.size = woke.size
 
     return { o: 'yield' as const }
   }
@@ -134,9 +133,9 @@ const W2 = fieldNoLonger(D2, 'status.readyReplicas', 1)
 function driveWide(texts: string[]): string[] {
   const named: string[] = []
   const step = function* () {
-    const held = yield* watch({ one: W1, two: W2 }).held()
-    if (held.has('one')) named.push('one')
-    if (held.has('two')) named.push('two')
+    const woke = yield* held()
+    if (woke.has(W1)) named.push('one')
+    if (woke.has(W2)) named.push('two')
 
     return { o: 'yield' as const }
   }
@@ -178,11 +177,10 @@ function driveEach(texts: string[]): { hit: string[]; resume: Resume | null } {
   const hit: string[] = []
   const out: { resume: Resume | null } = { resume: null }
   const step = function* () {
-    const W = watch({ node: A }).each(SUBJECTS, condOf)
-    const held = yield* W.held()
-    if (held.has('node')) hit.push('node')
-    for (const s of SUBJECTS) if (held.hasItem(s)) hit.push(s.name)
-    out.resume = W.resume
+    const woke = yield* held()
+    if (woke.has(A)) hit.push('node')
+    for (const s of SUBJECTS) if (woke.has(condOf(s))) hit.push(s.name)
+    out.resume = anyOf(A, ...SUBJECTS.map(condOf))
 
     return { o: 'yield' as const }
   }
@@ -191,19 +189,33 @@ function driveEach(texts: string[]): { hit: string[]; resume: Resume | null } {
   return { hit, resume: out.resume }
 }
 
-// ⭐ ***IDENTITY, NOT A NAME STRING.*** The subject list is never transcribed, so
-// it cannot disagree with itself - which is what naming N subjects reintroduces.
-test('hasItem finds the condition derived for that item', () => {
+// ⭐⭐ ***THE PROPERTY THE WHOLE DESIGN RESTS ON.*** `condOf(s)` is called once
+// to build the park and AGAIN at the branch, producing two DISTINCT objects. If
+// `has` compared references, every dispatch would silently miss and the fallback
+// would read everything forever - a pure performance regression with no failing
+// assertion anywhere. It compares what the condition RENDERS TO, which is what
+// the host compared.
+test('a condition REBUILT from the same inputs matches - has is structural', () => {
   expect(driveEach([leafOf(condOf(SUBJECTS[0]), 1)]).hit).toEqual(['x'])
   expect(driveEach([leafOf(condOf(SUBJECTS[1]), 1)]).hit).toEqual(['y'])
 })
 
-// ***THE NAMED HALF AND THE ITEM HALF DO NOT COLLIDE.*** Items are appended
-// after the names, so `hasItem` must offset by however many names there are -
-// get that wrong and item 0 answers for the first NAME.
-test('a named condition and an item condition are told apart', () => {
+// ***DISTINCT SUBJECTS ARE TOLD APART, AND SEVERAL CAN HOLD AT ONE WAKE.***
+test('distinct conditions are told apart', () => {
   expect(driveEach([A.render()]).hit).toEqual(['node'])
   expect(driveEach([A.render(), leafOf(condOf(SUBJECTS[1]), 0)]).hit).toEqual(['node', 'y'])
+})
+
+// ⛔ ***AND THE NEGATIVE ARM: A DIFFERENT CONDITION MUST NOT MATCH.*** Structural
+// comparison is only useful if it still discriminates - a `has` that returned
+// true for everything would satisfy every test above.
+test('a condition that did NOT hold does not match', () => {
+  const other = fieldNoLonger(path.ns('default').deployments('z'), 'status.readyReplicas', 9)
+  const woke = driveEach([leafOf(condOf(SUBJECTS[0]), 1)])
+  expect(woke.hit).toEqual(['x'])
+  expect(woke.hit).not.toContain('y')
+  // and an entirely unwatched condition matches nothing
+  expect(driveEach([leafOf(other, 0)]).hit).toEqual([])
 })
 
 test('each contributes every subject to the resume', () => {
