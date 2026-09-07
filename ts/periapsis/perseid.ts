@@ -2816,61 +2816,23 @@ export const objects = {
   },
 }
 
-/**
- * Park on several conditions and run the handler for whichever HOLDS.
- *
- *     return quiesce(yield* on({
- *       [fieldIs(NODE, DRAIN_KEY, 'true')]: function* () { yield* startDrain() },
- *       [taintAppeared(NODE)]:              function* () { yield* autoDrain() },
- *     }))
- *
- * ═══════════════════════════════════════════════════════════════════════════
- * ***THE EXPRESSION IS THE KEY*** (engi, 2026-09-06). `Resume` is a branded
- * string and object keys are strings, so this is literal TypeScript with no
- * naming layer to keep in sync between the park and the dispatch.
- *
- * It does two things in one call, and they are for DIFFERENT passes:
- *
- *	  reads `woke.held()`   which arms held at the wake that started THIS pass,
- *	                        and runs their handlers
- *	  returns a Resume      the disjunction of every key, for the NEXT park
- *
- * ✅ ***THE ARM LIST DOES NOT HAVE TO BE STABLE ACROSS PASSES*** (2026-09-07).
- * The host answers with each held operand's own SOURCE TEXT, and an arm owns an
- * operand when one of its own leaves renders to that text. That is a question
- * about THIS pass alone: it needs no previous list, no ordering and no widths.
- * An arm that was not there last pass simply does not match, which is the safe
- * direction - late, never wrong.
- *
- * ⛔ ***THIS DOC SAID THE OPPOSITE UNTIL 2026-09-07, AND THE REASON IS WORTH
- * KEEPING.*** The host used to report an INDEX into its flattened disjunction,
- * which `on()` mapped back through each arm's width. Two failures came out of
- * that, and the second is why the wire format changed rather than the
- * arithmetic:
- *
- *   1. an index is not a KEY'S POSITION - true only while every arm is ONE
- *      operand wide, and `fieldNoLonger` emits `(!exists) || (!= v)` precisely
- *      because an absent operand propagates as unknown. So the builder that is
- *      CORRECT for a field Kubernetes may omit is exactly the one that diverges.
- *      Measured live: four such arms, a wake on the fourth, the THIRD arm's
- *      handler ran - publishing a healthy verdict about a Deployment with no
- *      pods.
- *   2. widening the mapping fixed that and left the real defect: ***the host
- *      evaluates the park from the PREVIOUS pass, so an index was minted against
- *      one expression and read against another.*** No amount of correct width
- *      arithmetic removes that; only naming the operand does.
- *
- * ⚠ ***A HINT, NEVER CORRECTNESS.*** An empty result means "nothing you named is
- * true" - what a backstop tick says, and what an older host returns. So a step
- * must remain correct when NO handler runs: `on()` makes the late case safe, not
- * the missing case. Do the work for a condition that holds; never skip work
- * because nothing was listed.
- *
- * ***EVERY ARM THAT HOLDS RUNS, NOT THE FIRST.*** Two conditions can be true at
- * once and the program declared a handler for each; a `switch` would silently
- * drop one and pick a different one on a different day.
- * ═══════════════════════════════════════════════════════════════════════════
- */
+// ⛔ ***A 55-LINE DOC FOR `on` SAT HERE, ATTACHED TO NOTHING, AND WAS DELETED
+// 2026-09-07.*** It documented the removed `on({[expr]: handler})` object form
+// and opened with "***THE EXPRESSION IS THE KEY*** - `Resume` is a branded
+// string and object keys are strings", both false since the builder landed and
+// `Resume` became a node.
+//
+// ***IT WAS INVISIBLE, WHICH IS WHY IT ROTTED.*** A `/** … */` immediately
+// followed by another `/** … */` attaches to nothing - only the last one reaches
+// the declaration - so no editor ever showed this, no reader ever corrected it,
+// and it kept its own copy of an explanation that had moved on. A doc block with
+// no symbol under it is not documentation, it is a comment nobody is aimed at.
+//
+// ⚠ It also held the ONE paragraph a reader needs most - "it does two things in
+// one call, and they are for DIFFERENT passes" - which is the answer to "why
+// does an arm carry code". That is now the FIRST thing in the live `on` doc.
+// The index history it carried survives in `dispatch`'s body below, at the code
+// it explains. Nothing was lost; it was stranded.
 /**
  * The union of every effect the arms of `A` can yield.
  *
@@ -3222,10 +3184,57 @@ class OnBuilder<E extends AnyEffect> {
  *     )
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * ***AN ARM NEEDS NO `function*` UNLESS IT NEEDS ONE.*** An effect call already
- * returns a generator, so `report(…)` is a handler and a list of them runs in
- * order. Reach for a thunk when an arm has logic, or when its arguments depend
- * on other work in the pass - see `Arm`.
+ * ⭐ ***WHY AN ARM CARRIES CODE AT ALL - `on` IS NOT `addEventListener`.***
+ * This is the question the name invites and answers wrongly, so it is the first
+ * thing here.
+ *
+ * A handler is NOT called when the condition fires. ***Nothing exists to call:***
+ * a step runs, returns a park, and the instance is GONE. There is no process
+ * holding your closure and no callback to deliver. When the condition becomes
+ * true, radiant starts a BRAND NEW pass and tells it which operands held; `on`
+ * reads that at the top of the pass and runs the matching arm THERE, inline.
+ *
+ * So the two halves of one arm belong to two different passes:
+ *
+ *	  when   an expression for the park at the END of THIS pass
+ *	  then   code that runs at the TOP of the pass AFTER that park fires
+ *
+ *	  pass N     ... on(...) -> resume -> quiesce -> the instance dies
+ *	  (radiant watches; the Deployment drops to 0; the operand goes true)
+ *	  pass N+1   on(...) reads held, matches the text, runs THAT arm's `then`
+ *
+ * `then` is a RESUMPTION POINT, not a callback. Read chronologically it is
+ * `when` … time passes … `then`, which is what the words say - the misleading
+ * part is only the borrowed `on`.
+ *
+ * ***AND WHY THE TWO ARE FUSED RATHER THAN DECLARED SEPARATELY.*** The
+ * alternative writes each condition twice - once into the park, once into the
+ * test that routes the dispatch - and those two spellings drift. Here the
+ * expression that WAKES you and the expression that ROUTES you are the same
+ * object, so there is no naming layer to keep in sync.
+ *
+ * ***YOU DO NOT NEED `on` AT ALL.*** `sentinel.ts` ships the same program
+ * without it, as its own fallback: read every subject, decide. `on` only lets a
+ * pass SKIP reads when the host could say what moved - see the HINT note below,
+ * which is the same point stated as a rule.
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***AN ARM NEEDS NO `function*` UNLESS IT NEEDS ONE, BUT IT IS ALWAYS A
+ * STEP.*** A handler has to `read`, `ensure` and `report`, and those are YIELDS -
+ * a plain function cannot yield into its caller's step, so an arm is a generator
+ * and `on` `yield*`s into it, making its effects the caller's. An effect call
+ * already returns a generator, so `report(…)` is a handler and a list of them
+ * runs in order; reach for a thunk when an arm has logic, or when its arguments
+ * depend on other work in the pass - see `Arm`.
+ *
+ * ***EVERY ARM THAT HOLDS RUNS, NOT THE FIRST.*** Two conditions can be true at
+ * once and the program declared a handler for each; a `switch` would silently
+ * drop one, and pick a different one on a different day.
+ *
+ * ⚠ ***A HINT, NEVER CORRECTNESS.*** An empty result means "nothing you named is
+ * true" - what a backstop tick says, what the FIRST pass says, and what a host
+ * not serving `woke` says. A step must stay correct when NO handler runs: `on()`
+ * makes the late case cheap, not the missing case safe. Do the work for a
+ * condition that holds; never skip work because nothing was listed (ADR-0107).
  *
  * ***IT RETURNS THE RESUME AND THE CALLER PARKS.*** `quiesce` is where a step
  * says what would change its mind; hiding it in here would make the park
