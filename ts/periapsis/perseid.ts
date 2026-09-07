@@ -1084,8 +1084,8 @@ export const changed = (ref: string): Resume => {
  *
  * The old idiom is REDUNDANT (the host adds its own), STALE BY CONSTRUCTION
  * (`Date.now()` runs when the step builds the expression, and the host evaluates
- * it at wake time), and it SPENDS A DISJUNCT - an operand `on()` then has to
- * skip when mapping a held index back to an arm.
+ * it at wake time), and it SPENDS A DISJUNCT - an operand that belongs to no arm,
+ * so it shows up in the park text and in `held` while dispatching nothing.
  *
  * ⚠ ***ALONE IT IS ONLY AS BOUNDED AS THE BACKSTOP IS.*** Under
  * `-perseid-backstop=off` a program parked on this waits forever, and the only
@@ -1098,11 +1098,16 @@ export const backstop = (): Resume => untilBackstop
 /**
  * Wake when ANY sub-condition holds.
  *
- * ***`backstop()` OPERANDS ARE FOLDED AWAY, BECAUSE `X || false` IS `X`.*** The
- * point is not brevity - it is that an operand costs an INDEX. The host flattens
- * `||` and reports which operand held; a `false` that can never hold would still
- * shift every arm after it, so writing the intent would silently change the
- * dispatch. Folding is what makes `backstop()` free to say.
+ * ***`backstop()` OPERANDS ARE FOLDED AWAY, BECAUSE `X || false` IS `X`.***
+ * Folding is what makes `backstop()` free to SAY: the park text is what an
+ * operator reads in `waitingFor` and what a wake quotes back in `held`, and a
+ * `false` that can never hold is noise in both.
+ *
+ * ⚠ The original reason was sharper and is now obsolete: an operand cost an
+ * INDEX, so a `false` would shift every arm after it and writing the intent
+ * would silently change the dispatch. Since 2026-09-07 dispatch is by operand
+ * TEXT, and an operand that can never hold simply never appears - so folding is
+ * hygiene rather than correctness.
  *
  * ⚠ Only here. In `allOf`, `X && false` is `false` - folding there would turn a
  * park into one that can never fire.
@@ -2830,22 +2835,30 @@ export const objects = {
  *	                        and runs their handlers
  *	  returns a Resume      the disjunction of every key, for the NEXT park
  *
- * ⛔ ***THE MAP MUST BE THE SAME ON EVERY PASS, AND THIS IS THE ONE WAY TO
- * MISUSE IT.*** The host reports an index into its FLATTENED disjunction, and
- * `on()` maps it back to an arm using each key's own width - so a later pass that
- * builds a different map, or reorders one, has the host naming operands this map
- * assigns to somebody else. Build it from constants, never inside a branch. The
- * failure is silent - a handler for the wrong condition - which is why it is
- * stated here rather than guarded: nothing on either side can see the map the
- * previous pass used.
+ * ✅ ***THE ARM LIST DOES NOT HAVE TO BE STABLE ACROSS PASSES*** (2026-09-07).
+ * The host answers with each held operand's own SOURCE TEXT, and an arm owns an
+ * operand when one of its own leaves renders to that text. That is a question
+ * about THIS pass alone: it needs no previous list, no ordering and no widths.
+ * An arm that was not there last pass simply does not match, which is the safe
+ * direction - late, never wrong.
  *
- * ⚠ ***AN INDEX IS NOT A KEY'S POSITION, AND THIS DOC SAID IT WAS UNTIL
- * 2026-09-06.*** The two coincide only while every arm is ONE operand wide.
- * `fieldNoLonger` emits `(!exists) || (!= v)`, because an absent operand
- * propagates as unknown - so the builder that is CORRECT for a field Kubernetes
- * may omit is exactly the one that makes them diverge. Measured live: four such
- * arms, a wake on the fourth, and the third arm's handler ran - publishing a
- * healthy verdict about a Deployment with no pods.
+ * ⛔ ***THIS DOC SAID THE OPPOSITE UNTIL 2026-09-07, AND THE REASON IS WORTH
+ * KEEPING.*** The host used to report an INDEX into its flattened disjunction,
+ * which `on()` mapped back through each arm's width. Two failures came out of
+ * that, and the second is why the wire format changed rather than the
+ * arithmetic:
+ *
+ *   1. an index is not a KEY'S POSITION - true only while every arm is ONE
+ *      operand wide, and `fieldNoLonger` emits `(!exists) || (!= v)` precisely
+ *      because an absent operand propagates as unknown. So the builder that is
+ *      CORRECT for a field Kubernetes may omit is exactly the one that diverges.
+ *      Measured live: four such arms, a wake on the fourth, the THIRD arm's
+ *      handler ran - publishing a healthy verdict about a Deployment with no
+ *      pods.
+ *   2. widening the mapping fixed that and left the real defect: ***the host
+ *      evaluates the park from the PREVIOUS pass, so an index was minted against
+ *      one expression and read against another.*** No amount of correct width
+ *      arithmetic removes that; only naming the operand does.
  *
  * ⚠ ***A HINT, NEVER CORRECTNESS.*** An empty result means "nothing you named is
  * true" - what a backstop tick says, and what an older host returns. So a step
@@ -2964,8 +2977,8 @@ export type Cause =
  * Run the handlers for the arms the host reported as held, then return the
  * disjunction of every arm's condition as the next park.
  *
- * The mechanism; `on` (below) is the surface. Kept separate so the index-to-arm
- * mapping has one home regardless of how the arms were assembled.
+ * The mechanism; `on` (below) is the surface. Kept separate so the operand-to-arm
+ * matching has one home regardless of how the arms were assembled.
  */
 function* dispatch<E extends AnyEffect>(
   arms: readonly Arm<AnyEffect>[],
@@ -3098,12 +3111,16 @@ function* dispatch<E extends AnyEffect>(
  *     const why = yield* wakeCause()
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * ***ONE HOST READ, NO INDEX, NOTHING TO MAP.*** `woke.held()` returns operand
- * indices into the park the program went to sleep on; turning those into arm
- * names requires the arm list to be unchanged since, which nothing enforces and
- * which fails silently when it is not. Asking only whether the list is EMPTY
- * needs no such assumption - and empty-or-not is a fact about the previous park
- * alone, which is the only thing the host actually evaluated.
+ * ***THE SMALLEST QUESTION: IS THE LIST EMPTY.*** `woke.held()` returns the
+ * operands of the previous park that held, and `on()` matches them by text. This
+ * asks less than that - whether ANY of them held - which is a fact about the
+ * previous park alone, the only thing the host actually evaluated.
+ *
+ * ⚠ This doc argued the point differently until 2026-09-07, when `held` carried
+ * INDICES: turning an index into an arm needed the arm list to be unchanged
+ * since the previous pass, and `wakeCause` existed partly to sidestep that.
+ * ***THAT HAZARD IS GONE*** - an operand names itself now - so this is a
+ * convenience rather than the safe alternative to `on()`.
  *
  * ⛔ ***IT IS A HINT. ADR-0107 PERMITS "do the work for the condition that
  * holds" AND FORBIDS "skip work because nothing was listed".*** A missed wake
@@ -3133,9 +3150,14 @@ export function* wakeCause(): Generator<Effect<typeof WIT_WOKE, 'held', void>, C
  * ***IMMUTABLE, AND THAT IS THE WHOLE REASON IT IS A CLASS RATHER THAN AN
  * ACCUMULATOR.*** `on` is a MODULE-LEVEL value shared by every pass. A builder
  * that pushed onto its own array would grow by one arm per `.when()` per pass,
- * for the life of the instance - the park would gain duplicate operands, every
- * arm index after the first would shift, and the wrong handler would run. Each
- * call returns a NEW builder, so the shared root is always empty.
+ * for the life of the instance - the park would gain duplicate operands and the
+ * same handler would run once per copy, unboundedly. Each call returns a NEW
+ * builder, so the shared root is always empty.
+ *
+ * (Until 2026-09-07 the stated consequence was that "every arm index after the
+ * first would shift, and the wrong handler would run". Dispatch is by operand
+ * TEXT now, so a duplicated arm runs REPEATEDLY rather than wrongly - still a
+ * defect, and the same fix.)
  *
  * ***IT IS ITERABLE, SO THERE IS NO TERMINAL CALL TO FORGET.*** `yield*` works
  * on anything with `[Symbol.iterator]`, so the chain is yielded directly - no
@@ -3172,15 +3194,17 @@ class OnBuilder<E extends AnyEffect> {
   /**
    * Run the handlers for whatever held, and return the resume to park on.
    *
-   * ⚠ ***THIS IS DISPATCH, AND DISPATCH IS THE PART THAT USES INDICES.*** It
-   * therefore carries the assumption `wakeCause` was introduced to avoid: an
-   * index names an operand of the park from LAST pass, mapped against THIS
-   * pass's arms. Keep the arm list built from module constants and in a fixed
-   * order - `sentinel.ts` says the same thing at its own call site - or a
-   * reordered list runs a handler for a condition nobody asserted.
+   * The host names each held operand by its SOURCE TEXT; an arm runs when one of
+   * its own leaves renders to one of those texts. Reordering or rebuilding the
+   * arm list between passes is therefore safe - an arm that no longer exists
+   * matches nothing, rather than a neighbour's handler running.
    *
-   * If all you want is WHY the pass woke, do not reach for this: `wakeCause()`
-   * answers that with no index and therefore nothing to get wrong.
+   * ⚠ This said "DISPATCH IS THE PART THAT USES INDICES" and told you to keep
+   * the arm list in a fixed order, until 2026-09-07. Both are obsolete; the
+   * ordering advice is harmless but no longer load-bearing.
+   *
+   * If all you want is WHY the pass woke, `wakeCause()` is the smaller question
+   * - it only asks whether the list was empty.
    */
   *[Symbol.iterator](): Generator<E | Effect<typeof WIT_WOKE, 'held', void>, Resume, unknown> {
     return yield* dispatch<E>(this.arms)
@@ -3210,8 +3234,7 @@ class OnBuilder<E extends AnyEffect> {
  * ⚠ You do NOT need a `deadline(Date.now() + …)` arm for liveness: the host
  * renders `(<the whole user resume>) || Backstop()` onto every park
  * (`internal/aperture/eval.go`, `WithBackstop`). To SAY so, use `backstop()`,
- * which `anyOf` folds away rather than spending an operand - and an operand
- * costs an arm INDEX.
+ * which `anyOf` folds away rather than spending an operand.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 export const on: OnBuilder<never> = new OnBuilder<never>([])
