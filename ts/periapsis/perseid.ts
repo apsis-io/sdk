@@ -1652,11 +1652,20 @@ export const WIT_CARRY = 'radiant:reconcile/carry@0.1.0'
 // condition that actually holds instead of re-deriving which of N states it is
 // in.
 //
-// ⚠ ***AN INDEX NAMES AN OPERAND OF THE HOST'S FLATTENED DISJUNCTION, NOT A KEY'S
-// POSITION.*** This said "a key's POSITION in the map" until 2026-09-06, which is
-// true only while every arm is ONE operand wide - and the builders worth using
-// are not: `fieldNoLonger` emits `(!exists) || (!= v)`. `on()` maps the reported
-// index back through each arm's width; see `topLevelOrCount`.
+// ⚠ ***THERE IS NO INDEX ANY MORE - AN OPERAND NAMES ITSELF*** (2026-09-07).
+// `held` answers with each holding operand's own SOURCE TEXT, and `on()` matches
+// that text against the leaves of its own arms. No width arithmetic, nothing to
+// map, and `topLevelOrCount` - the scanner that used to recover the widths from
+// rendered text - is deleted.
+//
+// The two corrections this replaces are kept because they are why the mechanism
+// changed, and both are the same defect at different resolutions: this said "a
+// key's POSITION in the map" until 2026-09-06, true only while every arm is ONE
+// operand wide - and the builders worth using are not (`fieldNoLonger` emits
+// `(!exists) || (!= v)`). The fix was to map an index back through each arm's
+// width, which is correct and still fragile: ***the host evaluates the PREVIOUS
+// pass's park, so an index is resolved against one expression and minted against
+// another.*** Text survives that; a position cannot.
 export const WIT_WOKE = 'radiant:reconcile/woke@0.1.0'
 
 /** The interfaces this SDK knows. Autocompletion comes from this union. */
@@ -2098,8 +2107,9 @@ export const reconcile = {
   carry: () => defineEffect<void, string>()(WIT_CARRY, 'carry'),
 
   /**
-   * `woke.held() -> list<u32>`. Which arms of this program's own resume were
-   * TRUE at the wake that started this pass.
+   * `woke.held() -> list<string>`. Which operands of this program's own resume
+   * were TRUE at the wake that started this pass, as their own SOURCE TEXT -
+   * `list<u32>` (their positions) until 2026-09-07.
    *
    * ⚠ ***A HINT, NEVER A CORRECTNESS INPUT.*** A step must stay a total function
    * of the world. "Do the work for the condition that holds" is fine, because a
