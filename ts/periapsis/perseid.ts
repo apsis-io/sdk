@@ -2833,32 +2833,27 @@ export const objects = {
 // does an arm carry code". That is now the FIRST thing in the live `on` doc.
 // The index history it carried survives in `dispatch`'s body below, at the code
 // it explains. Nothing was lost; it was stranded.
-/**
- * The union of every effect the arms of `A` can yield.
- *
- * ⛔ ***A NAKED `Record<string, () => Generator<E, …>>` INFERS `E` FROM ONE ARM
- * AND REJECTS THE REST, WHICH BREAKS `on()` IN EXACTLY ITS INTENDED CASE.*** The
- * whole reason to dispatch on several arms is that they watch DIFFERENT
- * subjects, and different subjects are read with different effects - a namespaced
- * `observe` and a cluster-scoped `observe-cluster`, say. Against the old
- * signature TypeScript fixed `E` to the first arm's effect and then reported the
- * second as `not assignable`, so the first program to use `on()` for its purpose
- * did not compile.
- *
- * Inferring over the RECORD TYPE and distributing lets `E` be the union. The
- * conditional is distributive because `A[keyof A]` is a union of the arm
- * functions and the checked type is a naked parameter.
- */
-// ⚠ ***HOW ARMS WITH DIFFERENT EFFECTS UNIFY, AND WHY IT IS NOT A TUPLE TYPE
-// ANY MORE.*** A variadic `...arms: readonly Arm<E>[]` fixed `E` on the FIRST
-// arm and rejected every other one - not a type-noise problem but a program
-// unable to observe two kinds of thing in one park, which is `on`'s whole point.
-// The tuple form recovered the union with `ThenEffects<T[number][1]>`.
+// ═══════════════════════════════════════════════════════════════════════════
+// ⭐ ***A WHOLE CLASS OF TYPE MACHINERY LIVED HERE AND IS GONE (2026-09-07),
+// BECAUSE NOTHING IN THIS API CARRIES EFFECTS ANY MORE.***
 //
-// The builder does it structurally instead: `.when<E2>()` returns
-// `OnBuilder<E | E2>`, so the union GROWS one call at a time and there is no
-// tuple to index. Same property, and it survives `.each` - which a tuple type
-// could not have expressed, because the arm count is not known statically.
+// `Arm<E>`, `ThenEffects`, and `OnBuilder<E | E2>`'s union-growing `.when` all
+// existed for one reason: an arm held a GENERATOR, so the surface had to recover
+// `E` as a union across arms that yield different effects. A naked
+// `Record<string, () => Generator<E, …>>` infers `E` from ONE arm and rejects
+// the rest - and the whole point of dispatching on several arms is that they
+// watch different subjects, read with different effects (a namespaced `observe`
+// and a cluster-scoped `observe-cluster`). So the first program to use `on()`
+// for its purpose did not compile, and two designs were built to fix it: a tuple
+// type recovering the union via `ThenEffects<T[number][1]>`, then a builder
+// growing `OnBuilder<E | E2>` one call at a time because a tuple could not
+// express `.each`, whose arm count is not known statically.
+//
+// ***`watch` HOLDS CONDITIONS, WHICH ARE PLAIN `Resume` VALUES.*** The program's
+// own `yield*` calls carry their own effect types natively, so the problem
+// cannot arise. Two careful solutions deleted by removing the thing that needed
+// them - worth remembering the next time a type is fighting this hard.
+// ═══════════════════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ***`topLevelOrCount` LIVED HERE AND IS GONE (2026-09-06).***
@@ -2879,44 +2874,58 @@ export const objects = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * One arm: what to wake on, and what to do about it.
+ * What held at the wake that started this pass, answered by NAME.
  *
- * `then` is a Step, a LIST of steps run in order, or a thunk returning a step.
- * An effect call already returns a generator, so the common arms need no
- * `function*` at all:
+ *     const held = yield* WATCH.held()
+ *     if (held.has('node')) yield* report(unready('NodeNotReady', …))
+ *     for (const d of DEPLOYMENTS) if (held.hasItem(d)) yield* check(d)
  *
- *     [objectGone(POD), report(unready('Gone', `${POD} was deleted`))]
- *     [drifted(DEP),    [ensure({ … }), report(unready('Drifted', …))]]
- *     [tainted(NODE),   function* () { const o = yield* read.need(N); … }]
+ * ***`has` IS CHECKED AGAINST THE DECLARED KEYS***, so a typo or a renamed
+ * condition is a compile error rather than a branch that silently never runs -
+ * which is the failure a stringly-keyed lookup would reintroduce.
  *
- * ⚠ ***A STEP AND A LIST HAVE THEIR ARGUMENTS EVALUATED WHEN THE ARM IS BUILT,
- * NOT WHEN IT FIRES.*** That is fine for the literals above and wrong for
- * anything derived from work done elsewhere in the pass - reach for the thunk
- * there, where the laziness is explicit and visible.
+ * ⚠ ***EMPTY IS ORDINARY, NOT AN ERROR.*** It is what a backstop tick says, what
+ * the FIRST pass says, and what a host not serving `woke` says. A step must
+ * reach the same verdict having matched nothing - see `WatchSet.held`.
  */
-export type Arm<E extends AnyEffect> = readonly [
-  when: Resume,
-  then:
-    | Generator<E, unknown, unknown>
-    | readonly Generator<E, unknown, unknown>[]
-    | (() => Generator<E, unknown, unknown> | void),
-]
+export interface Held<K extends string, I> {
+  /** How many operands held. Zero on a backstop tick. */
+  readonly size: number
+  /** Did the condition declared under this name hold? */
+  has(name: K): boolean
+  /**
+   * Did the condition derived for this ITEM hold?
+   *
+   * Matched by reference identity against the array given to `.each`, so a
+   * mapped subject list needs no name strings at all - iterate the same array
+   * and ask about each element.
+   */
+  hasItem(item: I): boolean
+  /**
+   * The raw operand text the host reported, in its order.
+   *
+   * For publishing and debugging - a program that BRANCHES on this has gone
+   * back to matching strings by hand and given up what `has` checks for it.
+   */
+  readonly texts: readonly string[]
+}
 
 /**
  * Why this pass is running.
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * ***COARSE ON PURPOSE, AND THE COARSENESS IS THE CORRECTNESS.*** `woke.held()`
- * answers with INDICES, and an index is an index into the resume the program
- * parked on LAST pass - interpreted, unavoidably, against the arms of THIS one.
- * While those two lists agree the mapping is exact; when they do not it is
- * silently wrong. Measured: park on `[A, B]`, insert an arm at the front next
- * pass, and the host's "operand 1" stops meaning B and starts meaning A. No
- * error, a plausible answer.
+ * ***COARSE ON PURPOSE, AND THE COARSENESS COSTS NOTHING.*** "Did any of my own
+ * conditions hold" is answerable from the previous park alone, which is the only
+ * thing the host actually knows. `watch(...).held()` answers the finer question
+ * when a program has a set to ask about; this needs none.
  *
- * ***"DID ANY OF MY OWN CONDITIONS HOLD" NEEDS NO INDEX***, so it cannot drift.
- * It is answerable from the previous park alone, which is the only thing the
- * host actually knows.
+ * ⚠ This doc argued the coarseness was the CORRECTNESS until 2026-09-07, when
+ * `woke.held()` answered with INDICES: an index named an operand of the park the
+ * program parked on LAST pass, interpreted against the arms of THIS one, so it
+ * drifted silently when the two disagreed. Measured: park on `[A, B]`, insert an
+ * arm at the front next pass, and the host's "operand 1" stops meaning B and
+ * starts meaning A - no error, a plausible answer. ***An operand names itself
+ * now***, so the finer question is safe too and this is merely smaller.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 export type Cause =
@@ -2936,20 +2945,22 @@ export type Cause =
   | 'backstop'
 
 /**
- * Run the handlers for the arms the host reported as held, then return the
- * disjunction of every arm's condition as the next park.
+ * Which of `conditions` own an operand the host reported as held.
  *
- * The mechanism; `on` (below) is the surface. Kept separate so the operand-to-arm
- * matching has one home regardless of how the arms were assembled.
+ * The mechanism; `watch` (below) is the surface. Kept separate so operand-to-
+ * condition matching has one home regardless of how the set was assembled.
+ *
+ * ***IT RUNS NOTHING.*** It answers a question and returns; the program decides
+ * what to do with the answer. That is the whole difference from the `on` this
+ * replaced, where the same match invoked a handler the condition carried.
  */
-function* dispatch<E extends AnyEffect>(
-  arms: readonly Arm<AnyEffect>[],
-): Generator<E | Effect<typeof WIT_WOKE, 'held', void>, Resume, unknown> {
-  // ***A LIST, NOT AN OBJECT, AND THE DEDUP IS ONE REASON.*** Keying handlers by
-  // the rendered expression made two arms with the same condition collapse into
-  // one silently, and object key order is a convention rather than a guarantee
-  // for anything but string keys. A list keeps both arms and keeps source order.
-  const conditions = arms.map(([when]) => when)
+function* matchHeld(
+  conditions: readonly Resume[],
+): Generator<
+  Effect<typeof WIT_WOKE, 'held', void>,
+  { readonly owners: ReadonlySet<number>; readonly texts: readonly string[] },
+  unknown
+> {
   // ⛔⛔ ***THE HOST INDEXES FLATTENED OPERANDS; THIS MAP INDEXES ARMS, AND THEY
   // ARE NOT THE SAME NUMBER THE MOMENT AN ARM CONTAINS ITS OWN `||`.***
   //
@@ -2992,79 +3003,37 @@ function* dispatch<E extends AnyEffect>(
 
     return out
   }
-  const armLeaves = conditions.map(leavesOf)
-  const armOfOperand = (text: string): number | undefined => {
-    const at = armLeaves.findIndex((ls) => ls.includes(text))
+  const condLeaves = conditions.map(leavesOf)
+  const ownerOf = (text: string): number | undefined => {
+    const at = condLeaves.findIndex((ls) => ls.includes(text))
 
     return at < 0 ? undefined : at
   }
-  // ***READ BEFORE RUNNING ANYTHING.*** The answer describes the wake that
-  // started this pass; a handler that yields could change the world underneath
-  // a later read of it.
+  // ***READ BEFORE THE PROGRAM DOES ANYTHING.*** The answer describes the wake
+  // that started this pass; work that yields could change the world underneath a
+  // later read of it. Asking first is why this is a generator at all.
   const woke = reconcile.woke()
-  const heldArms = ((yield* woke()) as string[] | undefined) ?? []
+  const texts = ((yield* woke()) as string[] | undefined) ?? []
 
-  const alreadyRun = new Set<number>()
-  for (const text of heldArms) {
-    const key = armOfOperand(text)
-    if (key === undefined) {
-      // ***AN OPERAND NO ARM OWNS - AND THIS IS NOW AN HONEST ANSWER RATHER THAN
-      // A GUESS.*** The arm list changed since the park was built, so the
-      // condition that held is one this pass no longer watches. Skipping is
-      // correct: running some other handler would act on a condition nobody
-      // asserted, which is exactly what an index would have done silently.
+  // ***A SET, SO A MULTI-OPERAND CONDITION IS REPORTED ONCE.*** Both halves of a
+  // `(!exists) || (!= v)` condition can hold at one wake - an absent field
+  // satisfies the first and, being absent, is also `!=` nothing - and the program
+  // declared ONE name for it.
+  const owners = new Set<number>()
+  for (const text of texts) {
+    const at = ownerOf(text)
+    if (at === undefined) {
+      // ***AN OPERAND NO CONDITION OWNS, AND THIS IS AN HONEST ANSWER RATHER THAN
+      // A GUESS.*** The set changed since the park was built, so what held is
+      // something this pass no longer watches. Reporting nothing for it is
+      // correct: naming some other condition would tell the program about one
+      // nobody asserted, which is exactly what an index did silently.
       continue
     }
-    // The CONSTRAINT says an arm yields `AnyEffect`; the RETURN TYPE promises the
-    // narrower `ArmEffects<A>`. Both are true of the same value and TypeScript
-    // cannot see it from inside, because it checks the body against the widened
-    // constraint rather than against the caller's `A`. The assertion carries the
-    // fact the signature already states.
-    // ***ONCE PER ARM, NOT ONCE PER OPERAND.*** Both halves of a
-    // `(!exists) || (!= v)` arm can hold at the same wake - an absent field
-    // satisfies the first and, being absent, is also `!=` nothing - and the
-    // program declared ONE handler for that condition.
-    if (alreadyRun.has(key)) continue
-    alreadyRun.add(key)
-    // ***A GENERATOR OBJECT OR A THUNK.*** `report({…})` IS a Step - an effect
-    // call returns a generator - so a single-effect arm needs no `function*`
-    // wrapper at all. Generators are lazy, so an arm that never fires is never
-    // advanced; only its ARGUMENTS are built up front, which is why a handler
-    // whose arguments depend on another arm having run must stay a thunk.
-    //
-    // The CONSTRAINT says an arm yields `AnyEffect`; the RETURN TYPE promises
-    // the narrower `ArmsEffects<T>`. Both are true of the same value, and
-    // TypeScript cannot see it from in here because it checks the body against
-    // the widened constraint rather than against the caller's `T`. The assertion
-    // carries the fact the signature already states.
-    type S = Generator<E, unknown, unknown>
-    const then = arms[key]![1] as S | readonly S[] | (() => S | void)
-
-    // ***NORMALISED TO A LIST RATHER THAN NARROWED.*** `Array.isArray` does not
-    // reliably remove a `readonly T[]` member from a union, so the else-branch
-    // kept the array and `yield*` over it typed as yielding GENERATORS. One
-    // shape in, one loop out - and it makes the ordering explicit below.
-    //
-    // ⭐ ***A PLAIN FUNCTION IS AN ARM TOO, AND ITS ABSENCE WAS A REAL COST.***
-    // An arm that only records why we woke - a label, a counter, a log line -
-    // yields nothing, and having to write it as `function* () { … }` produced a
-    // generator the linter itself flagged (`require-yield`) at every call site.
-    // A thunk returning `void` contributes no steps and no effects.
-    const produced = typeof then === 'function' ? then() : then
-    const steps: readonly S[] =
-      produced == null ? [] : Array.isArray(produced) ? (produced as readonly S[]) : [produced as S]
-
-    // ***A LIST RUNS IN ORDER, NOT CONCURRENTLY.*** An arm declares obligations;
-    // `group`/`where` are where concurrency is asked for explicitly. An arm that
-    // quietly interleaved would make the order of two writes depend on which
-    // sugar the author happened to reach for.
-    for (const s of steps) yield* s
+    owners.add(at)
   }
 
-  // ***THE RESUME, AND THE CALLER PARKS.*** `quiesce` stays at the call site: it
-  // is the one place a step says what would change its mind, and hiding it here
-  // would make the park invisible in the program that owns it.
-  return anyOf(...conditions)
+  return { owners, texts }
 }
 
 /**
@@ -3106,144 +3075,173 @@ export function* wakeCause(): Generator<Effect<typeof WIT_WOKE, 'held', void>, C
 }
 
 /**
- * The fluent builder behind `on`.
+ * A set of named conditions: what this program watches, declared once.
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * ***IMMUTABLE, AND THAT IS THE WHOLE REASON IT IS A CLASS RATHER THAN AN
- * ACCUMULATOR.*** `on` is a MODULE-LEVEL value shared by every pass. A builder
- * that pushed onto its own array would grow by one arm per `.when()` per pass,
- * for the life of the instance - the park would gain duplicate operands and the
- * same handler would run once per copy, unboundedly. Each call returns a NEW
- * builder, so the shared root is always empty.
+ * ***IT HOLDS NO CODE, AND THAT IS THE POINT.*** Its predecessor `on` paired
+ * each condition with a handler, which read as an event registration and is not
+ * one - a Perseid step returns a park and the instance is GONE, so nothing can
+ * be called back. The handler ran at the top of the NEXT pass, and no amount of
+ * documentation made that legible from the shape.
  *
- * (Until 2026-09-07 the stated consequence was that "every arm index after the
- * first would shift, and the wrong handler would run". Dispatch is by operand
- * TEXT now, so a duplicated arm runs REPEATEDLY rather than wrongly - still a
- * defect, and the same fix.)
+ * Here the two questions are separate and each is answered where it belongs:
  *
- * ***IT IS ITERABLE, SO THERE IS NO TERMINAL CALL TO FORGET.*** `yield*` works
- * on anything with `[Symbol.iterator]`, so the chain is yielded directly - no
- * `.done()`, and no way to build a chain and silently never run it.
+ *	  .resume   an expression, available WITHOUT yielding - the next park
+ *	  .held()   which of these conditions held at the wake that started THIS
+ *	            pass; the program then does the work itself, in order
+ *
+ * ***THE CONDITION IS STILL WRITTEN ONCE.*** That was the argument for fusing
+ * handler and condition - "no naming layer to keep in sync". A name is not a
+ * second spelling of the condition: `has()` is checked against `keyof`, so a
+ * name that does not exist is a compile error, where two hand-written copies of
+ * an expression drift silently.
+ *
+ * ***IMMUTABLE.*** `.each` returns a NEW set rather than pushing, so a set built
+ * at module level and refined per pass cannot accumulate duplicate operands for
+ * the life of the instance.
  * ═══════════════════════════════════════════════════════════════════════════
  */
-class OnBuilder<E extends AnyEffect> {
-  constructor(private readonly arms: readonly Arm<AnyEffect>[]) {}
-
-  /** Add one arm: what to wake on, and what to do about it. */
-  when<E2 extends AnyEffect>(when: Resume, then: Arm<E2>[1]): OnBuilder<E | E2> {
-    return new OnBuilder<E | E2>([...this.arms, [when, then] as unknown as Arm<AnyEffect>])
-  }
+export class WatchSet<K extends string, I> {
+  constructor(
+    private readonly named: readonly (readonly [K, Resume])[],
+    private readonly items: readonly (readonly [I, Resume])[],
+  ) {}
 
   /**
-   * Add one arm PER ITEM of a list.
+   * Add one condition PER ITEM of a list, keyed by the ITEM ITSELF.
    *
-   * ⭐ ***THE REASON THE FLUENT FORM DOES NOT REGRESS A MAPPED SUBJECT LIST.***
-   * `sentinel.ts` watches N deployments; with a chain of `.when()` calls alone
-   * those arms would have to be transcribed one per subject again, which is
-   * exactly what moving off the computed-key OBJECT fixed. Here the arms are
-   * DERIVED from the subject list, so they cannot disagree with it.
+   * ⭐ ***NO NAME STRINGS FOR A MAPPED SUBJECT LIST.*** `sentinel.ts` watches N
+   * deployments; naming them would mean transcribing the subject list a second
+   * time, and a transcription can disagree with its source. The conditions are
+   * DERIVED from the list and recalled by reference identity, so iterate the
+   * same array and ask `hasItem(d)`.
    */
-  each<I, E2 extends AnyEffect>(
-    items: readonly I[],
-    arm: (item: I) => Arm<E2>,
-  ): OnBuilder<E | E2> {
-    return new OnBuilder<E | E2>([
-      ...this.arms,
-      ...items.map((i) => arm(i) as unknown as Arm<AnyEffect>),
+  each<I2>(items: readonly I2[], condition: (item: I2) => Resume): WatchSet<K, I | I2> {
+    return new WatchSet<K, I | I2>(this.named, [
+      ...(this.items as readonly (readonly [I | I2, Resume])[]),
+      ...items.map((i) => [i, condition(i)] as const),
     ])
   }
 
+  /** Every condition in the set, in declaration order: named first, then items. */
+  private get conditions(): readonly Resume[] {
+    return [...this.named.map(([, c]) => c), ...this.items.map(([, c]) => c)]
+  }
+
   /**
-   * Run the handlers for whatever held, and return the resume to park on.
+   * The park: the disjunction of every condition in the set.
    *
-   * The host names each held operand by its SOURCE TEXT; an arm runs when one of
-   * its own leaves renders to one of those texts. Reordering or rebuilding the
-   * arm list between passes is therefore safe - an arm that no longer exists
-   * matches nothing, rather than a neighbour's handler running.
-   *
-   * ⚠ This said "DISPATCH IS THE PART THAT USES INDICES" and told you to keep
-   * the arm list in a fixed order, until 2026-09-07. Both are obsolete; the
-   * ordering advice is harmless but no longer load-bearing.
-   *
-   * If all you want is WHY the pass woke, `wakeCause()` is the smaller question
-   * - it only asks whether the list was empty.
+   * ***A PROPERTY, NOT A YIELD.*** A program may park without ever asking what
+   * held - the first pass has nothing to ask about - and `on` could not express
+   * that, because reading the host and building the park were one call.
    */
-  *[Symbol.iterator](): Generator<E | Effect<typeof WIT_WOKE, 'held', void>, Resume, unknown> {
-    return yield* dispatch<E>(this.arms)
+  get resume(): Resume {
+    return anyOf(...this.conditions)
+  }
+
+  /**
+   * Which of these conditions held at the wake that started this pass.
+   *
+   * The host names each held operand by its SOURCE TEXT; a condition owns an
+   * operand when one of its own leaves renders to that text. So rebuilding or
+   * reordering the set between passes is safe - a condition that is no longer
+   * declared matches nothing, rather than a neighbour being named in its place.
+   *
+   * ⚠ ***ONE HOST READ PER CALL.*** Call it once and hold the result; calling it
+   * twice asks the host twice and the second answer describes the same wake.
+   *
+   * ⚠ ***A HINT, NEVER CORRECTNESS.*** Empty is ordinary - a backstop tick, the
+   * first pass, a host not serving `woke`. Do the work for a condition that
+   * held; never SKIP work because nothing was named (ADR-0107).
+   */
+  *held(): Generator<Effect<typeof WIT_WOKE, 'held', void>, Held<K, I>, unknown> {
+    const named = this.named
+    const items = this.items
+    const { owners, texts } = yield* matchHeld(this.conditions)
+
+    return {
+      size: owners.size,
+      texts,
+      has: (name: K) => {
+        const at = named.findIndex(([k]) => k === name)
+
+        return at >= 0 && owners.has(at)
+      },
+      // Items are appended after the named conditions, so an item's position in
+      // `conditions` is offset by however many names there are.
+      hasItem: (item: I) => {
+        const at = items.findIndex(([i]) => i === item)
+
+        return at >= 0 && owners.has(named.length + at)
+      },
+    }
   }
 }
 
 /**
- * Park on several conditions and run the handler for whichever HELD.
+ * Declare what this program watches. Ask what held. Do the work yourself.
  *
- *     return quiesce(
- *       yield* on
- *         .when(drifted(TARGET), report(unready('Drifted', …)))
- *         .when(objectGone(POD), [create(…), report(unready('Gone', …))])
- *         .each(DEPLOYMENTS, (d) => [drifted(d.at), () => check(d)]),
- *     )
+ *     const WATCH = watch({
+ *       node:  fieldNoLonger(NODE, READY_COND, 'True'),
+ *       stamp: objectGone(STATE.path),
+ *     }).each(DEPLOYMENTS, (d) => drifted(d.at))
+ *
+ *     const held = yield* WATCH.held()
+ *     if (held.has('node'))  yield* report(unready('NodeNotReady', …))
+ *     if (held.has('stamp')) yield* create({ path: STATE.path, … })
+ *     for (const d of DEPLOYMENTS) if (held.hasItem(d)) yield* check(d)
+ *
+ *     return quiesce(WATCH.resume)
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * ⭐ ***WHY AN ARM CARRIES CODE AT ALL - `on` IS NOT `addEventListener`.***
- * This is the question the name invites and answers wrongly, so it is the first
- * thing here.
+ * ⭐ ***WHY THIS REPLACED `on`, WHICH PAIRED EACH CONDITION WITH A HANDLER.***
+ * engi asked four times why an arm carried code. That is the finding: the shape
+ * invited a reading of itself that was wrong, and no amount of documentation
+ * fixed it.
  *
- * A handler is NOT called when the condition fires. ***Nothing exists to call:***
- * a step runs, returns a park, and the instance is GONE. There is no process
- * holding your closure and no callback to deliver. When the condition becomes
- * true, radiant starts a BRAND NEW pass and tells it which operands held; `on`
- * reads that at the top of the pass and runs the matching arm THERE, inline.
+ * `on(cond, handler)` looks like `addEventListener`, and it is not one.
+ * ***Nothing can be called back:*** a step runs, returns a park, and the
+ * instance is GONE - there is no process holding your closure. So the handler
+ * did not run when the condition fired; it ran at the top of the NEXT pass, and
+ * one arm silently spanned two passes:
  *
- * So the two halves of one arm belong to two different passes:
- *
- *	  when   an expression for the park at the END of THIS pass
- *	  then   code that runs at the TOP of the pass AFTER that park fires
- *
- *	  pass N     ... on(...) -> resume -> quiesce -> the instance dies
+ *	  pass N     declare the conditions -> quiesce -> the instance dies
  *	  (radiant watches; the Deployment drops to 0; the operand goes true)
- *	  pass N+1   on(...) reads held, matches the text, runs THAT arm's `then`
+ *	  pass N+1   ask what held, act on it
  *
- * `then` is a RESUMPTION POINT, not a callback. Read chronologically it is
- * `when` … time passes … `then`, which is what the words say - the misleading
- * part is only the borrowed `on`.
+ * That sequence has not changed - it is how a Perseid works. What changed is
+ * that the program now WRITES it, in order, instead of encoding it in a pair.
  *
- * ***AND WHY THE TWO ARE FUSED RATHER THAN DECLARED SEPARATELY.*** The
- * alternative writes each condition twice - once into the park, once into the
- * test that routes the dispatch - and those two spellings drift. Here the
- * expression that WAKES you and the expression that ROUTES you are the same
- * object, so there is no naming layer to keep in sync.
- *
- * ***YOU DO NOT NEED `on` AT ALL.*** `sentinel.ts` ships the same program
- * without it, as its own fallback: read every subject, decide. `on` only lets a
- * pass SKIP reads when the host could say what moved - see the HINT note below,
- * which is the same point stated as a rule.
+ * ***THE CONDITION IS STILL WRITTEN ONCE***, which was the argument for pairing
+ * ("no naming layer to keep in sync"). That argument assumed the naming layer
+ * would be unchecked. `has()` is typed by `keyof`, so a wrong name is a compile
+ * error - and `.each` keys by the ITEM, so a mapped subject list has no names at
+ * all.
  * ═══════════════════════════════════════════════════════════════════════════
- * ***AN ARM NEEDS NO `function*` UNLESS IT NEEDS ONE, BUT IT IS ALWAYS A
- * STEP.*** A handler has to `read`, `ensure` and `report`, and those are YIELDS -
- * a plain function cannot yield into its caller's step, so an arm is a generator
- * and `on` `yield*`s into it, making its effects the caller's. An effect call
- * already returns a generator, so `report(…)` is a handler and a list of them
- * runs in order; reach for a thunk when an arm has logic, or when its arguments
- * depend on other work in the pass - see `Arm`.
- *
- * ***EVERY ARM THAT HOLDS RUNS, NOT THE FIRST.*** Two conditions can be true at
- * once and the program declared a handler for each; a `switch` would silently
- * drop one, and pick a different one on a different day.
- *
- * ⚠ ***A HINT, NEVER CORRECTNESS.*** An empty result means "nothing you named is
+ * ⚠ ***A HINT, NEVER CORRECTNESS.*** An empty answer means "nothing you named is
  * true" - what a backstop tick says, what the FIRST pass says, and what a host
- * not serving `woke` says. A step must stay correct when NO handler runs: `on()`
+ * not serving `woke` says. A step must stay correct when nothing matches: this
  * makes the late case cheap, not the missing case safe. Do the work for a
- * condition that holds; never skip work because nothing was listed (ADR-0107).
+ * condition that held; never SKIP work because nothing was named (ADR-0107).
  *
- * ***IT RETURNS THE RESUME AND THE CALLER PARKS.*** `quiesce` is where a step
- * says what would change its mind; hiding it in here would make the park
- * invisible in the program that owns it.
+ * ***YOU DO NOT NEED IT AT ALL.*** `sentinel.ts` ships the same program without
+ * dispatch, as its own fallback: read every subject, decide. This only lets a
+ * pass skip reads when the host could say what moved.
  *
- * ⚠ You do NOT need a `deadline(Date.now() + …)` arm for liveness: the host
- * renders `(<the whole user resume>) || Backstop()` onto every park
+ * ***`.resume` IS A PROPERTY AND `quiesce` STAYS AT THE CALL SITE.*** A step
+ * says what would change its mind in the program that owns it; and a pass may
+ * park without ever asking what held, which `on` could not express.
+ *
+ * ⚠ You do NOT need a `deadline(Date.now() + …)` condition for liveness: the
+ * host renders `(<the whole user resume>) || Backstop()` onto every park
  * (`internal/aperture/eval.go`, `WithBackstop`). To SAY so, use `backstop()`,
  * which `anyOf` folds away rather than spending an operand.
  * ═══════════════════════════════════════════════════════════════════════════
  */
-export const on: OnBuilder<never> = new OnBuilder<never>([])
+export const watch = <R extends Record<string, Resume>>(
+  conditions: R,
+): WatchSet<keyof R & string, never> =>
+  new WatchSet<keyof R & string, never>(
+    Object.entries(conditions).map(([k, c]) => [k as keyof R & string, c] as const),
+    [],
+  )
