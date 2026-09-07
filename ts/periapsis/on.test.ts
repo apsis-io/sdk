@@ -24,9 +24,30 @@ const POD = path.ns('default').core('v1', 'pods', 'web')
 const A = fieldIs(POD, 'status.phase', 'Running')
 const B = fieldIs(POD, 'spec.hostNetwork', true)
 
+/**
+ * The `n`th LEAF of a condition, as the host would report it.
+ *
+ * ***THE HOST ANSWERS WITH OPERAND TEXT, AND AN ARM MAY OWN SEVERAL.***
+ * `fieldNoLonger` renders `(!exists) || (!= v)`, so it has two leaves and either
+ * one holding means that arm held. This is how a test says "the host reported
+ * THIS operand" without knowing or caring where it sat.
+ */
+const leafOf = (c: Resume, n: number): string => {
+  const out: string[] = []
+  const walk = (x: Resume): void => {
+    if (x.of.length > 0) x.of.forEach(walk)
+    else out.push(x.render())
+  }
+  walk(c)
+  const got = out[n]
+  if (got === undefined) throw new Error(`leafOf: no leaf ${n} (has ${out.length})`)
+
+  return got
+}
+
 // drive runs one pass of a step whose only content is an `on()` dispatch, with
 // the host reporting `heldArms`.
-function drive(heldArms: number[]): { ran: string[]; resume: Resume | null } {
+function drive(heldArms: string[]): { ran: string[]; resume: Resume | null } {
   const ran: string[] = []
   // ***THE NODE, NOT ITS RENDERING.*** A resume is a tree; keeping it lets the
   // assertions below compare STRUCTURE, which is the thing `on` is responsible
@@ -35,10 +56,12 @@ function drive(heldArms: number[]): { ran: string[]; resume: Resume | null } {
   let resume: Resume | null = null
   const step = function* () {
     resume = yield* on
-      // eslint-disable-next-line require-yield
-      .when(A, function* () { ran.push('A') })
-      // eslint-disable-next-line require-yield
-      .when(B, function* () { ran.push('B') })
+      .when(A, () => {
+        ran.push('A')
+      })
+      .when(B, () => {
+        ran.push('B')
+      })
 
     return { o: 'yield' as const }
   }
@@ -49,15 +72,15 @@ function drive(heldArms: number[]): { ran: string[]; resume: Resume | null } {
 
 // ⭐ THE HANDLER FOR THE ARM THAT HELD RUNS, AND ONLY IT.
 test('the held arm dispatches', () => {
-  expect(drive([0]).ran).toEqual(['A'])
-  expect(drive([1]).ran).toEqual(['B'])
+  expect(drive([String(A)]).ran).toEqual(['A'])
+  expect(drive([String(B)]).ran).toEqual(['B'])
 })
 
 // ⛔ EVERY ARM THAT HOLDS RUNS. Two conditions can be true at once and the
 // program declared a handler for each; a `switch` would drop one silently and
 // pick a different one on a different day.
 test('every held arm runs, not the first', () => {
-  expect(drive([0, 1]).ran).toEqual(['A', 'B'])
+  expect(drive([String(A), String(B)]).ran).toEqual(['A', 'B'])
 })
 
 // ⚠ NOTHING HELD IS THE COMMON CASE - a backstop tick, or an older host that
@@ -71,8 +94,8 @@ test('nothing held runs nothing', () => {
 // between passes the host's indices name arms that moved - running some OTHER
 // handler would act on a condition nobody asserted.
 test('an out-of-range index runs nothing rather than the wrong handler', () => {
-  expect(drive([7]).ran).toEqual([])
-  expect(drive([1, 7]).ran).toEqual(['B'])
+  expect(drive(['no arm owns this']).ran).toEqual([])
+  expect(drive([String(B), 'no arm owns this']).ran).toEqual(['B'])
 })
 
 // ***THE RESUME IS THE DISJUNCTION OF THE KEYS, IN MAP ORDER*** - which is what
@@ -150,7 +173,7 @@ test('arms yielding DIFFERENT effect types unify rather than fixing on the first
     return { o: 'yield' as const }
   }
   runStep(step as never, {
-    held: () => [1],
+    held: () => [String(B)],
     get: () => ({ t: 'absent' }),
     getCluster: () => ({ t: 'absent' }),
   } as unknown as Handler<never>)
@@ -197,7 +220,7 @@ test('operands counts what the host flattens', () => {
   expect(allOf(A, B, WIDE_A).operands).toBe(1)
 })
 
-function driveWide(heldArms: number[]): string[] {
+function driveWide(heldArms: string[]): string[] {
   const ran: string[] = []
   const step = function* () {
     yield* on
@@ -215,21 +238,22 @@ function driveWide(heldArms: number[]): string[] {
 
 test('a flat index lands in the right ARM when arms are two operands wide', () => {
   // Arm A occupies host indices 0..1, arm B occupies 2..3.
-  expect(driveWide([0])).toEqual(['A'])
-  expect(driveWide([1])).toEqual(['A'])
-  expect(driveWide([2])).toEqual(['B'])
-  expect(driveWide([3])).toEqual(['B'])
+  expect(driveWide([leafOf(WIDE_A, 0)])).toEqual(['A'])
+  expect(driveWide([leafOf(WIDE_A, 1)])).toEqual(['A'])
+  expect(driveWide([leafOf(WIDE_B, 0)])).toEqual(['B'])
+  expect(driveWide([leafOf(WIDE_B, 1)])).toEqual(['B'])
   // Past the end is still skipped rather than wrapped.
-  expect(driveWide([4])).toEqual([])
+  expect(driveWide(['no arm owns this'])).toEqual([])
 })
 
 // ⛔ ONCE PER ARM, NOT ONCE PER OPERAND. Both halves of `(!exists) || (!= v)` can
 // hold at the same wake - an absent field satisfies the first and is `!=`
 // anything - and the program declared ONE handler for that condition.
 test('both operands of one arm run its handler once', () => {
-  expect(driveWide([0, 1])).toEqual(['A'])
-  expect(driveWide([2, 3])).toEqual(['B'])
-  expect(driveWide([0, 1, 2, 3])).toEqual(['A', 'B'])
+  expect(driveWide([leafOf(WIDE_A, 0), leafOf(WIDE_A, 1)])).toEqual(['A'])
+  expect(driveWide([leafOf(WIDE_B, 0), leafOf(WIDE_B, 1)])).toEqual(['B'])
+  expect(driveWide([leafOf(WIDE_A, 0), leafOf(WIDE_A, 1), leafOf(WIDE_B, 0), leafOf(WIDE_B, 1)]))
+    .toEqual(['A', 'B'])
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -282,6 +306,31 @@ test('allOf does NOT fold a backstop', () => {
 // that just declares two obligations.
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ⭐ ***AN ARM THAT ONLY RECORDS SOMETHING IS A PLAIN FUNCTION.*** Before this,
+// such an arm had to be written `function* () { … }` - a generator that never
+// yields, which the linter itself flagged with `require-yield` at every call
+// site. The noise was load-bearing on nothing: the arm calls no host function.
+test('a plain function arm runs and yields nothing', () => {
+  const ran: string[] = []
+  const step = function* () {
+    yield* on
+      .when(A, () => {
+        ran.push('A')
+      })
+      .when(B, () => {
+        ran.push('B')
+      })
+
+    return { o: 'yield' as const }
+  }
+  // ⚠ THE HANDLER SERVES ONLY `held`. If a plain arm yielded anything, this
+  // would throw on a missing handler key rather than quietly passing - which is
+  // what makes this an assertion about effects and not just about `ran`.
+  runStep(step as never, { held: () => [String(B)] } as unknown as Handler<never>)
+
+  expect(ran).toEqual(['B'])
+})
+
 test('a bare Step arm needs no function* wrapper', () => {
   const seen: string[] = []
   const step = function* () {
@@ -290,7 +339,7 @@ test('a bare Step arm needs no function* wrapper', () => {
     return { o: 'yield' as const }
   }
   runStep(step as never, {
-    held: () => [0],
+    held: () => [String(A)],
     get: (p: unknown) => {
       seen.push(String(p))
 
@@ -313,7 +362,7 @@ test('a LIST arm runs every step, in order', () => {
     return { o: 'yield' as const }
   }
   runStep(step as never, {
-    held: () => [0],
+    held: () => [String(A)],
     get: (p: unknown) => {
       seen.push(String(p))
 
@@ -371,16 +420,18 @@ const SUBJECTS = [
   { at: path.ns('default').core('v1', 'pods', 'c'), tag: 'c' },
 ]
 
-function driveEach(heldArms: number[]): { ran: string[]; resume: string } {
+// ***`.each` - one arm per item of a subject list.*** The arms come from the
+// list, so they cannot drift from it.
+function driveEach(heldArms: string[]): { ran: readonly string[]; resume: Resume | null } {
   const ran: string[] = []
-  let resume = ''
+  let resume: Resume | null = null
   const step = function* () {
-    resume = String(
-      // eslint-disable-next-line require-yield
-      yield* on.each(SUBJECTS, (s) => [fieldIs(s.at, 'status.phase', 'Running'),
-        // eslint-disable-next-line require-yield
-        function* () { ran.push(s.tag) }]),
-    )
+    resume = yield* on.each(SUBJECTS, (s) => [
+      fieldIs(s.at, 'status.phase', 'Running'),
+      () => {
+        ran.push(s.tag)
+      },
+    ])
 
     return { o: 'yield' as const }
   }
@@ -391,17 +442,21 @@ function driveEach(heldArms: number[]): { ran: string[]; resume: string } {
 
 // ⭐ ONE ARM PER ITEM, IN LIST ORDER - so an index still names a position.
 test('each adds one arm per item, in order', () => {
-  expect(driveEach([0]).ran).toEqual(['a'])
-  expect(driveEach([1]).ran).toEqual(['b'])
-  expect(driveEach([2]).ran).toEqual(['c'])
-  expect(driveEach([0, 2]).ran).toEqual(['a', 'c'])
+  const cond = (i: number) => String(fieldIs(SUBJECTS[i]!.at, 'status.phase', 'Running'))
+  expect(driveEach([cond(0)]).ran).toEqual(['a'])
+  expect(driveEach([cond(1)]).ran).toEqual(['b'])
+  expect(driveEach([cond(2)]).ran).toEqual(['c'])
+  expect(driveEach([cond(0), cond(2)]).ran).toEqual(['a', 'c'])
   // Past the end is skipped, not wrapped.
-  expect(driveEach([3]).ran).toEqual([])
+  expect(driveEach(['no subject owns this']).ran).toEqual([])
 })
 
 test('each contributes every subject to the resume', () => {
   const r = driveEach([]).resume
-  for (const s of SUBJECTS) expect(r).toContain(String(s.at))
+
+  // Structural: the disjunction's children ARE the subjects' conditions, in
+  // list order. Substring checks over the rendered text could not see order.
+  expect(r?.of).toEqual(SUBJECTS.map((s) => fieldIs(s.at, 'status.phase', 'Running')))
 })
 
 // ⛔⛔ ***THE SHARED ROOT MUST NOT ACCUMULATE.*** `on` is a MODULE-LEVEL value
@@ -418,20 +473,33 @@ test('the shared on root is never mutated by building a chain', () => {
   driveEach([])
   const again = driveEach([]).resume
 
-  expect(again).toBe(first)
-  // And the root itself still has no arms: a chain of one arm has no `||`.
+  // Structural: each call builds a NEW tree, so identity would never match; what
+  // must hold is that the tree is the SAME SHAPE however many chains were built
+  // off the root in between.
+  expect(again).toEqual(first)
+
+  // And the root itself still has no arms: a chain of ONE arm is a disjunction
+  // of exactly one operand, not of one-plus-whatever-accumulated.
   const solo = function* () {
-    // eslint-disable-next-line require-yield
-    return String(yield* on.when(A, function* () {}))
+    return yield* on.when(A, () => undefined)
   }
-  let seen = ''
+  // ⚠ A HOLDER, NOT A `let`: TypeScript narrows a `let` to its initializer when
+  // the only assignment is inside a callback it cannot order, so `seen` becomes
+  // `never` and the property reads below do not compile - green under bun, red
+  // under tsc, which is the split this file already warns about twice.
+  const got: { seen?: Resume } = {}
   runStep(
     function* () {
-      seen = yield* solo()
+      got.seen = yield* solo()
 
       return { o: 'yield' as const }
     } as never,
     { held: () => [] } as unknown as Handler<never>,
   )
-  expect(seen).not.toContain('||')
+  const seen = got.seen
+  // ⭐ ONE arm in, ONE operand out. If the root had accumulated, this would be
+  // 2, 3, 4 ... across the calls above - and every arm index after the first
+  // would shift, silently, on a program that had been correct on pass 1.
+  expect(seen?.operands).toBe(1)
+  expect(seen?.of).toEqual([A])
 })

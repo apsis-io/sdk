@@ -1218,16 +1218,58 @@ const carryBytes = (value: string): number => new TextEncoder().encode(value).le
  * A value that is only empty at RUNTIME throws, for the reason `quiesce` throws:
  * the alternative is data loss that looks like an ordinary pass.
  */
-export function remember<O extends Outcome, V extends string>(
-  outcome: O,
-  value: V extends '' ? never : V,
-): O {
-  if (value === '') {
+/**
+ * What a program remembers between passes: an OBJECT, not a string.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***THE WIRE IS STILL A STRING AND THE HOST IS UNCHANGED.*** `interface carry`
+ * is `get: func() -> string` and `carry.go` reads it as a pointer - absent
+ * KEEPS, `""` CLEARS. This is a guest-side encoding: `remember` serializes and
+ * `carryOf` parses, so the host stores the same opaque blob it always did.
+ *
+ * ⭐ ***THE REASON IS NAMESPACING, NOT CONVENIENCE.*** A single string is owned
+ * by whoever writes it, so nothing else can put anything there - which is what
+ * blocked the SDK from carrying, say, the previous pass's arm conditions to make
+ * a wake index resolvable by identity rather than by position. An object has
+ * room for both, and each key says who it belongs to.
+ *
+ * ⚠ ***KEYS BEGINNING `$` ARE RESERVED FOR THE SDK.*** A program using one may
+ * find it overwritten by a future SDK version; nothing enforces this today,
+ * because a guard that refused them would refuse the SDK's own writes too.
+ *
+ * ⚠ ***`{}` IS NOT "CLEAR".*** It encodes to `"{}"`, which is non-empty, so the
+ * host KEEPS it - a program that remembers an empty object has remembered
+ * something. Clearing is still `forget`, which sends `""`, and the two remain
+ * different answers with different spellings.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export type Carry = Record<string, unknown>
+
+/**
+ * Decode what a previous pass remembered.
+ *
+ * Anything unparseable is an EMPTY object rather than an error: carry crosses a
+ * process boundary and may predate this encoding, and a program that cannot read
+ * its own memory should start over rather than fail the pass. A step is a total
+ * function of the world; the carry is an optimisation over it.
+ */
+export function carryOf(raw: string): Carry {
+  if (raw === '') return {}
+  try {
+    const v: unknown = JSON.parse(raw)
+
+    return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Carry) : {}
+  } catch {
+    return {}
+  }
+}
+
+export function remember<O extends Outcome>(outcome: O, value: Carry): O {
+  const encoded = JSON.stringify(value)
+  if (encoded === undefined) {
     throw new Error(
-      'remember: empty value. The host reads "" as CLEAR (carry.go), so this would erase ' +
-        "the program's memory rather than leave it alone - which is a successful pass that " +
-        'destroyed state. Use forget(outcome) to mean it, or omit the call to keep the ' +
-        'previous value.',
+      'remember: the value does not serialize. A carry crosses a process boundary as JSON, ' +
+        'so it may hold only what JSON holds - no functions, no undefined at the top level.',
     )
   }
   // ***REFUSED HERE, WHERE THE AUTHOR CAN SEE WHAT THEY BUILT.*** The host
@@ -1235,7 +1277,10 @@ export function remember<O extends Outcome, V extends string>(
   // (ErrCarryTooLarge) - but that refusal arrives one process away, naming a
   // byte count and not the line that grew. A probe that accumulates a window
   // crosses this bound gradually and in production.
-  const n = carryBytes(value)
+  // ***MEASURED ON THE ENCODED FORM, WHICH IS WHAT THE HOST STORES.*** Counting
+  // the object's own size would under-report by the JSON punctuation, and the
+  // bound this is mirroring is a byte count on the wire.
+  const n = carryBytes(encoded)
   if (n > MAX_CARRY_BYTES) {
     throw new Error(
       `remember: ${n} bytes exceeds the host bound of ${MAX_CARRY_BYTES} (MaxCarryBytes). ` +
@@ -1244,7 +1289,7 @@ export function remember<O extends Outcome, V extends string>(
     )
   }
 
-  return { ...outcome, carry: value }
+  return { ...outcome, carry: encoded }
 }
 
 /** Deliberately clear what was remembered — the only way to reset a streak. */
@@ -2066,7 +2111,7 @@ export const reconcile = {
    * backstop tick says. It is also what an older host returns, so a program
    * using this degrades to re-deriving, which is what every step does today.
    */
-  woke: () => defineEffect<void, number[]>()(WIT_WOKE, 'held'),
+  woke: () => defineEffect<void, string[]>()(WIT_WOKE, 'held'),
 } as const
 
 // ---------------------------------------------------------------------------
@@ -2869,8 +2914,41 @@ export type Arm<E extends AnyEffect> = readonly [
   then:
     | Generator<E, unknown, unknown>
     | readonly Generator<E, unknown, unknown>[]
-    | (() => Generator<E, unknown, unknown>),
+    | (() => Generator<E, unknown, unknown> | void),
 ]
+
+/**
+ * Why this pass is running.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***COARSE ON PURPOSE, AND THE COARSENESS IS THE CORRECTNESS.*** `woke.held()`
+ * answers with INDICES, and an index is an index into the resume the program
+ * parked on LAST pass - interpreted, unavoidably, against the arms of THIS one.
+ * While those two lists agree the mapping is exact; when they do not it is
+ * silently wrong. Measured: park on `[A, B]`, insert an arm at the front next
+ * pass, and the host's "operand 1" stops meaning B and starts meaning A. No
+ * error, a plausible answer.
+ *
+ * ***"DID ANY OF MY OWN CONDITIONS HOLD" NEEDS NO INDEX***, so it cannot drift.
+ * It is answerable from the previous park alone, which is the only thing the
+ * host actually knows.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export type Cause =
+  /** One of the conditions this program parked on became true. */
+  | 'resume'
+  /**
+   * Nothing this program named held.
+   *
+   * ⚠ ***THIS COVERS THREE SITUATIONS AND THE HOST CANNOT TELL THEM APART.***
+   * The time bound fired; or the host could not compute the answer; or this is
+   * the first pass and there is no previous park. `reconcile.wit` says so
+   * deliberately - "the two are deliberately not distinguished: in both cases
+   * the correct behaviour is to re-derive from the world" - so naming it for the
+   * commonest of the three is honest as long as nothing branches on it BEING
+   * that one.
+   */
+  | 'backstop'
 
 /**
  * Run the handlers for the arms the host reported as held, then return the
@@ -2903,37 +2981,53 @@ function* dispatch<E extends AnyEffect>(
   // status `via 4 of 4, no dispatch`. The out-of-range guard failed SAFE, which
   // is the only reason this was a lost optimisation and not a wrong handler.
   //
-  // ⇒ THE ARM'S WIDTH IS RECOVERABLE FROM ITS OWN TEXT, so the mapping is done
-  // here rather than asking the host for something it cannot know. Each key
-  // occupies `width` consecutive host indices; a reported index lands in exactly
-  // one arm's range.
-  // ⭐ ***STRUCTURAL, NOT RE-PARSED.*** This was `keys.map(topLevelOrCount)` - a
-  // paren- and quote-aware scanner over the RENDERED text, recovering the shape
-  // the builders had just thrown away. `operands` walks the tree the arm is,
-  // mirroring the host's `flattenOr` by construction rather than by care.
-  const widths = conditions.map((c) => c.operands)
-  const armOfIndex = (i: number): number | undefined => {
-    let at = 0
-    for (let k = 0; k < conditions.length; k++) {
-      if (i < at + widths[k]!) return k
-      at += widths[k]!
+  // ⭐⭐ ***AND THE HOST ANSWERS WITH THE OPERAND ITSELF NOW, SO NONE OF THAT
+  // ARITHMETIC EXISTS.*** Everything above describes mapping an INDEX through
+  // each arm's operand width - correct within a pass, and quietly wrong across
+  // one: the index describes the park the program parked on LAST pass, while the
+  // widths are computed from the arms it built for THIS one. Insert an arm at
+  // the front and index 1 stops meaning what it meant, with no error anywhere.
+  //
+  // `woke.held()` returns each held operand's SOURCE TEXT (radiant slices it
+  // from the very expression it parsed, `aperture.HeldDisjunctTexts`). An arm
+  // OWNS an operand if one of its own leaves renders to that text - a question
+  // about this pass alone, needing no previous list, no stable ordering and no
+  // width.
+  //
+  // ***THE MEMBERSHIP TEST IS THE ARM'S OWN LEAVES***, which is why a
+  // multi-operand arm still runs once: `fieldNoLonger` renders two leaves and
+  // either matching means that arm held.
+  const leavesOf = (c: Resume): readonly string[] => {
+    const out: string[] = []
+    const walk = (n: Resume): void => {
+      if (n.of.length > 0) n.of.forEach(walk)
+      else out.push(n.render())
     }
+    walk(c)
 
-    return undefined
+    return out
   }
-  // ***READ BEFORE RUNNING ANYTHING.*** The indices describe the wake that
+  const armLeaves = conditions.map(leavesOf)
+  const armOfOperand = (text: string): number | undefined => {
+    const at = armLeaves.findIndex((ls) => ls.includes(text))
+
+    return at < 0 ? undefined : at
+  }
+  // ***READ BEFORE RUNNING ANYTHING.*** The answer describes the wake that
   // started this pass; a handler that yields could change the world underneath
-  // a later read of them.
+  // a later read of it.
   const woke = reconcile.woke()
-  const heldArms = ((yield* woke()) as number[] | undefined) ?? []
+  const heldArms = ((yield* woke()) as string[] | undefined) ?? []
 
   const alreadyRun = new Set<number>()
-  for (const i of heldArms) {
-    const key = armOfIndex(i)
+  for (const text of heldArms) {
+    const key = armOfOperand(text)
     if (key === undefined) {
-      // The host named an arm this map does not have - the map changed between
-      // passes (see above). Skipping is the only safe answer: running SOME
-      // other handler would act on a condition nobody asserted.
+      // ***AN OPERAND NO ARM OWNS - AND THIS IS NOW AN HONEST ANSWER RATHER THAN
+      // A GUESS.*** The arm list changed since the park was built, so the
+      // condition that held is one this pass no longer watches. Skipping is
+      // correct: running some other handler would act on a condition nobody
+      // asserted, which is exactly what an index would have done silently.
       continue
     }
     // The CONSTRAINT says an arm yields `AnyEffect`; the RETURN TYPE promises the
@@ -2959,14 +3053,21 @@ function* dispatch<E extends AnyEffect>(
     // the widened constraint rather than against the caller's `T`. The assertion
     // carries the fact the signature already states.
     type S = Generator<E, unknown, unknown>
-    const then = arms[key]![1] as S | readonly S[] | (() => S)
+    const then = arms[key]![1] as S | readonly S[] | (() => S | void)
 
     // ***NORMALISED TO A LIST RATHER THAN NARROWED.*** `Array.isArray` does not
     // reliably remove a `readonly T[]` member from a union, so the else-branch
     // kept the array and `yield*` over it typed as yielding GENERATORS. One
     // shape in, one loop out - and it makes the ordering explicit below.
+    //
+    // ⭐ ***A PLAIN FUNCTION IS AN ARM TOO, AND ITS ABSENCE WAS A REAL COST.***
+    // An arm that only records why we woke - a label, a counter, a log line -
+    // yields nothing, and having to write it as `function* () { … }` produced a
+    // generator the linter itself flagged (`require-yield`) at every call site.
+    // A thunk returning `void` contributes no steps and no effects.
+    const produced = typeof then === 'function' ? then() : then
     const steps: readonly S[] =
-      typeof then === 'function' ? [then()] : Array.isArray(then) ? (then as readonly S[]) : [then as S]
+      produced == null ? [] : Array.isArray(produced) ? (produced as readonly S[]) : [produced as S]
 
     // ***A LIST RUNS IN ORDER, NOT CONCURRENTLY.*** An arm declares obligations;
     // `group`/`where` are where concurrency is asked for explicitly. An arm that
@@ -2979,6 +3080,40 @@ function* dispatch<E extends AnyEffect>(
   // is the one place a step says what would change its mind, and hiding it here
   // would make the park invisible in the program that owns it.
   return anyOf(...conditions)
+}
+
+/**
+ * Why this pass is running: `'resume'` or `'backstop'`.
+ *
+ *     const why = yield* wakeCause()
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***ONE HOST READ, NO INDEX, NOTHING TO MAP.*** `woke.held()` returns operand
+ * indices into the park the program went to sleep on; turning those into arm
+ * names requires the arm list to be unchanged since, which nothing enforces and
+ * which fails silently when it is not. Asking only whether the list is EMPTY
+ * needs no such assumption - and empty-or-not is a fact about the previous park
+ * alone, which is the only thing the host actually evaluated.
+ *
+ * ⛔ ***IT IS A HINT. ADR-0107 PERMITS "do the work for the condition that
+ * holds" AND FORBIDS "skip work because nothing was listed".*** A missed wake
+ * makes a level-triggered program LATE; branching the repair on this makes it
+ * edge-triggered in disguise, and the failure is invisible because the program
+ * looks fine on every pass where the wake did arrive.
+ *
+ * So: use it to decide what to SAY, what to log, or which optional extra to do.
+ * Do not use it to decide whether to reconcile.
+ *
+ * ⚠ `'backstop'` also covers "the host could not tell" and "this is the first
+ * pass" - see `Cause`. Anything that must distinguish those needs a host change,
+ * not a guess here.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export function* wakeCause(): Generator<Effect<typeof WIT_WOKE, 'held', void>, Cause, unknown> {
+  const woke = reconcile.woke()
+  const held = ((yield* woke()) as string[] | undefined) ?? []
+
+  return held.length > 0 ? 'resume' : 'backstop'
 }
 
 /**
@@ -3024,7 +3159,19 @@ class OnBuilder<E extends AnyEffect> {
     ])
   }
 
-  /** Run the handlers for whatever held, and return the resume to park on. */
+  /**
+   * Run the handlers for whatever held, and return the resume to park on.
+   *
+   * ⚠ ***THIS IS DISPATCH, AND DISPATCH IS THE PART THAT USES INDICES.*** It
+   * therefore carries the assumption `wakeCause` was introduced to avoid: an
+   * index names an operand of the park from LAST pass, mapped against THIS
+   * pass's arms. Keep the arm list built from module constants and in a fixed
+   * order - `sentinel.ts` says the same thing at its own call site - or a
+   * reordered list runs a handler for a condition nobody asserted.
+   *
+   * If all you want is WHY the pass woke, do not reach for this: `wakeCause()`
+   * answers that with no index and therefore nothing to get wrong.
+   */
   *[Symbol.iterator](): Generator<E | Effect<typeof WIT_WOKE, 'held', void>, Resume, unknown> {
     return yield* dispatch<E>(this.arms)
   }

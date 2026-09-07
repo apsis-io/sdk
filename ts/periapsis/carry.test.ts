@@ -5,6 +5,7 @@ import { expect, test } from 'bun:test'
 import {
   MAX_CARRY_BYTES,
   carriedBy,
+  carryOf,
   forget,
   nextPoll,
   quiesce,
@@ -41,7 +42,7 @@ test('an ordinary outcome carries NO key, so the host keeps the previous value',
 })
 
 test('remember sets the value and preserves the outcome it wraps', () => {
-  const o = remember(quiesce(nextPoll), '{"n":1}')
+  const o = remember(quiesce(nextPoll), { n: 1 })
 
   // ⭐ `resume` COMES OUT AS A STRING, AND THAT IS THE PROPERTY THAT LETS A
   // RESUME BE A TREE. `wire` is `JSON.parse(JSON.stringify(o))` - the real path
@@ -54,8 +55,8 @@ test('remember sets the value and preserves the outcome it wraps', () => {
 test('remember works on every outcome variant', () => {
   // The type says `O extends Outcome`; this is the arm that would catch a
   // spread that dropped a variant's own fields.
-  expect(wire(remember(yieldStep, 'a'))).toEqual({ o: 'yield', carry: 'a' })
-  expect(wire(remember(terminate, 'b'))).toEqual({ o: 'terminate', carry: 'b' })
+  expect(wire(remember(yieldStep, { a: 1 }))).toEqual({ o: 'yield', carry: '{"a":1}' })
+  expect(wire(remember(terminate, { b: 2 }))).toEqual({ o: 'terminate', carry: '{"b":2}' })
 })
 
 test('forget sends the EMPTY STRING, which is the only way to reset a streak', () => {
@@ -67,20 +68,35 @@ test('forget sends the EMPTY STRING, which is the only way to reset a streak', (
   expect(w.carry).toBe('')
 })
 
-test('remember refuses an empty value at runtime, because the host would accept it', () => {
-  // ***THE DISTINCTION FROM `quiesce('')`.*** There the host refuses too, so the
-  // type only moves WHEN you find out. Here `""` is a legal answer meaning
-  // "forget everything" - so an accidental empty is a SUCCESSFUL pass that
-  // destroyed state, and nothing downstream can flag it.
-  expect(() => remember(yieldStep, '' as 'x')).toThrow(/empty value/)
-  expect(() => remember(yieldStep, '' as 'x')).toThrow(/forget/)
+// ⭐ ***THE ACCIDENTAL-CLEAR HAZARD IS GONE BY CONSTRUCTION, NOT GUARDED.***
+// `remember` used to refuse `''` at runtime, because `""` is a legal answer to
+// the host meaning "forget everything" - so an accidental empty was a SUCCESSFUL
+// pass that destroyed state, and nothing downstream could flag it.
+//
+// A carry is an OBJECT now and reaches the wire as JSON, and NO JSON ENCODING IS
+// THE EMPTY STRING: `{}` is `"{}"`, `''` is `'""'`, `null` is `'null'`. Even a
+// forced cast cannot produce the clearing value. `forget` remains the only way
+// to send it, which is what the old runtime check was protecting.
+test('no value reaches the wire as the CLEARING empty string', () => {
+  for (const v of [{}, { a: 1 }, { a: null }, '' as unknown, null as unknown]) {
+    expect(wire(remember(yieldStep, v as Record<string, unknown>)).carry).not.toBe('')
+  }
+  // ⚠ The one thing that does not encode at all is `undefined`, and it is a
+  // throw rather than a silent absent key - which the host would read as KEEP.
+  expect(() => remember(yieldStep, undefined as unknown as Record<string, unknown>))
+    .toThrow(/does not serialize/)
 })
 
 test('remember refuses more than the host bound, naming it', () => {
-  const justUnder = 'x'.repeat(MAX_CARRY_BYTES)
-  expect(wire(remember(yieldStep, justUnder)).carry).toBe(justUnder)
+  // ***MEASURED ON THE ENCODED FORM.*** `{"v":"xxx…"}` is longer than the string
+  // inside it, so a bound applied to the value would let an over-large carry
+  // through - the refusal would then arrive one process away, naming a byte
+  // count the author cannot reconcile against anything they wrote.
+  const padding = '{"v":""}'.length
+  const justUnder = { v: 'x'.repeat(MAX_CARRY_BYTES - padding) }
+  expect(wire(remember(yieldStep, justUnder)).carry).toBe(JSON.stringify(justUnder))
 
-  expect(() => remember(yieldStep, 'x'.repeat(MAX_CARRY_BYTES + 1))).toThrow(/MaxCarryBytes/)
+  expect(() => remember(yieldStep, { v: 'x'.repeat(MAX_CARRY_BYTES) })).toThrow(/MaxCarryBytes/)
 })
 
 test('the bound is in BYTES, not characters', () => {
@@ -91,7 +107,7 @@ test('the bound is in BYTES, not characters', () => {
   const multibyte = 'é'.repeat(MAX_CARRY_BYTES / 2 + 1) // 2 bytes each
 
   expect(multibyte.length).toBeLessThanOrEqual(MAX_CARRY_BYTES) // passes a naive check
-  expect(() => remember(yieldStep, multibyte)).toThrow(/exceeds the host bound/)
+  expect(() => remember(yieldStep, { v: multibyte })).toThrow(/exceeds the host bound/)
 })
 
 // ---------------------------------------------------------------------------
@@ -128,10 +144,13 @@ test('a round trip: what remember writes is what carriedBy reads', () => {
   // what this simulates - and if it ever wrapped or trimmed the value, this is
   // the assertion that would still pass while production broke. Stated so the
   // next reader knows what it does NOT cover.
-  const published = JSON.stringify({ availability: 0.97, samples: 8 })
+  const published = { availability: 0.97, samples: 8 }
   const onTheWire = wire(remember(yieldStep, published)).carry as string
   const observed = JSON.stringify({ status: { carry: onTheWire } })
 
-  expect(carriedBy(observed)).toBe(published)
-  expect(JSON.parse(carriedBy(observed)!)).toEqual({ availability: 0.97, samples: 8 })
+  // `carriedBy` still returns the RAW string - it reads another program's carry
+  // and cannot know that program's encoding. `carryOf` is what decodes one you
+  // wrote yourself.
+  expect(carriedBy(observed)).toBe(JSON.stringify(published))
+  expect(carryOf(carriedBy(observed)!)).toEqual(published)
 })

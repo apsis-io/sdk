@@ -39,7 +39,9 @@
 // could not then be proven byte-identical. It is, against 22 captured cases.
 // ═══════════════════════════════════════════════════════════════════════════
 
-import type * as E from './expr.js'
+// A VALUE import, not `import type`: `collectExpr` tests `instanceof ExprNode`
+// to tell a child node from a literal path, which needs the class at runtime.
+import * as E from './expr.js'
 
 type Kind = 'leaf' | 'or' | 'and' | 'backstop'
 
@@ -55,11 +57,24 @@ export class ResumeNode {
     readonly kind: Kind,
     private readonly text: string,
     readonly of: readonly ResumeNode[],
+    /**
+     * The comparison this leaf IS - an expression node, not its rendering.
+     *
+     * ⭐ ***THE TREE USED TO STOP HERE.*** A leaf held the STRING `expr.ts` had
+     * concatenated, so the boolean structure was inspectable and everything
+     * below a comparison - which object, which field, which operator - was text
+     * again. Holding the node is what lets a walker answer "what does this park
+     * READ", which is how `spec.reads` is derived rather than hand-maintained.
+     *
+     * `null` for the two literal nodes (`backstop`, `always`): they are not
+     * comparisons and have no operands to expose.
+     */
+    readonly expr: E.Expr<'bool'> | null = null,
   ) {}
 
-  /** A single comparison - whatever `expr.ts` rendered. */
-  static leaf(text: E.Expr<'bool'>): ResumeNode {
-    return new ResumeNode('leaf', text, [])
+  /** A single comparison, kept as the expression node it was built from. */
+  static leaf(e: E.Expr<'bool'>): ResumeNode {
+    return new ResumeNode('leaf', '', [], e)
   }
 
   /**
@@ -110,7 +125,8 @@ export class ResumeNode {
       case 'and':
         return this.of.map((c) => `(${c.render()})`).join(' && ')
       default:
-        return this.text
+        // A comparison renders itself; `backstop`/`always` carry a literal.
+        return this.expr === null ? this.text : this.expr.render()
     }
   }
 
@@ -128,4 +144,64 @@ export class ResumeNode {
   toJSON(): string {
     return this.render()
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WHAT A PARK READS - derived, not declared.
+//
+// ⭐ ***THIS IS WHAT THE TREE IS FOR.*** A Perseid's `spec.reads` names the
+// CLUSTER-SCOPED objects it may read, and it is written BY HAND in each
+// program's YAML today. Nothing checks it against the park, and the failure is
+// the quiet kind: a path the manifest does not declare reads ABSENT on every
+// wake, an absent operand compares UNKNOWN, and the park simply never fires.
+// The program looks subscribed and polls - `drainer.yaml`'s header is an account
+// of exactly that costing a 60-second delay nobody could see.
+//
+// Deriving it from the park makes the two ONE FACT, the same way `derive-wit`
+// makes the component's world one fact with the code that calls into it.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** The ops that READ an object or a collection. `parts[0]` is what they address. */
+const READ_OPS = new Set(['Get', 'List', 'Fields'])
+
+function collectExpr(e: E.ExprNode<E.ApType>, into: Set<string>): void {
+  if (READ_OPS.has(e.op)) {
+    const target = e.parts[0]
+    // ***ONLY A LITERAL PATH.*** `Get(OwnedBy(pod), field)` addresses whatever
+    // the traversal resolves to at evaluation time - a path the guest cannot
+    // know and `spec.reads` cannot name. Recursing into it below still finds the
+    // read the traversal itself performs.
+    if (typeof target === 'string') into.add(target)
+  }
+  for (const p of e.parts) {
+    if (p instanceof E.ExprNode) collectExpr(p as E.ExprNode<E.ApType>, into)
+  }
+}
+
+/** Every object and collection path this park reads, sorted and deduplicated. */
+export function readsOf(r: ResumeNode): readonly string[] {
+  const found = new Set<string>()
+  const walk = (n: ResumeNode): void => {
+    if (n.expr !== null) collectExpr(n.expr as E.ExprNode<E.ApType>, found)
+    n.of.forEach(walk)
+  }
+  walk(r)
+
+  return [...found].sort()
+}
+
+/**
+ * The subset a Perseid's `spec.reads` must declare: the CLUSTER-SCOPED paths.
+ *
+ * ***NAMESPACED READS ARE NOT IN `spec.reads` AND ADDING THEM WOULD BE WRONG.***
+ * They are bounded by the grant's namespace, which is the whole point of a
+ * namespaced grant; `spec.reads` exists for objects that have no namespace to
+ * bound them. Collections are not consulted for it either.
+ *
+ * The test is the absence of `/namespaces/`, which is a property of the
+ * canonical apiserver path rather than a guess: `path.nodes(n)` is
+ * `/api/v1/nodes/n` and every namespaced builder puts `/namespaces/<ns>/` in.
+ */
+export function clusterReadsOf(r: ResumeNode): readonly string[] {
+  return readsOf(r).filter((p) => !p.includes('/namespaces/'))
 }

@@ -78,16 +78,24 @@ export type ApType =
 /**
  * An aperture expression of type `T`.
  *
- * A branded string: it IS the expression text, so it crosses the wire as itself,
- * and it cannot be produced by writing one - the same canonical-form discipline
- * `ApiPath` uses, for the same reason. A hand-written expression is exactly what
- * the four nonsense shapes above look like.
+ * ⚠ ***A NODE SINCE 2026-09-06, NOT A BRANDED STRING.*** This said "A branded
+ * string: it IS the expression text, so it crosses the wire as itself" - true
+ * until the day the representation changed, and describing the wrong thing after
+ * it. An `ExprNode` carries the op it is and the parts it was built from, and
+ * RENDERS to the same text; `toJSON` is what puts that text on the wire, so the
+ * host still sees exactly what it saw before.
  *
- * `Kind` is part of the brand rather than a separate marker so two expression
- * types are DISJOINT: without it, `Expr<'effect'>` and `Expr<'bool'>` are the
- * same type and the purity mirror silently disappears.
+ * It cannot be produced by writing one - the same canonical-form discipline
+ * `ApiPath` uses, for the same reason, and now enforced by the constructor
+ * rather than by a brand. A hand-written expression is exactly what the four
+ * nonsense shapes above look like.
+ *
+ * `T` is a PHANTOM on the class so two expression types stay DISJOINT: without a
+ * member using it every node would be structurally identical, `Expr<'effect'>`
+ * would be assignable to `Expr<'bool'>`, and the purity mirror would silently
+ * disappear.
  */
-export type Expr<T extends ApType> = string & { readonly [exprOf]: T }
+export type Expr<T extends ApType> = ExprNode<T>
 
 /**
  * Anything usable where an integer goes: a literal, a clock read, an observation.
@@ -106,7 +114,56 @@ export type IntLike = Expr<'int'> | Expr<'observed-int'> | Expr<'value'> | numbe
 /** Anything `.exists` can be asked of - i.e. anything actually OBSERVED. */
 export type Observed = Expr<'observed-int'> | Expr<'value'>
 
-const mk = <T extends ApType>(text: string): Expr<T> => text as Expr<T>
+/**
+ * An expression, as a NODE.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ***THE TEXT IS COMPUTED AT CONSTRUCTION AND THE STRUCTURE IS KEPT BESIDE
+ * IT.*** Every builder already produced the rendered form; it now also says what
+ * it IS and what it was built from. Rendering is therefore byte-identical by
+ * construction - the template literals are untouched - and a walker can reach
+ * the paths a park reads without parsing anything.
+ *
+ * ⭐ ***AND IT MAKES AN EXPRESSION DISTINGUISHABLE FROM A LITERAL AT RUNTIME,
+ * WHICH IS WHAT `computed()` EXISTS TO WORK AROUND.*** Its own comment: *"`Expr<T>`
+ * is a plain string at runtime - the brand is erased - and expr.ts's struct-field
+ * renderer cannot tell `replicas: '3'` (a literal to quote) from `replicas:
+ * 'Get(...) + 2'` (expression text to emit bare) by inspecting the value"*. A
+ * node can be told apart. `computed()` still works and is still the documented
+ * way to say it; the ambiguity underneath it is gone.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export class ExprNode<T extends ApType> {
+  // Phantom, `declare`d so it has no runtime existence. Without a member using
+  // `T` every ExprNode would be structurally identical and `Expr<'effect'>`
+  // would be assignable to `Expr<'bool'>` - the purity mirror, silently gone.
+  declare readonly [exprOf]: T
+
+  constructor(
+    /** What this node IS: `get`, `ne`, `or`, `exists`, … */
+    readonly op: string,
+    /** What it was built FROM - child nodes, paths, literals, in argument order. */
+    readonly parts: readonly unknown[],
+    private readonly text: string,
+  ) {}
+
+  render(): string {
+    return this.text
+  }
+
+  /** Template literals and `String(...)` - which is how every builder composes. */
+  toString(): string {
+    return this.text
+  }
+
+  /** So an expression inside a serialized payload comes out as its text. */
+  toJSON(): string {
+    return this.text
+  }
+}
+
+const mk = <T extends ApType>(op: string, parts: readonly unknown[], text: string): Expr<T> =>
+  new ExprNode<T>(op, parts, text) as Expr<T>
 
 /**
  * Quote a string literal for the grammar.
@@ -135,7 +192,9 @@ function lit(s: string): string {
   return JSON.stringify(s)
 }
 
-const intText = (v: IntLike): string => (typeof v === 'number' ? String(Math.trunc(v)) : v)
+// `String(v)` rather than `v`: an expression is a NODE now, and its rendering is
+// what belongs in the text. `toString` is the same bytes it used to be.
+const intText = (v: IntLike): string => (typeof v === 'number' ? String(Math.trunc(v)) : String(v))
 
 // ---------------------------------------------------------------------------
 // The language version.
@@ -181,7 +240,7 @@ export const LANGUAGE_VERSION = 4
 
 /** `ListPods(selector) -> pods`. A LABEL SELECTOR, never a path. */
 export const listPods = (selector: LabelSelector): Expr<'pods'> =>
-  mk(`ListPods(${lit(selector)})`)
+  mk('ListPods', [selector], `ListPods(${lit(selector)})`)
 
 /**
  * `Get(path, field) -> value`. THE READ, for every kind.
@@ -215,7 +274,7 @@ export const listPods = (selector: LabelSelector): Expr<'pods'> =>
  * ═══════════════════════════════════════════════════════════════════════════
  */
 export const get = (path: ReadPathLike, field: string): Expr<'value'> =>
-  mk(`Get(${pathText(path)}, ${lit(field)})`)
+  mk('Get', [path, field], `Get(${pathText(path)}, ${lit(field)})`)
 
 /**
  * `Now() -> int`. EPOCH MILLISECONDS, UTC.
@@ -224,7 +283,7 @@ export const get = (path: ReadPathLike, field: string): Expr<'value'> =>
  * host at evaluation. It is typed `int` rather than `observed-int` for exactly
  * that reason.
  */
-export const now = (): Expr<'int'> => mk('Now()')
+export const now = (): Expr<'int'> => mk('Now', [], 'Now()')
 
 /**
  * `List(collection, selector) -> list`. ***ONE CALL OVER N OBJECTS, FOR EVERY
@@ -245,7 +304,7 @@ export const now = (): Expr<'int'> => mk('Now()')
  * The grant's label selector still applies to every object listed.
  */
 export const list = (collection: CollectionPath, selector: LabelSelector | ''): Expr<'list'> =>
-  mk(`List(${lit(collection)}, ${lit(selector)})`)
+  mk('List', [collection, selector], `List(${lit(collection)}, ${lit(selector)})`)
 
 /**
  * `Fields(collection, selector, field) -> list`. One field of every matching
@@ -263,16 +322,16 @@ export const fields = (
   collection: CollectionPath,
   selector: LabelSelector | '',
   field: string,
-): Expr<'list'> => mk(`Fields(${lit(collection)}, ${lit(selector)}, ${lit(field)})`)
+): Expr<'list'> => mk('Fields', [collection, selector, field], `Fields(${lit(collection)}, ${lit(selector)}, ${lit(field)})`)
 
 // ---------------------------------------------------------------------------
 // Properties.
 
 /** `.exists` - did this observation RESOLVE. Only for things that are observed. */
-export const exists = (o: Observed): Expr<'bool'> => mk(`${o}.exists`)
+export const exists = (o: Observed): Expr<'bool'> => mk('exists', [o], `${o}.exists`)
 
 /** `.length` - how many. Only for a set: pods, or a `list`/`fields` result. */
-export const length = (p: Expr<'pods'> | Expr<'list'>): Expr<'int'> => mk(`${p}.length`)
+export const length = (p: Expr<'pods'> | Expr<'list'>): Expr<'int'> => mk('length', [p], `${p}.length`)
 
 /**
  * `.min` / `.max` - the extremes of a NUMERIC `fields` result.
@@ -294,8 +353,8 @@ export const length = (p: Expr<'pods'> | Expr<'list'>): Expr<'int'> => mk(`${p}.
  * EMPTY set is an error rather than 0: the extreme of nothing is not a number,
  * and a park would compare against whatever came back.
  */
-export const minOf = (p: Expr<'list'>): Expr<'int'> => mk(`${p}.min`)
-export const maxOf = (p: Expr<'list'>): Expr<'int'> => mk(`${p}.max`)
+export const minOf = (p: Expr<'list'>): Expr<'int'> => mk('min', [p], `${p}.min`)
+export const maxOf = (p: Expr<'list'>): Expr<'int'> => mk('max', [p], `${p}.max`)
 
 // ---------------------------------------------------------------------------
 // ⛔ EIGHT PER-KIND CONSTRUCTORS WERE HERE AND ARE DELETED, 2026-08-30.
@@ -332,7 +391,7 @@ export const maxOf = (p: Expr<'list'>): Expr<'int'> => mk(`${p}.max`)
 const cmp =
   (op: string) =>
   (a: IntLike, b: IntLike): Expr<'bool'> =>
-    mk(`${intText(a)} ${op} ${intText(b)}`)
+    mk(op, [a, b], `${intText(a)} ${op} ${intText(b)}`)
 
 export const ne = cmp('!=')
 export const eq = cmp('==')
@@ -360,7 +419,7 @@ const scalarText = (v: ScalarLike): string => (typeof v === 'string' ? lit(v) : 
 const cmpScalar =
   (op: string) =>
   (a: Expr<'value'>, b: ScalarLike): Expr<'bool'> =>
-    mk(`${a} ${op} ${scalarText(b)}`)
+    mk(op, [a, b], `${a} ${op} ${scalarText(b)}`)
 
 /** `Get(p, f) == "text"` or `== true`. */
 export const eqScalar = cmpScalar('==')
@@ -384,7 +443,7 @@ export const neScalar = cmpScalar('!=')
 const listCmp =
   (op: string) =>
   (a: Expr<'list'>, b: Expr<'list'>): Expr<'bool'> =>
-    mk(`${a} ${op} ${b}`)
+    mk(op, [a, b], `${a} ${op} ${b}`)
 
 export const listEq = listCmp('==')
 export const listNe = listCmp('!=')
@@ -423,7 +482,7 @@ const parenInt = (v: IntLike): string => `(${intText(v)})`
 const arith =
   (op: string) =>
   (a: IntLike, b: IntLike): Expr<'int'> =>
-    mk(`${parenInt(a)} ${op} ${parenInt(b)}`)
+    mk(op, [a, b], `${parenInt(a)} ${op} ${parenInt(b)}`)
 
 export const plus = arith('+')
 export const minus = arith('-')
@@ -434,12 +493,12 @@ export const times = arith('*')
 // `Replicas("api") != 3 && Replicas("api")`, which is measured above and means
 // nothing.
 
-export const not = (b: Expr<'bool'>): Expr<'bool'> => mk(`!${b}`)
+export const not = (b: Expr<'bool'>): Expr<'bool'> => mk('not', [b], `!${b}`)
 
 const paren = (b: Expr<'bool'>): string => `(${b})`
 
 /** Wake if ANY holds. */
-export const or = (...bs: Expr<'bool'>[]): Expr<'bool'> => mk(bs.map(paren).join(' || '))
+export const or = (...bs: Expr<'bool'>[]): Expr<'bool'> => mk('or', bs, bs.map(paren).join(' || '))
 
 /**
  * Wake only if ALL hold.
@@ -447,7 +506,7 @@ export const or = (...bs: Expr<'bool'>[]): Expr<'bool'> => mk(bs.map(paren).join
  * ⚠ A conjunction of pure time bounds has nothing to watch, so it degrades to
  * polling. If you want a guaranteed wake, put the deadline in an `or`.
  */
-export const and = (...bs: Expr<'bool'>[]): Expr<'bool'> => mk(bs.map(paren).join(' && '))
+export const and = (...bs: Expr<'bool'>[]): Expr<'bool'> => mk('and', bs, bs.map(paren).join(' && '))
 
 // ---------------------------------------------------------------------------
 // EFFECTS.
@@ -522,7 +581,7 @@ export const and = (...bs: Expr<'bool'>[]): Expr<'bool'> => mk(bs.map(paren).joi
  * are extracted from an expression's literals, and the only literal here is the
  * pod. So the owner changing does not wake the program; the backstop does.
  */
-export const ownedBy = (path: PathLike): Expr<'path'> => mk(`OwnedBy(${pathText(path)})`)
+export const ownedBy = (path: PathLike): Expr<'path'> => mk('OwnedBy', [path], `OwnedBy(${pathText(path)})`)
 
 /**
  * `NodeOf(path)` — the machine running a pod, as a CLUSTER-scoped path.
@@ -537,10 +596,10 @@ export const ownedBy = (path: PathLike): Expr<'path'> => mk(`OwnedBy(${pathText(
  * `absent` while the pod is unscheduled: `spec.nodeName` is empty until the
  * scheduler places it, and "no node yet" must not read as "some node".
  */
-export const nodeOf = (path: PathLike): Expr<'path'> => mk(`NodeOf(${pathText(path)})`)
+export const nodeOf = (path: PathLike): Expr<'path'> => mk('NodeOf', [path], `NodeOf(${pathText(path)})`)
 
 export const ensure = (path: PathLike, field: string, value: EnsureValue): Expr<'effect'> =>
-  mk(`Ensure(${pathText(path)}, ${lit(field)}, ${valueText(value)})`)
+  mk('Ensure', [path, field, value], `Ensure(${pathText(path)}, ${lit(field)}, ${valueText(value)})`)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ⛔ ***THERE IS NO `ensureCluster`, AND THAT IS A DECISION RATHER THAN A GAP***
@@ -658,7 +717,7 @@ function valueText(v: EnsureValue): string {
  * its arguments and renders the result, so nothing downstream sees an `At`.
  */
 export const at = (apiVersion: string, kind: string, name: string): Expr<'path'> =>
-  mk(`At(${lit(apiVersion)}, ${lit(kind)}, ${lit(name)})`)
+  mk('At', [apiVersion, kind, name], `At(${lit(apiVersion)}, ${lit(kind)}, ${lit(name)})`)
 
 /**
  * Anywhere a path goes: a BUILT path, or an `at(...)` that resolves to one.
@@ -700,7 +759,7 @@ export type PathLike = ApiPath | Expr<'path'>
 export type ReadPathLike = PathLike | ClusterPath
 
 /** Render a path argument: both forms are already the text to emit. */
-const pathText = (p: ReadPathLike): string => (isPathExpr(p) ? p : lit(p))
+const pathText = (p: ReadPathLike): string => (isPathExpr(p) ? String(p) : lit(String(p)))
 
 // A path EXPRESSION is emitted bare (the host evaluates it); a built path is a
 // LITERAL and must be quoted. Both are strings at runtime, so the discriminator
@@ -723,7 +782,15 @@ const pathText = (p: ReadPathLike): string => (isPathExpr(p) ? p : lit(p))
 // and `unsafeApiPath` guarantee - and no expression does. So this cannot go
 // stale when the next path-producing symbol is added, which is precisely how the
 // old form failed.
-const isPathExpr = (p: ReadPathLike): boolean => !p.startsWith('/')
+//
+// ⭐ ***AND IT IS NO LONGER A SHAPE TEST AT ALL, BECAUSE THE TWO ARE NOW
+// DIFFERENT KINDS OF VALUE.*** The paragraph above reasons from "Both are
+// strings at runtime, so the discriminator has to be the shape" - true while an
+// expression was a branded string, and false since 2026-09-06: a path EXPRESSION
+// is an `ExprNode` and a built path is a string. Asking which one it IS cannot
+// go stale for a new symbol OR for a path that fails to start with `/`, so it
+// closes the same gap the `startsWith('At(')` version left, one level down.
+const isPathExpr = (p: ReadPathLike): boolean => p instanceof ExprNode
 
 /**
  * A structured value: an object body for {@link create}.
@@ -922,7 +989,7 @@ const fieldText = (v: EnsureValue | StructShape | StructArray): string => {
 export const create = <K extends string>(o: {
   readonly path: KindedPath<K>
   readonly body: KindedBody<NoInferK<K>>
-}): Expr<'effect'> => mk(`Create(${lit(o.path)}, ${structText(o.body)})`)
+}): Expr<'effect'> => mk('Create', [o.path, o.body], `Create(${lit(o.path)}, ${structText(o.body)})`)
 
 /**
  * `EnsureAll(path, body) -> effect`. SEVERAL fields of one object, ONE apiserver
@@ -943,7 +1010,7 @@ export const create = <K extends string>(o: {
 export const ensureAll = <K extends string>(o: {
   readonly path: KindedPath<K>
   readonly body: KindedBody<NoInferK<K>>
-}): Expr<'effect'> => mk(`EnsureAll(${lit(o.path)}, ${structText(o.body)})`)
+}): Expr<'effect'> => mk('EnsureAll', [o.path, o.body], `EnsureAll(${lit(o.path)}, ${structText(o.body)})`)
 
 /**
  * `Delete(path) -> effect`. Remove the object a path names.
@@ -960,7 +1027,7 @@ export const ensureAll = <K extends string>(o: {
  *
  * No field: a delete is about the OBJECT, so there is nothing to narrow.
  */
-export const del = (path: PathLike): Expr<'effect'> => mk(`Delete(${pathText(path)})`)
+export const del = (path: PathLike): Expr<'effect'> => mk('Delete', [path], `Delete(${pathText(path)})`)
 
 /**
  * `SetCondition(type, status, reason, message) -> effect`. SELF-TARGETED.
@@ -982,4 +1049,4 @@ export const setCondition = (
   reason: string,
   message: string,
 ): Expr<'effect'> =>
-  mk(`SetCondition(${lit(type)}, ${lit(status)}, ${lit(reason)}, ${lit(message)})`)
+  mk('SetCondition', [type, status, reason, message], `SetCondition(${lit(type)}, ${lit(status)}, ${lit(reason)}, ${lit(message)})`)

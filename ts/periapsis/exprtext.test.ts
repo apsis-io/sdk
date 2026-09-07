@@ -23,13 +23,13 @@ import { objects } from './perseid'
 // array-literal rule (internal/aperture/grammar.go, "order is significant")
 // cannot read back as the intended command.
 test('a container command array renders as an array literal, elements in order', () => {
-  const text = create(
+  const text = String(create(
     objects.ns('default').deployment('api').spec({
       replicas: 1,
       selector: { app: 'api' },
       containers: [{ name: 'api', image: 'nginx:alpine', command: ['sh', '-c', 'run'] }],
     }),
-  )
+  ))
 
   expect(text).toContain(`"command": ["sh", "-c", "run"]`)
 })
@@ -38,13 +38,13 @@ test('a container command array renders as an array literal, elements in order',
 // lexicographic-sort defect reorders '10' and '11' ahead of '2'.
 test('an args array with more than ten elements keeps numeric order', () => {
   const args = Array.from({ length: 12 }, (_, i) => `arg${i}`)
-  const text = create(
+  const text = String(create(
     objects.ns('default').deployment('api').spec({
       replicas: 1,
       selector: { app: 'api' },
       containers: [{ name: 'api', image: 'nginx:alpine', args }],
     }),
-  )
+  ))
 
   const want = `["${args.join('", "')}"]`
   expect(text).toContain(`"args": ${want}`)
@@ -58,13 +58,13 @@ test('an args array with more than ten elements keeps numeric order', () => {
 // object with SORTED keys, exactly as before - the array exclusion must not
 // have disabled struct rendering for everything else.
 test('a struct field with no arrays still renders as a sorted object', () => {
-  const text = create(
+  const text = String(create(
     objects.ns('default').deployment('api').spec({
       replicas: 3,
       selector: { app: 'api' },
       containers: [{ name: 'api', image: 'nginx:alpine' }],
     }),
-  )
+  ))
 
   expect(text).toContain(`{"image": "nginx:alpine", "name": "api"}`)
 })
@@ -82,13 +82,13 @@ test('a struct field with no arrays still renders as a sorted object', () => {
 // `create` returns nothing to the guest by contract.
 test('a computed replicas count renders as bare expression text, not a quoted literal', () => {
   const count = plus(length(listPods('app=x')), 2)
-  const text = create(
+  const text = String(create(
     objects.ns('default').deployment('api').spec({
       replicas: count,
       selector: { app: 'api' },
       containers: [{ name: 'api', image: 'nginx:alpine' }],
     }),
-  )
+  ))
 
   expect(text).toContain(`"replicas": ${count}`)
   // The failure mode, named explicitly: a quoted copy of the same text must
@@ -100,13 +100,13 @@ test('a computed replicas count renders as bare expression text, not a quoted li
 // CONTROL: a plain number replicas count is unaffected - it must still render
 // as a bare number, not routed through computed()/wrapped in any way.
 test('a numeric replicas count still renders as a bare number', () => {
-  const text = create(
+  const text = String(create(
     objects.ns('default').deployment('api').spec({
       replicas: 3,
       selector: { app: 'api' },
       containers: [{ name: 'api', image: 'nginx:alpine' }],
     }),
-  )
+  ))
 
   expect(text).toContain(`"replicas": 3`)
 })
