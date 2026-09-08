@@ -2053,7 +2053,7 @@ export const reconcile = {
    * most in a FINALIZER, which runs on a fresh instance every attempt and so
    * must re-declare its cleanup each time with no memory of the last.
    */
-  del: () => defineEffect<ApiPath, void>()(WIT_DELETE, 'delete'),
+  delete: () => defineEffect<ApiPath, void>()(WIT_DELETE, 'delete'),
 
   /**
    * Create an object.
@@ -2080,7 +2080,7 @@ export const reconcile = {
   /** `workloads.scale(path, replicas)`. Returns nothing on purpose — see the WIT. */
 
   /** `status.set(condition)`. `type` is an IDENTITY: a second set REPLACES. */
-  report: () => defineEffect<Condition, void>()(WIT_STATUS, 'set'),
+  set: () => defineEffect<Condition, void>()(WIT_STATUS, 'set'),
 
   /**
    * `carry.get()`: what this program remembered on its LAST pass.
@@ -2130,6 +2130,24 @@ export const reconcile = {
    * emits the world from `WIT_CARRY`, not from this string — so renaming it
    * costs nothing and removes a whole class of silent misrouting.
    */
+  // ⛔ ***THE ONE PLACE THE NAME DOES NOT MATCH THE WIT FUNCTION, AND IT IS
+  // DELIBERATE (engi, 2026-09-08).*** Everything else here is named for the
+  // function it calls - `set` for `status.set`, `held` for `woke.held`, `delete`
+  // for `delete.delete` - so the SDK surface, the op and the WIT all read the
+  // same. `carry`'s function is `get`, and it cannot be called that.
+  //
+  // ***THE OP IS A HANDLER KEY, AND `get` IS ALREADY TAKEN THREE TIMES***:
+  // `observe`, `observeCluster` and `enumerate` all dispatch on it. A Handler
+  // keys on the op alone, so a fourth `get` would be indistinguishable from a
+  // read - and `sentinel-main.ts` already carries the note that the existing
+  // three are told apart by PATH SHAPE, which `carry` cannot do because it takes
+  // no arguments.
+  //
+  // ⚠ So `ci/verify-wit-imports.sh` reports this line, correctly, as a
+  // declaration naming a function its interface does not define. That report is
+  // TRUE and the obvious remedy - renaming the op to `get` - silently breaks
+  // dispatch for every program that reads. Left as-is on purpose; the exception
+  // is here rather than in the gate so whoever meets the red finds the reason.
   carry: () => defineEffect<void, string>()(WIT_CARRY, 'carry'),
 
   /**
@@ -2148,7 +2166,7 @@ export const reconcile = {
    * backstop tick says. It is also what an older host returns, so a program
    * using this degrades to re-deriving, which is what every step does today.
    */
-  woke: () => defineEffect<void, string[]>()(WIT_WOKE, 'held'),
+  held: () => defineEffect<void, string[]>()(WIT_WOKE, 'held'),
 } as const
 
 // ---------------------------------------------------------------------------
@@ -3007,7 +3025,7 @@ export function* held(): Generator<Effect<typeof WIT_WOKE, 'held', void>, Held, 
   // ***READ FIRST, BEFORE THE PROGRAM DOES ANYTHING.*** The answer describes the
   // wake that STARTED this pass; work that yields could change the world
   // underneath a later read of it. Asking first is why this is a generator.
-  const woke = reconcile.woke()
+  const woke = reconcile.held()
   const texts = ((yield* woke()) as string[] | undefined) ?? []
   const named = new Set(texts)
 
