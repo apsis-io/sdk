@@ -2160,6 +2160,16 @@ export const reconcile = {
    * using this degrades to re-deriving, which is what every step does today.
    */
   held: () => defineEffect<void, string[]>()(WIT_WOKE, 'held'),
+  /**
+   * The COARSE wake reason - the one fact `held` cannot give you.
+   *
+   * ***`wakeCause()` USED TO DERIVE THIS AND THE DERIVATION WAS UNSOUND.*** It
+   * returned `backstop` whenever `held` was empty, so a first pass and an
+   * attribution that could not be evaluated both reported as a healthy timed
+   * re-check. The host has always known which; it had no way to say it until
+   * `woke.cause` existed.
+   */
+  cause: () => defineEffect<void, Cause>()(WIT_WOKE, 'cause'),
 } as const
 
 // ---------------------------------------------------------------------------
@@ -2961,21 +2971,41 @@ export interface Held {
  * now***, so the finer question is safe too and this is merely smaller.
  * ═══════════════════════════════════════════════════════════════════════════
  */
+/**
+ * Why this pass is running, as the HOST knows it.
+ *
+ * ⚠ ***THIS USED TO BE TWO VALUES AND THE SECOND COVERED THREE SITUATIONS THE
+ * HOST COULD TELL APART ALL ALONG.*** `backstop` was returned whenever `held`
+ * was empty, and its own doc admitted the conflation - "the time bound fired; or
+ * the host could not compute the answer; or this is the first pass". Radiant has
+ * recorded the answer as `WakeReport.Fired` since long before; `woke.cause`
+ * (2026-09-08) is the channel that carries it, and the three are now separate.
+ *
+ * ⛔ `unknown` IS NOT A KIND OF `backstop`. `driver.go` refuses that merge at the
+ * constants this mirrors: *"I re-checked on a timer" and "I could not tell why I
+ * woke" are different facts, and merging them would report a broken instrument
+ * as a healthy timeout.*
+ */
 export type Cause =
-  /** One of the conditions this program parked on became true. */
-  | 'resume'
   /**
-   * Nothing this program named held.
-   *
-   * ⚠ ***THIS COVERS THREE SITUATIONS AND THE HOST CANNOT TELL THEM APART.***
-   * The time bound fired; or the host could not compute the answer; or this is
-   * the first pass and there is no previous park. `reconcile.wit` says so
-   * deliberately - "the two are deliberately not distinguished: in both cases
-   * the correct behaviour is to re-derive from the world" - so naming it for the
-   * commonest of the three is honest as long as nothing branches on it BEING
-   * that one.
+   * One of the conditions this program parked on became true - the world moved.
+   * `held()` names which arms, and is what to reach for when there is
+   * per-subject work.
    */
+  | 'condition'
+  /** Only the folded-in deadline fired: a timed re-check. */
   | 'backstop'
+  /**
+   * The attribution could not be evaluated - something the resume reads is
+   * Absent, so no comparison was performed. A broken instrument, reported as
+   * one rather than as a quiet timeout.
+   */
+  | 'unknown'
+  /**
+   * No previous park: this is the program's first pass. Distinct from `backstop`
+   * because nothing timed out, and from `unknown` because nothing failed.
+   */
+  | 'first-pass'
 
 /**
  * What held at the wake that started this pass.
@@ -3111,11 +3141,20 @@ export function* held(): Generator<Effect<typeof WIT_WOKE, 'held', void>, Held, 
  * not a guess here.
  * ═══════════════════════════════════════════════════════════════════════════
  */
-export function* wakeCause(): Generator<Effect<typeof WIT_WOKE, 'held', void>, Cause, unknown> {
-  // ***ONE IMPLEMENTATION, NOT TWO.*** This read the host directly until
-  // 2026-09-07, which was a second copy of the same decode - and the two could
-  // disagree about what an absent answer means. `held()` is that decode.
-  const woke = yield* held()
+export function* wakeCause(): Generator<Effect<typeof WIT_WOKE, 'cause', void>, Cause, unknown> {
+  // ⛔ ***IT ASKS NOW. IT USED TO GUESS.***
+  //
+  // This was `held().size > 0 ? 'resume' : 'backstop'` - the coarse answer
+  // inferred from the fine one. The inference is unsound in the direction that
+  // reassures: an empty `held` is ALSO a first pass and ALSO an attribution the
+  // host could not evaluate, and both were reported as a healthy timed re-check.
+  // ADR-0107 says empty is ordinary and must not be branched on; this function
+  // branched on it.
+  //
+  // The host has recorded the real answer as `WakeReport.Fired` since long before
+  // any of this; `woke.cause` is simply the channel that carries it. One host
+  // call, no derivation, and `held()` goes back to being only about WHICH arms.
+  const cause = reconcile.cause()
 
-  return woke.size > 0 ? 'resume' : 'backstop'
+  return (yield* cause()) as Cause
 }
