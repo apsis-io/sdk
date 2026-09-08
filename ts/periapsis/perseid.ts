@@ -2080,7 +2080,7 @@ export const reconcile = {
   /** `workloads.scale(path, replicas)`. Returns nothing on purpose — see the WIT. */
 
   /** `status.set(condition)`. `type` is an IDENTITY: a second set REPLACES. */
-  set: () => defineEffect<Condition, void>()(WIT_STATUS, 'set'),
+  status: () => defineEffect<Condition, void>()(WIT_STATUS, 'status'),
 
   /**
    * `carry.get()`: what this program remembered on its LAST pass.
@@ -2130,24 +2130,17 @@ export const reconcile = {
    * emits the world from `WIT_CARRY`, not from this string — so renaming it
    * costs nothing and removes a whole class of silent misrouting.
    */
-  // ⛔ ***THE ONE PLACE THE NAME DOES NOT MATCH THE WIT FUNCTION, AND IT IS
-  // DELIBERATE (engi, 2026-09-08).*** Everything else here is named for the
-  // function it calls - `set` for `status.set`, `held` for `woke.held`, `delete`
-  // for `delete.delete` - so the SDK surface, the op and the WIT all read the
-  // same. `carry`'s function is `get`, and it cannot be called that.
+  // ⭐ ***THIS LINE NEVER CHANGED AND IT IS NOW CORRECT.*** It always declared
+  // the op `carry`; the WIT said `carry.get`, so `ci/verify-wit-imports.sh`
+  // reported it - truly - as naming a function its interface does not define.
   //
-  // ***THE OP IS A HANDLER KEY, AND `get` IS ALREADY TAKEN THREE TIMES***:
-  // `observe`, `observeCluster` and `enumerate` all dispatch on it. A Handler
-  // keys on the op alone, so a fourth `get` would be indistinguishable from a
-  // read - and `sentinel-main.ts` already carries the note that the existing
-  // three are told apart by PATH SHAPE, which `carry` cannot do because it takes
-  // no arguments.
-  //
-  // ⚠ So `ci/verify-wit-imports.sh` reports this line, correctly, as a
-  // declaration naming a function its interface does not define. That report is
-  // TRUE and the obvious remedy - renaming the op to `get` - silently breaks
-  // dispatch for every program that reads. Left as-is on purpose; the exception
-  // is here rather than in the gate so whoever meets the red finds the reason.
+  // The obvious remedy was to make the op `get`, and it silently breaks dispatch:
+  // an op is a HANDLER KEY, `get` is already `observe`, `observeCluster` and
+  // `enumerate`, and a Handler tells those apart by PATH SHAPE - which `carry`
+  // cannot do, because it takes no arguments. ***The disagreement was real and
+  // the end that moves is the WIT*** (engi, 2026-09-08): `carry.carry` retires
+  // the red from the side with no collision, and this declaration was right all
+  // along.
   carry: () => defineEffect<void, string>()(WIT_CARRY, 'carry'),
 
   /**
