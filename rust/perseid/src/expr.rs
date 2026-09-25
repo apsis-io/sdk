@@ -318,7 +318,7 @@ pub fn now() -> Expr<Int> {
 // The language version.
 
 /// The expression language this SDK emits, as an integer radiant compares
-/// against the one it speaks. **Put it in the Perseid: `spec.language: 1`.**
+/// against the one it speaks. **Put it in the Perseid: `spec.language: 4`.**
 /// Admission refuses a program whose declared language is newer than the
 /// evaluating radiant - before a pod, before a pass - instead of the program
 /// failing at its first park with `unknown symbol`. Undeclared is not refused;
@@ -338,6 +338,23 @@ pub fn now() -> Expr<Int> {
 ///                digest could not see it: a program using the form was
 ///                ADMITTED by a radiant that cannot parse it and then dropped
 ///                silently to its backstop.
+/// 4  2026-09-06  `.min`/`.max` on a `fields` result - THE LANGUAGE'S
+///                QUANTIFIERS, and the second bump for something that moves no
+///                symbol. `.length` was the whole surface of a set, so a park
+///                could ask HOW MANY objects match and never whether ANY of
+///                them differs - which is why every program watching N objects
+///                had to NAME all N: `sentinel.ts` hard-coded four subjects,
+///                `drainer.ts` one node, and a fleet-wide watchdog meant one
+///                Perseid per node.
+///
+///                ⚠ A MEMBER PROPERTY IS A THIRD THING THE SYMBOL DIGEST COULD
+///                NOT SEE, alongside the field-path grammar version 3 was minted
+///                for. `.min` is a name on a production, not a signature, so
+///                without a bump a program using it is ADMITTED by a radiant
+///                that cannot evaluate it and then dropped SILENTLY to its
+///                backstop. `listProperties` is now folded into the fingerprint
+///                - the same remedy as `pathGrammarDigest` in 3, in the third
+///                place it was needed.
 /// ```
 ///
 /// ⚠ ***THE HOST AND THIS CONSTANT MUST MOVE TOGETHER, AND THE ORDER IS A TRAP.***
@@ -371,6 +388,58 @@ impl Countable for List {}
 #[must_use]
 pub fn length<T: Countable>(p: &Expr<T>) -> Expr<Int> {
     Expr::new(format!("{p}.length"))
+}
+
+// `.min`/`.max` - the extremes of a NUMERIC `List`/`Fields` result. The macro
+// injects the shared rationale onto EACH generated function, so rustdoc on
+// `min_of`/`max_of` carries the full story and not just the one-line summary.
+macro_rules! list_extreme {
+    ($($(#[$m:meta])* $f:ident => $prop:literal),+ $(,)?) => {$(
+        /// ***THE LANGUAGE'S QUANTIFIERS, AND THEY RECOVER BOTH `any` AND `all`
+        /// FROM THE COMPARISON AND BOOLEAN OPERATORS THE LANGUAGE ALREADY
+        /// HAS.***
+        ///
+        /// ```text
+        /// any element != n   <=>  min != n || max != n
+        /// all elements == n  <=>  min == n && max == n
+        /// ```
+        ///
+        /// Until 2026-09-06 `.length` was the whole surface a set had, so a park
+        /// could ask HOW MANY objects match and never whether ANY of them
+        /// differs - which is why every program watching N objects had to NAME
+        /// all N. A `min`/`max` pair is ONE call over the collection, and neither
+        /// is a new symbol: member access is the same production `.length`
+        /// already uses, so it cost no grammar change.
+        ///
+        /// **`Expr<Int>`, NOT `Expr<Value>`:** the host evaluates them to a
+        /// NUMBER, and a comparison against a non-numeric `Fields` result is an
+        /// error it returns - never a value a park would then compare against
+        /// and believe (see the host's `listExtreme`).
+        ///
+        /// ⛔ ***NUMBERS ONLY, AND AN EMPTY LIST HAS NEITHER.*** The host ERRORS
+        /// rather than answering: `min` of nothing is not `0`, and a
+        /// lexicographic order over strings would answer a question nobody asked.
+        /// A `fields(..)` whose selected field is not numeric on every object
+        /// therefore makes this an unevaluable resume, not a plausible wrong
+        /// number.
+        ///
+        /// ⚠ ***LIST/FIELDS ONLY, NEVER PODS.*** A `ListPods` result is a
+        /// different production in the host and answers `.length` but refuses
+        /// `.min`/`.max`; the signature says so, so `min_of(&length(..))` and
+        /// friends do not compile.
+        $(#[$m])*
+        #[must_use]
+        pub fn $f(l: &Expr<List>) -> Expr<Int> {
+            Expr::new(format!("{l}.{}", $prop))
+        }
+    )+};
+}
+
+list_extreme! {
+    /// `.min` - the smallest number in the set.
+    min_of => "min",
+    /// `.max` - the largest number in the set.
+    max_of => "max",
 }
 
 /// `==` between two LISTS (ADR-0101): element-wise and strict, the host's rule
@@ -1024,6 +1093,37 @@ mod tests {
         assert_eq!(now().as_str(), "Now()");
     }
 
+    /// ***THE QUANTIFIERS RENDER AS THE HOST'S MEMBER ACCESS, ON A `List`/
+    /// `Fields` RESULT AND NOWHERE ELSE.*** `min_of`/`max_of` take `&Expr<List>`,
+    /// so a `ListPods` result (`Expr<Pods>`) will not compile here, matching the
+    /// host, which answers `.length` on pods but refuses `.min`/`.max`. The
+    /// property is a name on a production, not a call, so it renders as a suffix.
+    #[test]
+    fn min_and_max_render_as_a_member_access_on_a_list() {
+        let cms = crate::path::ns("overhead").collection("configmaps");
+        let numbers = fields(&cms, "role=src", "data.n");
+        assert_eq!(
+            min_of(&numbers).as_str(),
+            r#"Fields("/api/v1/namespaces/overhead/configmaps", "role=src", "data.n").min"#
+        );
+        assert_eq!(
+            max_of(&numbers).as_str(),
+            r#"Fields("/api/v1/namespaces/overhead/configmaps", "role=src", "data.n").max"#
+        );
+
+        // The quantifier recovery the docs promise, end to end: "any element
+        // drifts from 2" in two calls, not one per object.
+        let any_drift = or(&[ne(min_of(&numbers), 2), ne(max_of(&numbers), 2)]);
+        assert_eq!(
+            any_drift.as_str(),
+            concat!(
+                r#"(Fields("/api/v1/namespaces/overhead/configmaps", "role=src", "data.n").min != 2)"#,
+                " || ",
+                r#"(Fields("/api/v1/namespaces/overhead/configmaps", "role=src", "data.n").max != 2)"#,
+            )
+        );
+    }
+
     #[test]
     fn comparison_and_arithmetic() {
         assert_eq!(
@@ -1188,10 +1288,13 @@ mod tests {
         assert!(ensure(&cfg, "data.on", true).as_str().ends_with(", true)"));
     }
 
-    // `.exists` is only implemented for OBSERVED types, so `exists(&now())` is a
-    // compile error rather than a host-side refusal. This asserts the positive
-    // half; the negative half is in tests/compile_fail.rs, which is the only
-    // instrument that can see a type that does not exist.
+    // `.exists` is only implemented for OBSERVED types, so `exists(&now())` does
+    // not compile - a type error rather than a host-side refusal. This asserts
+    // the positive half; the negative half is the type system itself, and this
+    // crate has no compile-fail harness (both SDK crates are zero-dependency,
+    // and a dev-only one is not taken on to prove a signature the compiler
+    // already enforces). Creating a `tests/compile_fail.rs` that does not exist
+    // would only convert a visible gap into a false citation.
     #[test]
     fn exists_applies_to_observations() {
         assert_eq!(
