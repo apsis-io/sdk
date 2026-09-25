@@ -17,6 +17,9 @@ import {
   now,
   exists,
   length,
+  fields,
+  minOf,
+  maxOf,
   ne,
   ge,
   plus,
@@ -153,6 +156,28 @@ export function runtimeGuards(): void {
     String(ne(length(listPods('app=api')), depReplicas())),
     `ListPods("app=api").length != Get("${DEP_TEXT}", "spec.replicas")`,
     'countNeField',
+  )
+
+  // ⭐ ***THE QUANTIFIERS RENDER AS A MEMBER ACCESS, ON A `fields` RESULT AND
+  // NOWHERE ELSE.*** `minOf`/`maxOf` are the language's `any`/`all` over a set -
+  // the capability LANGUAGE_VERSION 4 was minted for, and the one the
+  // cross-SDK guard (periapsis TestPinnedSDKs_CanConstructEveryMemberProperty)
+  // checks the Rust side can build. Until now it existed HERE with no test in
+  // this file, so a change to the emitted text would have been caught by the
+  // host's parser but not by the SDK that emits it. The rendered form is a
+  // SUFFIX, not a call, because `.min`/`.max` are names on the same member
+  // access production `.length` uses.
+  const cms = path.ns('overhead').collection('configmaps')
+  const numbers = fields(cms, 'role=src', 'data.n')
+  const numbersText = 'Fields("/api/v1/namespaces/overhead/configmaps", "role=src", "data.n")'
+  eq(String(minOf(numbers)), `${numbersText}.min`, 'minOf')
+  eq(String(maxOf(numbers)), `${numbersText}.max`, 'maxOf')
+  // The quantifier recovery the docs promise, end to end: "any element drifts
+  // from 2" in two calls over the collection, not one call per object.
+  eq(
+    String(or(ne(minOf(numbers), 2), ne(maxOf(numbers), 2))),
+    `(${numbersText}.min != 2) || (${numbersText}.max != 2)`,
+    'any element drifts, via min/max',
   )
   eq(
     String(ensure(DEP, 'spec.replicas', 3)),
