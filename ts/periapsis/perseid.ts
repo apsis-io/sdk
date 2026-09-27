@@ -2951,6 +2951,21 @@ export interface Held {
    * to matching strings by hand and given up what `has` does for it.
    */
   readonly texts: readonly string[]
+  /**
+   * The host's answer, raw, under its API name. `texts` is the same array.
+   */
+  readonly heldTexts: readonly string[]
+  /**
+   * The SUBSET of the given conditions that held, in the order asked.
+   *
+   * The dispatch form of `has`: one call replaces the
+   * `for (const s of subjects) if (woke.has(condOf(s)))` loop. A condition holds
+   * here iff every leaf of it renders to an operand the host named - the same
+   * mechanism `has` uses, so the two cannot disagree about a condition both
+   * accept. Conditions that did not hold are absent, not filtered into
+   * something else: the honest answer is the subset.
+   */
+  which(...conditions: Resume[]): Resume[]
 }
 
 /**
@@ -3107,6 +3122,21 @@ export function* held(): Generator<Effect<typeof WIT_WOKE, 'held', void>, Held, 
     // some other condition would report one nobody asserted - exactly what an
     // index did silently.
     has: (condition: Resume) => leavesOf(condition).some((l) => named.has(l)),
+
+    // The host's answer, raw. `has` answers predicates; this is the wake itself,
+    // for a program that wants to log it, diff it against the previous pass, or
+    // key its own map by operand text - the same text `has` matches against.
+    heldTexts: texts,
+
+    // The subset of the given conditions that HELD, in the order given. The
+    // dispatch form of `has`: one call replaces the
+    // `for (const s of SUBJECTS) if (woke.has(condOf(s)))` idiom, which the
+    // held.test.ts header carries as the documented pattern. Same mechanism as
+    // `has` - leavesOf over `named` - so the two cannot disagree about a
+    // condition both accept. A condition that did not hold is absent from the
+    // result, not filtered into something else; the honest answer is the subset.
+    which: (...conditions: Resume[]): Resume[] =>
+      conditions.filter((c) => leavesOf(c).every((l) => named.has(l))),
   }
 }
 

@@ -327,3 +327,87 @@ test('ready/unready/unsure differ only in status, and Unknown is not False', () 
   expect(r.message).toBe(u.message)
   expect(new Set([r.status, u.status, s.status]).size).toBe(3)
 })
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⭐ THE WAKE-BOUNDARY CONTRACT: `which()` and `heldTexts()`.
+//
+// The host answers a wake with each holding operand's own SOURCE TEXT
+// (aperture.HeldDisjunctTexts - it slices the text from the expression it
+// parsed). `has` and `which` therefore match by RENDERED TEXT at the leaf, not
+// by reference and not by structure. These tests pin that contract from both
+// directions: the positive arm that makes dispatch work, and the negative arm
+// that documents what the comparison is NOT - so nobody "fixes" it into
+// structural equality without reading why text identity was chosen
+// (perseid.ts: the index was minted against one expression and read against
+// another; text identifies itself and needs no previous list).
+// ═══════════════════════════════════════════════════════════════════════════
+
+function driveWhich(texts: string[], asked: Resume[]): { heldTexts: string[]; which: Resume[] } {
+  let captured: { heldTexts: string[]; which: Resume[] } | undefined
+  const step = function* () {
+    const woke = yield* held()
+    captured = { heldTexts: [...woke.heldTexts], which: woke.which(...asked) }
+
+    return { o: 'yield' as const }
+  }
+  runStep(step as never, { held: () => texts } as unknown as Handler<never>)
+
+  // The harness guarantees captured is set; the guard keeps TS honest.
+  if (!captured) throw new Error('the step never ran')
+  return captured
+}
+
+// A condition rebuilt after the park - a DIFFERENT object from the one the park
+// was assembled with - matches, because matching is by rendered leaf text.
+test('which returns a condition rebuilt from the same inputs', () => {
+  // The host's answer is LEAF text - condOf(SUBJECTS[0]) is a two-leaf
+  // condition, so BOTH leaves must appear in the held texts for which() to
+  // accept it. A single arbitrary string would make the fixture unreachable.
+  const held = [A.render(), ...condOf(SUBJECTS[0]).of.map((n) => n.render())]
+  const rebuilt = condOf(SUBJECTS[0])
+  const out = driveWhich(held, [rebuilt, condOf(SUBJECTS[1])])
+
+  expect(out.heldTexts).toEqual(held)
+  expect(out.which).toEqual([rebuilt])
+})
+
+// And the raw answer is exposed unchanged, for programs that want to log or
+// diff the wake rather than ask predicates about it.
+test('heldTexts is the host answer verbatim', () => {
+  const held = ['x || y', 'fieldNoLonger']
+  const out = driveWhich(held, [])
+
+  expect(out.heldTexts).toEqual(held)
+  expect(out.which).toEqual([])
+})
+
+// ⛔ THE NEGATIVE ARM, and the documentation of a decision: a condition that is
+// SEMANTICALLY identical but RENDERED differently is a different operand to the
+// host - extra parentheses change the emitted text, and an `and` of one operand
+// is a node where the host sliced a leaf. Text identity is the contract; these
+// cells would go red if someone "fixed" the comparison into structural equality
+// without reading why text was chosen.
+test('which does not match a semantically-equal but differently-rendered condition', () => {
+  const sameAsX = fieldIs(POD, 'status.phase', 'Running') // same leaf text as A
+  const parenthesised = anyOf(sameAsX) // renders with parens around the one leaf
+  const andOfOne = allOf(sameAsX) // an AND node wrapping one leaf
+
+  const out = driveWhich(['fieldIs'], [parenthesised, andOfOne])
+
+  // neither alternative rendering matches the leaf the host named
+  expect(out.which).toEqual([])
+})
+
+// The dispatch form, end to end: several conditions, one not holding - the
+// subset comes back in the order asked, which is what makes it a drop-in for
+// the for-loop it replaces.
+test('which returns exactly the conditions that held, in the order asked', () => {
+  const heldTexts = [
+    ...condOf(SUBJECTS[0]).of.map((n) => n.render()),
+    A.render(),
+  ]
+  const out = driveWhich(heldTexts, [condOf(SUBJECTS[0]), A, condOf(SUBJECTS[1])])
+
+  expect(out.which).toEqual([condOf(SUBJECTS[0]), A])
+})
