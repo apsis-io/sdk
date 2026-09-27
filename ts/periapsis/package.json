@@ -42,5 +42,8 @@
     "@types/node": "^22.0.0",
     "@types/bun": "latest",
     "typescript": "7.0.1-rc"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.52"
   }
 }
