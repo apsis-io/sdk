@@ -55,6 +55,23 @@ pub fn ns(namespace: &str) -> Namespaced<'_> {
     Namespaced { namespace }
 }
 
+/// `/apis/GROUP/VERSION/RESOURCE/NAME` - a CLUSTER-SCOPED object.
+///
+/// No namespace, because there is none: reading one needs `spec.reads` to name
+/// it and the cluster read to be imported. What the PV hop of a pinned trace
+/// names. A free function rather than a [`Namespaced`] method because there is
+/// no namespace to scope with.
+#[must_use]
+pub fn cluster(group: &str, version: &str, resource: &str, name: &str) -> ApiPath {
+    ApiPath(format!("/apis/{}/{}/{}/{}", group, version, resource, name))
+}
+
+/// `/api/VERSION/RESOURCE/NAME` - cluster-scoped, CORE group.
+#[must_use]
+pub fn cluster_core(version: &str, resource: &str, name: &str) -> ApiPath {
+    ApiPath(format!("/api/{}/{}/{}", version, resource, name))
+}
+
 /// A namespace scope, from [`ns`].
 #[derive(Debug, Clone, Copy)]
 pub struct Namespaced<'a> {
@@ -89,6 +106,16 @@ impl Namespaced<'_> {
         ApiPath(format!(
             "/apis/{}/{}/namespaces/{}/{}/{}",
             group, version, self.namespace, resource, name
+        ))
+    }
+
+    /// `/api/VERSION/namespaces/NS/KIND/NAME` - CORE group, for a kind with no
+    /// named helper (the `pods` shape for a `persistentvolumeclaims`).
+    #[must_use]
+    pub fn core(self, version: &str, resource: &str, name: &str) -> ApiPath {
+        ApiPath(format!(
+            "/api/{}/namespaces/{}/{}/{}",
+            version, self.namespace, resource, name
         ))
     }
 

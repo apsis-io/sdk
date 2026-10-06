@@ -13,7 +13,7 @@
 //! expression in the same language - is a compile error in a wake condition.
 //! That is the host's `CheckPure` rule, moved to the build.
 
-use crate::expr::{self as e, Bool, Expr};
+use crate::expr::{self as e, Bool, Expr, ScalarValue};
 use crate::path::ApiPath;
 
 /// A wake condition.
@@ -58,6 +58,28 @@ pub fn count_ne_field(selector: &str, workload: &ApiPath) -> Resume {
     )
 }
 
+/// Wake when AT LEAST ONE pod matches `selector`.
+///
+/// ***THE SELECTOR IS A LITERAL BY CONSTRUCTION***: the host's static walk
+/// extracts subjects from literals, and a selector hidden behind an object is
+/// the `PodsOf` shape the language declined - such a park would poll while
+/// looking subscribed. Count forms only: a string-field quantifier does not
+/// exist yet, and adding one is a language change coordinated with the host's
+/// fingerprint, not a local edit. Pair with a root guard on the workload that
+/// supplied the selector ([`field_no_longer`] on `metadata.generation` - the
+/// selector is a map and a scalar comparison over it reads UNKNOWN).
+#[must_use]
+pub fn any_pods(selector: &str) -> Resume {
+    e::gt(e::length(&e::list_pods(selector)), 0)
+}
+
+/// Wake when NO pod matches `selector` - the drained half of [`any_pods`],
+/// under the same literal-selector contract and root-guard pairing.
+#[must_use]
+pub fn no_pods(selector: &str) -> Resume {
+    e::eq(e::length(&e::list_pods(selector)), 0)
+}
+
 /// Wake when a field of an object stops being `n`.
 ///
 /// **PARK ON THE FIELD YOU MAINTAIN.** `spec.replicas` is the field a scaler
@@ -66,6 +88,84 @@ pub fn count_ne_field(selector: &str, workload: &ApiPath) -> Resume {
 #[must_use]
 pub fn field_ne(path: &ApiPath, field: &str, n: i64) -> Resume {
     e::ne(e::get(path, field), n)
+}
+
+/// Wake when a STRING or BOOLEAN field becomes `value` - the scalar sibling of
+/// [`field_ne`], for a phase, an annotation, `spec.unschedulable`.
+///
+/// ***FALSE RATHER THAN TRUE WHILE THE FIELD IS ABSENT***: an absent operand
+/// propagates as unknown and a park holds unless its condition is true, which
+/// is the direction an "until the drain flag appears" park wants.
+#[must_use]
+pub fn field_is(path: &ApiPath, field: &str, value: impl ScalarValue) -> Resume {
+    e::eq_scalar(&e::get(path, field), value)
+}
+
+/// The value an edge field held when the step read it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldValue<'a> {
+    /// A string edge - a name, a phase, an annotation.
+    Str(&'a str),
+    /// A boolean edge - a flag, `spec.unschedulable`.
+    Bool(bool),
+    /// A numeric edge - the shape Kubernetes omits at zero, which is why the
+    /// guard is `field_no_longer` rather than a bare comparison.
+    Int(i64),
+}
+
+/// Wake when a field STOPS being `value` - including by being DELETED.
+///
+/// ***THE `!exists` HALF IS THE WHOLE POINT AND A BARE `!=` IS A BUG HERE.***
+/// Removing the field makes it ABSENT; `absent != "x"` evaluates to UNKNOWN,
+/// not true, so a plain inequality never fires on the withdrawal it was
+/// written to catch, and the program waits out its backstop - correct, late,
+/// and looking subscribed the whole time. The host narrows to the field before
+/// evaluating, so a missing one is absent rather than unknown, which is what
+/// makes the `.exists` arm expressible at all.
+#[must_use]
+pub fn field_no_longer(path: &ApiPath, field: &str, value: FieldValue<'_>) -> Resume {
+    e::or(&[
+        e::not(&e::exists(&e::get(path, field))),
+        match value {
+            FieldValue::Str(s) => e::ne_scalar(&e::get(path, field), s),
+            FieldValue::Bool(b) => e::ne_scalar(&e::get(path, field), b),
+            FieldValue::Int(n) => e::ne(e::get(path, field), n),
+        },
+    ])
+}
+
+/// One edge of a multi-hop chain, as the step observed it while awake: the
+/// object whose edge field was read, the field that named the next object, and
+/// the value that field held.
+pub struct Hop<'a> {
+    /// The hop's SOURCE - e.g. the Pod, not the PVC it points at.
+    pub path: &'a ApiPath,
+    /// The edge field that named the next object.
+    pub field: &'a str,
+    /// What that field held - the name of the next hop in the chain.
+    pub value: FieldValue<'a>,
+}
+
+/// Wake when `target` holds AND every edge of the traced chain still points
+/// where the step observed it - the PINNED TRACE for a multi-hop chain
+/// (Pod -> PVC -> PV), authored entirely from what the step resolved while it
+/// was awake.
+///
+/// ***LAYER 1, DELIBERATELY.*** Every hop is an ordinary [`field_no_longer`]
+/// guard over a LITERAL path, so the host's static walk subscribes the step to
+/// every object in the chain and the host grows no symbol. And the guards are
+/// [`field_no_longer`], NOT [`field_is`], on purpose - that difference is
+/// liveness, not style: a bare `==` goes UNKNOWN when a hop's object is
+/// deleted and the conjunction never fires, so the park sleeps through the
+/// very edit that invalidates the trace. The `!exists` arm makes deletion WAKE
+/// the program, which re-traces on its next pass.
+pub fn pinned(hops: &[Hop<'_>], target: Resume) -> Resume {
+    let mut parts: Vec<Resume> = hops
+        .iter()
+        .map(|h| field_no_longer(h.path, h.field, h.value))
+        .collect();
+    parts.push(target);
+    e::and(&parts)
 }
 
 /// Wake at an ABSOLUTE deadline, in epoch milliseconds.
@@ -244,6 +344,87 @@ mod tests {
         assert_eq!(
             count_ne_field("app=api", &d).as_str(),
             format!(r#"ListPods("app=api").length != Get("{DEP}", "spec.replicas")"#)
+        );
+        assert_eq!(
+            field_is(&path::ns("default").pods("web"), "status.phase", "Running").as_str(),
+            r#"Get("/api/v1/namespaces/default/pods/web", "status.phase") == "Running""#
+        );
+        assert_eq!(
+            any_pods("app=frontend").as_str(),
+            r#"ListPods("app=frontend").length > 0"#
+        );
+        assert_eq!(
+            no_pods("app=frontend").as_str(),
+            r#"ListPods("app=frontend").length == 0"#
+        );
+    }
+
+    #[test]
+    fn field_no_longer_fires_on_the_withdrawal_a_bare_ne_misses() {
+        let pvc = path::ns("default").core("v1", "persistentvolumeclaims", "data-vol");
+        assert_eq!(
+            field_no_longer(&pvc, "spec.volumeName", FieldValue::Str("pv-1")).as_str(),
+            format!(
+                r#"(!Get("{pvc}", "spec.volumeName").exists) || (Get("{pvc}", "spec.volumeName") != "pv-1")"#
+            )
+        );
+    }
+
+    // ***THE GOLDEN IS THE TS SDK'S GOLDEN, BYTE FOR BYTE.*** The host parses
+    // one grammar and `rustsdk_test.go` runs this text through the real
+    // parser, so the two producers must not merely agree in shape but in text.
+    #[test]
+    fn pinned_emits_the_same_text_as_the_ts_sdk() {
+        let pod = path::ns("default").pods("app-1");
+        let pvc = path::ns("default").core("v1", "persistentvolumeclaims", "data-vol");
+        let pv = path::cluster_core("v1", "persistentvolumes", "pvc-84df12");
+        let claim = "spec.volumes[?name=data].persistentVolumeClaim.claimName";
+
+        let trace = pinned(
+            &[
+                Hop {
+                    path: &pod,
+                    field: claim,
+                    value: FieldValue::Str("data-vol"),
+                },
+                Hop {
+                    path: &pvc,
+                    field: "spec.volumeName",
+                    value: FieldValue::Str("pvc-84df12"),
+                },
+            ],
+            field_is(&pv, "status.phase", "Bound"),
+        );
+
+        assert_eq!(
+            trace.as_str(),
+            format!(
+                r#"((!Get("{pod}", "{claim}").exists) || (Get("{pod}", "{claim}") != "data-vol")) && ((!Get("{pvc}", "spec.volumeName").exists) || (Get("{pvc}", "spec.volumeName") != "pvc-84df12")) && (Get("{pv}", "status.phase") == "Bound")"#
+            )
+        );
+
+        // The liveness proof: every hop arm carries the `!exists` half, so a
+        // deleted hop wakes a re-trace instead of silencing the park.
+        let guards: Vec<&str> = trace.as_str().split(" && ").collect();
+        assert_eq!(guards.len(), 3);
+        for g in &guards[..2] {
+            assert!(g.contains(".exists"), "hop guard without the exists arm: {g}");
+            assert!(g.contains("||"), "hop guard without the deletion arm: {g}");
+        }
+    }
+
+    #[test]
+    fn the_set_park_root_guards_the_workload_that_supplied_the_selector() {
+        let dep = path::ns("default").deployments("frontend");
+        let composed = all_of(&[
+            field_no_longer(&dep, "metadata.generation", FieldValue::Int(5)),
+            any_pods("app=frontend"),
+        ]);
+        assert_eq!(
+            composed.as_str(),
+            format!(
+                r#"((!Get("{dep}", "metadata.generation").exists) || (Get("{dep}", "metadata.generation") != 5)) && (ListPods("app=frontend").length > 0)"#
+            )
         );
     }
 

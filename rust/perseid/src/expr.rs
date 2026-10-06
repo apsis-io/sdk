@@ -552,6 +552,48 @@ cmp_op! {
     ge => ">=",
 }
 
+/// The scalar side of a scalar comparison: a literal, rendered as one.
+///
+/// Mirrors the TS SDK's `ScalarLike`/`scalarText`: strings are JSON-quoted
+/// through [`lit`], booleans render bare. Numbers are deliberately absent - a
+/// numeric comparison is [`eq`]/[`ne`], whose `IntLike` keeps the host's
+/// numeric typing instead of widening every operand to `Value`.
+pub trait ScalarValue {
+    /// The operand's text as the host parses it - quoted for strings, bare for
+    /// booleans.
+    fn scalar_text(&self) -> String;
+}
+
+impl ScalarValue for &str {
+    fn scalar_text(&self) -> String {
+        lit(self)
+    }
+}
+
+impl ScalarValue for bool {
+    fn scalar_text(&self) -> String {
+        self.to_string()
+    }
+}
+
+macro_rules! scalar_cmp_op {
+    ($($(#[$m:meta])* $f:ident => $op:literal),+ $(,)?) => {$(
+        $(#[$m])*
+        #[must_use]
+        pub fn $f(a: &Expr<Value>, b: impl ScalarValue) -> Expr<Bool> {
+            Expr::new(format!("{} {} {}", a.text, $op, b.scalar_text()))
+        }
+    )+};
+}
+
+scalar_cmp_op! {
+    /// `a == "…"` / `a == bool` - the scalar sibling of [`eq`], for the fields
+    /// a number cannot express: a phase, an annotation, `spec.unschedulable`.
+    eq_scalar => "==",
+    /// `a != "…"` / `a != bool`.
+    ne_scalar => "!=",
+}
+
 /// Parenthesise an arithmetic operand.
 ///
 /// ***THE DEFECT THIS FIXES: `times(plus(a, b), c)` RENDERED `"a + b * c"`.***
