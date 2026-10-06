@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { expect, test } from 'bun:test'
-import { allOf, fieldIs, fieldNoLonger, path, pinned, quiesce } from './perseid.js'
+import { allOf, anyOf, backstop, fieldIs, fieldNoLonger, path, pinned, quiesce } from './perseid.js'
 import { readsOf, clusterReadsOf } from './resume.js'
 import { field, select } from './field.js'
 
@@ -56,6 +56,26 @@ test('a numeric hop renders through the numeric comparator, unquoted', () => {
   )
   expect(r).toContain('!= 10')
   expect(r).not.toContain('"10"')
+})
+
+test('a boolean hop renders through the scalar comparator, bare', () => {
+  const node = path.clusterCore('v1', 'nodes', 'n1')
+  const r = String(
+    pinned([{ path: node, field: 'spec.unschedulable', value: true }], fieldIs(PV, 'status.phase', 'Bound')),
+  )
+  expect(r).toContain('!= true')
+  expect(r).not.toContain('"true"')
+})
+
+// ⭐ THE GUARANTEED-WAKE IDIOM. anyOf folds backstop operands away (X || false
+// is X), so a pinned trace beside a backstop renders as the trace alone - and
+// the host still injects its own bound, because the time bound that guarantees
+// a wake lives in the anyOf, never inside the trace's conjunction.
+test('a pinned trace composes with a backstop in an anyOf', () => {
+  const r = String(anyOf(pinned([{ path: PVC, field: 'spec.volumeName', value: 'pvc-84df12' }], fieldIs(PV, 'status.phase', 'Bound')), backstop()))
+  expect(r).toContain('&&')
+  expect(r).not.toContain('false')
+  expect(r).toContain('status.phase')
 })
 
 test('zero hops is the bare target, still parenthesised by the conjunction', () => {

@@ -184,4 +184,25 @@ mod tests {
             "/apis/apps/v1/namespaces/kube-system/daemonsets/kube-proxy"
         );
     }
+
+    // ***THE CLUSTER BUILDERS ARE THE PV HOP OF A PINNED TRACE.*** No namespace
+    // segment - which is the whole difference from `resource`, and the reason
+    // they are free functions rather than `Namespaced` methods.
+    #[test]
+    fn builds_the_cluster_shapes() {
+        assert_eq!(
+            ns("default")
+                .core("v1", "persistentvolumeclaims", "data-vol")
+                .as_str(),
+            "/api/v1/namespaces/default/persistentvolumeclaims/data-vol"
+        );
+        assert_eq!(
+            cluster("storage.k8s.io", "v1", "storageclasses", "fast").as_str(),
+            "/apis/storage.k8s.io/v1/storageclasses/fast"
+        );
+        assert_eq!(
+            cluster_core("v1", "persistentvolumes", "pvc-84df12").as_str(),
+            "/api/v1/persistentvolumes/pvc-84df12"
+        );
+    }
 }

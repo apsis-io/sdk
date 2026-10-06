@@ -360,6 +360,48 @@ mod tests {
     }
 
     #[test]
+    fn scalar_and_field_no_longer_cover_every_arm() {
+        let pv = path::cluster_core("v1", "persistentvolumes", "pv-1");
+
+        // Boolean scalars render bare, not quoted - they are not strings.
+        assert_eq!(
+            field_is(&pv, "spec.unschedulable", true).as_str(),
+            format!(r#"Get("{pv}", "spec.unschedulable") == true"#)
+        );
+
+        // The numeric arm renders through the numeric comparator...
+        assert_eq!(
+            field_no_longer(&pv, "status.capacity.storage", FieldValue::Int(10)).as_str(),
+            format!(
+                r#"(!Get("{pv}", "status.capacity.storage").exists) || (Get("{pv}", "status.capacity.storage") != 10)"#
+            )
+        );
+
+        // ...and the boolean arm through the scalar one.
+        assert_eq!(
+            field_no_longer(&pv, "spec.unschedulable", FieldValue::Bool(true)).as_str(),
+            format!(
+                r#"(!Get("{pv}", "spec.unschedulable").exists) || (Get("{pv}", "spec.unschedulable") != true)"#
+            )
+        );
+    }
+
+    #[test]
+    fn pinned_numeric_hop_renders_unquoted() {
+        let pvc = path::ns("default").core("v1", "persistentvolumeclaims", "data-vol");
+        let t = pinned(
+            &[Hop {
+                path: &pvc,
+                field: "status.capacity.storage",
+                value: FieldValue::Int(10),
+            }],
+            object_gone(&path::cluster_core("v1", "persistentvolumes", "pv-1")),
+        );
+        assert!(t.as_str().contains("!= 10"), "{t}");
+        assert!(!t.as_str().contains("\"10\""), "{t}");
+    }
+
+    #[test]
     fn field_no_longer_fires_on_the_withdrawal_a_bare_ne_misses() {
         let pvc = path::ns("default").core("v1", "persistentvolumeclaims", "data-vol");
         assert_eq!(

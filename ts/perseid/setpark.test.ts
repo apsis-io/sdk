@@ -63,3 +63,16 @@ test('a set park root-guards the workload that supplied the selector', () => {
     `((!Get("/apis/apps/v1/namespaces/default/deployments/frontend", "metadata.generation").exists) || (Get("/apis/apps/v1/namespaces/default/deployments/frontend", "metadata.generation") != 5)) && (ListPods("app=frontend").length > 0)`,
   )
 })
+
+// ⛔ THE LITERAL-BY-CONSTRUCTION GUARANTEE, PINNED AT THE TYPE LEVEL. The
+// goldens pin the text; this pins the REFUSAL. A selector that arrives as a
+// mere `string` - computed, passed through, read off an object - cannot reach
+// ListPods, because a selector the static walk cannot see is a park that polls
+// while looking subscribed (§6; the shape §10 declined).
+test('a selector that is not a literal is refused at the type level', () => {
+  const computed: string = `app=${'frontend'}`
+  expect(String(anyPods('app=frontend'))).toContain('app=frontend')
+  void computed
+  // @ts-expect-error - a plain `string` is not a LabelSelector, on purpose
+  anyPods(computed)
+})
