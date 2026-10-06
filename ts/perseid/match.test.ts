@@ -107,13 +107,12 @@ export function runtimeGuards(): void {
     const acts: string[] = []
     const outcome = runStep(step, {
       get: () => o,
-      ensure: ({ value }) => {
-        // ***NO NARROWING NEEDED SINCE `EnsureValue` WENT BARE (2026-09-05).***
-        // It was `{text}|{num}|{flag}` and reading `.num` off the union
-        // type-errored - which `bun test` never noticed, because it does not
-        // typecheck. Now it is `string | number | boolean` and this is just a
-        // value.
-        acts.push(`ensure=${String(value)}`)
+      ensure: (args) => {
+        // `EnsureValue` went bare (2026-09-05) - it is `string | number |
+        // boolean` and this is just a value. The `in`-narrow is for the BODY
+        // form that joined the union the same day: `EnsureBodyArgs` carries
+        // `body`, not `value`, and this step only ever yields the scalar form.
+        if ('value' in args) acts.push(`ensure=${String(args.value)}`)
       },
     })
 
@@ -267,13 +266,9 @@ export function extensionRuntimeGuards(): void {
     const acts: string[] = []
     const outcome = runStep(guardedStep, {
       get: () => o,
-      ensure: ({ value }) => {
-        // ***NO NARROWING NEEDED SINCE `EnsureValue` WENT BARE (2026-09-05).***
-        // It was `{text}|{num}|{flag}` and reading `.num` off the union
-        // type-errored - which `bun test` never noticed, because it does not
-        // typecheck. Now it is `string | number | boolean` and this is just a
-        // value.
-        acts.push(`ensure=${String(value)}`)
+      ensure: (args) => {
+        // narrowed for the body form - see the note in the other `drive`
+        if ('value' in args) acts.push(`ensure=${String(args.value)}`)
       },
     })
 

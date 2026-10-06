@@ -57,6 +57,7 @@ import {
   type Canonical,
   type Wit,
   type EnsureArgs,
+  type EnsureBodyArgs,
   cleanupDone,
   retry,
   defineEffect,
@@ -154,7 +155,11 @@ export type _HandlerGetArgIsTheEffectsArg = Assert<
   Same<GetArg, ApiPath, 'Handler<E> get-arg is not the effect arg type (ApiPath)'>
 >
 export type _HandlerEnsureArgIsTheEffectsArg = Assert<
-  Same<EnsureArg, EnsureArgs, 'Handler<E> ensure-arg is not EnsureArgs'>
+  Same<
+    EnsureArg,
+    EnsureArgs | EnsureBodyArgs,
+    'Handler<E> ensure-arg is not EnsureArgs | EnsureBodyArgs'
+  >
 >
 
 // ⭐ The same through `runStep`'s PARAMETER, which is where `NoInfer` sits — and
@@ -373,8 +378,10 @@ const handlersAnnotated: Handler<YieldOf<ReturnType<typeof step>>> = {
 
     return known(p.length)
   },
-  ensure: ({ path, value }) => {
-    void `${path}${String(value)}`
+  ensure: (args) => {
+    // The body form joined the union (2026-09-05), so the scalar form is
+    // narrowed with `in` - `EnsureBodyArgs` carries `body`, not `value`.
+    if ('value' in args) void `${args.path}${String(args.value)}`
   },
 }
 
@@ -620,8 +627,9 @@ export function runtimeGuards(): void {
     const acts: string[] = []
     const outcome = runStep(step, {
       get: () => o,
-      ensure: ({ path, value }) => {
-        acts.push(`ensure(${path},${String(value)})`)
+      ensure: (args) => {
+        // narrowed for the body form - `EnsureBodyArgs` has no `value`
+        if ('value' in args) acts.push(`ensure(${args.path},${String(args.value)})`)
       },
     })
 
