@@ -30,8 +30,8 @@
 // unreadable smaps, a settle check that could not tell drained from
 // never-started). Collapsing the two into `undefined` reintroduces that whole
 // family, so the type will not let you.
-import * as E from './expr'
-import { ResumeNode } from './resume'
+import * as E from './expr.js'
+import { ResumeNode } from './resume.js'
 
 export { ResumeNode }
 

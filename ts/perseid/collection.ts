@@ -1,5 +1,5 @@
 // Copyright (C) 2025-2026 Malformed C. All rights reserved.
-// SPDX-License-Identifier: BUSL-1.1
+// SPDX-License-Identifier: Apache-2.0
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TRAVERSAL OVER AN ENUMERATED COLLECTION - THE SET-VALUED HALF OF THE OBJECT

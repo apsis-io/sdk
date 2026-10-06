@@ -8,6 +8,7 @@ languages. Extracted from the periapsis monorepo on 2026-09-02 with history inta
 | --- | --- | --- |
 | [`go/magicseam`](go/magicseam) | `github.com/apsis-io/sdk/go/magicseam` | Magic-seam (ADR-0028) provider/consumer for native Go: MSK1 and the mTLS QUIC transport (ADR-0043). |
 | [`ts/periapsis`](ts/periapsis) | `@apsis-io/periapsis-sdk` | The `periapsis:*` WASI interfaces (identity, config, log, metrics, status, checkpoint, exec, magic-seam) for **WASM components** built with dwarf. |
+| [`ts/perseid`](ts/perseid) | `@apsis-io/perseid` | The Perseid vocabulary for TypeScript guests: the ADR-0075 step contract, aperture expression language, resume conditions, invariants, backstop, wake. Apache-2.0, like the crate; importing it obliges no `periapsis:*` interface. |
 | [`ts/magicseam`](ts/magicseam) | `@apsis-io/magicseam` | Magic-seam for **non-WASM** TypeScript (Node/Bun). Not for use inside a component — that's `ts/periapsis/magic.ts`. |
 | [`rust/seamwire`](rust/seamwire) | `apsis-seamwire` | The wire vocabulary: opcodes, capability tokens, negotiation. std-only, deliberately. |
 | [`rust/perseid`](rust/perseid) | `apsis-perseid` | The Perseid vocabulary for Rust guests: apiserver paths, the aperture expression language, resume conditions. std-only. |

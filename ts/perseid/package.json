@@ -1,20 +1,21 @@
 {
-  "name": "@apsis-io/periapsis-sdk",
-  "version": "0.3.0",
-  "description": "TypeScript SDK for Periapsis's periapsis:* WASI component-model interfaces (identity, config, log, metrics, status, checkpoint, exec, magic-seam RPC) - for WASM components built with dwarf (WASI 0.3/Preview 3, QuickJS) and run under the trail runtime.",
+  "name": "@apsis-io/perseid",
+  "version": "0.2.0",
+  "description": "The Perseid vocabulary for TypeScript guests: the ADR-0075 reconciliation step contract, the aperture expression language, resume conditions, invariants, backstop and wake. The ts half of the apsis-perseid crate's vocabulary - importing it obliges no periapsis:* interface.",
   "keywords": [
+    "perseid",
     "periapsis",
-    "wasi",
-    "component-model",
+    "kubernetes",
     "wasm",
-    "dwarf",
-    "preview3"
+    "expression",
+    "operator",
+    "component-model"
   ],
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/apsis-io/sdk.git",
-    "directory": "ts/periapsis"
+    "directory": "ts/perseid"
   },
   "type": "module",
   "scripts": {
@@ -23,15 +24,10 @@
   "files": [
     "*.ts",
     "!*.test.ts",
-    "types",
-    "fetch-provider",
-    "!fetch-provider/*.wasm",
     "README.md",
-    "CHEATSHEET.md",
     "LICENSE"
   ],
   "exports": {
-    ".": "./index.ts",
     "./*.js": "./*.ts",
     "./*": "./*.ts"
   },
