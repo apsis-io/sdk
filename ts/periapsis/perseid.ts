@@ -31,7 +31,7 @@
 // never-started). Collapsing the two into `undefined` reintroduces that whole
 // family, so the type will not let you.
 import * as E from './expr'
-import { ResumeNode } from './resume.js'
+import { ResumeNode } from './resume'
 
 export { ResumeNode }
 
@@ -1936,13 +1936,25 @@ export type EnsureArgs = {
 }
 
 /**
- * Arguments to `ensureAll`: several fields of ONE object, applied as ONE write.
- * Same field shape as `create`, because it is the same thing - a dotted path and
- * a value - and the host lowers both through the same code.
+ * The several-fields form of `ensure`: ONE object, ONE apiserver write.
+ *
+ * ***WHY THIS FORM EXISTS, WHICH IS WHY IT MUST NOT SPLIT INTO TWO CALLS.***
+ * A relay writing `data.v` and a `data.t` stamp as two separate `ensure`s had
+ * 3 of 6 convergences observed TORN - new `v` beside old `t`, durably, until
+ * the next pass (overhead-bench, 2026-09-01). The body is one write, so a
+ * reader can never observe the new value of one field beside the old value of
+ * another. Keys are dotted field paths; the map (rather than a field/value
+ * array) is JSON-native, decodes straight onto the host's field set, and -
+ * like every body here - renders with SORTED keys, because the expression is
+ * the ledger identity and two orderings of one write would be two obligations.
+ *
+ * ⚠ ***`spec.replicas` ON AN apps KIND IS REFUSED BY THE HOST, WITH THE
+ * REASON.*** That field is written through the `/scale` subresource for least
+ * privilege, and no apiserver write is atomic across a subresource boundary.
  */
-export type EnsureAllArgs = {
-  readonly path: ApiPath
-  readonly fields: readonly CreateField[]
+export type EnsureBodyArgs = {
+  readonly path: ApiPath | ClusterPath
+  readonly body: { readonly [field: string]: EnsureValue }
 }
 
 export const reconcile = {
@@ -2022,24 +2034,27 @@ export const reconcile = {
    * ConfigMap value that happens to read like an expression would be evaluated
    * instead of stored.
    */
-  ensure: () => defineEffect<EnsureArgs, void>()(WIT_ENSURE, 'ensure'),
-
   /**
-   * `ensureAll`: SEVERAL fields of one object in ONE apiserver write, so a reader
-   * can never observe the new value of one field beside the old value of another.
+   * `ensure` - THE ONE WRITE OP, in both shapes (engi, 2026-10-06: "remove
+   * ensure-all, combine into ensure"):
    *
-   * ***`ensure` IS ONE FIELD PER OBLIGATION, AND OBLIGATIONS APPLY ONE AT A
-   * TIME.*** A relay writing `data.v` and a `data.t` stamp as two `ensure`s had
-   * 3 of 6 convergences observed TORN - new `v` beside old `t`, durably, until the
-   * next pass (overhead-bench, 2026-09-01). Same grant as `ensure`
-   * (`radiant:reconcile/ensure@0.1.0`), same WIT interface, a second function on it.
+   *	ensure(path, field, value)     one field
+   *	ensure({ path, body })         several fields, ONE write - see
+   *	                               EnsureBodyArgs for the torn-write
+   *	                               incident that makes the second form
+   *	                               load-bearing rather than convenient
    *
-   * ⚠ ***`spec.replicas` ON AN apps KIND IS REFUSED BY THE HOST, WITH THE
-   * REASON.*** That field is written through the `/scale` subresource for least
-   * privilege, and no apiserver write is atomic across a subresource boundary.
-   * `ensure` for the count, `ensureAll` for the rest.
+   * One WIT function, one op id, one host contract. The old `ensure-all`
+   * spelling is GONE - a step still using it fails to compile here rather
+   * than silently degrading to two writes.
+   *
+   * ***A `text` VALUE IS NEVER EVALUATED.*** `text: 'Now()'` writes those five
+   * characters. That is the same decision `expr.ts` records for `ensure`'s bare
+   * literal: deciding by the string's SHAPE was tried and thrown away, because a
+   * ConfigMap value that happens to read like an expression would be evaluated
+   * instead of stored.
    */
-  ensureAll: () => defineEffect<EnsureAllArgs, void>()(WIT_ENSURE, 'ensure-all'),
+  ensure: () => defineEffect<EnsureArgs | EnsureBodyArgs, void>()(WIT_ENSURE, 'ensure'),
 
   /**
    * Remove an object.
