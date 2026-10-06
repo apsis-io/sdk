@@ -8,6 +8,7 @@ import {
   DEFAULT_BACKSTOP_MS,
   declareBackstop,
 } from './backstop'
+import { BACKSTOP_POLL } from './perseid'
 
 // ***THE PAYLOAD IS THE ONE trail PARSES, SO IT IS ASSERTED AS BYTES.***
 // `decode_backstop` accepts a bare number or `{"ms": n}`; this SDK emits the
@@ -93,4 +94,13 @@ test('the bytes are the ones trail actually read', () => {
     ...new TextEncoder().encode('{"ms":90000}'),
   ])
   expect(attachBackstop(new Uint8Array(), declareBackstop.seconds(90))).toEqual(want)
+})
+
+// ***THE ENGINE READS THIS OUT OF THE SOURCE (BackstopPollFromSDK, via the
+// ts-sdk snapshot embedded in the Go binary), SO THE PIN IS AGAINST ACCIDENTAL
+// DRIFT, NOT AGAINST A PARSER.*** A rename or a unit change here silently
+// re-tunes the fleet's backstop cadence at the next snapshot refresh; a
+// change should be a decision, never a slip.
+test('BACKSTOP_POLL stays the value the engine snapshot expects', () => {
+  expect(BACKSTOP_POLL).toBe(30_000)
 })

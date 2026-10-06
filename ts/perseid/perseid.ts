@@ -1200,6 +1200,29 @@ export const changed = (ref: string): Resume => {
  * unless the wake is genuinely time-only.
  * ═══════════════════════════════════════════════════════════════════════════
  */
+/**
+ * The backstop POLL interval, in milliseconds - and ***NOT A LANGUAGE SYMBOL:
+ * THE GO ENGINE READS THIS VALUE.*** `BackstopPollFromSDK` (kinetics) derives
+ * the engine's backstop tick interval from THIS constant via the ts-sdk
+ * snapshot embedded in the binary: present, the TS value wins; absent or
+ * malformed, the Go default (30s) applies. Changing it re-tunes the fleet's
+ * backstop cadence at the next snapshot refresh, which is why it lives in the
+ * SDK source rather than a config file (engi, 2026-10-07).
+ *
+ * ⚠ ***DO NOT CONFUSE THIS WITH A STEP'S POLL CADENCE.*** A program that wants
+ * periodic polling writes `deadlineIn(own_number, nowEpochMillis)` - a
+ * self-chosen deadline is program policy and stays in the program. THIS
+ * constant is the engine's tick: one value, fleet-wide, read by the host that
+ * also injects the `backstop()` bound. The constant was first proposed as
+ * polling sugar and declined for exactly that reason; what engi approved is
+ * the engine-config reading, not the dead one.
+ *
+ * Deliberately outside the aperture symbol table: nothing renders it into an
+ * expression, LANGUAGE_VERSION is untouched, and the parity gates pin symbols,
+ * not constants.
+ */
+export const BACKSTOP_POLL = 30_000
+
 export const backstop = (): Resume => untilBackstop
 
 /**
