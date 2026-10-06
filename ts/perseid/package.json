@@ -1,6 +1,6 @@
 {
   "name": "@apsis-io/perseid",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "The Perseid vocabulary for TypeScript guests: the ADR-0075 reconciliation step contract, the aperture expression language, resume conditions, invariants, backstop and wake. The ts half of the apsis-perseid crate's vocabulary - importing it obliges no periapsis:* interface.",
   "keywords": [
     "perseid",
