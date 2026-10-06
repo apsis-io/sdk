@@ -37,7 +37,7 @@ import {
   type Step,
 } from './perseid'
 
-const WIT = 'radiant:reconcile/observe@0.1.0' as const
+const WIT = 'perseid:reconcile/observe@0.1.0' as const
 const read = defineEffect<string, string>()(WIT, 'get')
 
 type Effs = ReturnType<typeof read> extends Step<infer E, unknown> ? E : never

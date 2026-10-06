@@ -31,7 +31,7 @@ import {
 // where.test.ts. Every step below is annotated so both checkers see it.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const read = defineEffect<string, Obs<string>>()('radiant:reconcile/observe@0.1.0', 'get')
+const read = defineEffect<string, Obs<string>>()('perseid:reconcile/observe@0.1.0', 'get')
 type Effs = ReturnType<typeof read> extends Step<infer E, unknown> ? E : never
 
 const TARGET = path.ns('default').deployments('demo')

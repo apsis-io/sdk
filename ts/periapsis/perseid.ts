@@ -370,7 +370,7 @@ export const path = {
      * reader wants off this object is `status.carry` — what that program
      * decided — and `carriedBy` is the parser for it.
      *
-     * Reading it needs `radiant:reconcile/observe-perseids@0.1.0`. That is a
+     * Reading it needs `perseid:reconcile/observe-perseids@0.1.0`. That is a
      * SEPARATE grant from `observe` on purpose: "may see another program's
      * conclusions" and "may see a Deployment's replica count" are different
      * sentences, and a manifest should be able to say one without the other.
@@ -1014,7 +1014,7 @@ export const after = (ms: number): Resume => {
       // in the one message that only ever fires at somebody already stuck. It is
       // a WIT import, deliberately: the clock is a capability, not a syscall.
       "`now` is imported from the world, not from this SDK: " +
-      "import { now } from 'radiant:reconcile/observe@0.1.0'. " +
+      "import { now } from 'perseid:reconcile/observe@0.1.0'. " +
       'A bare delay needed a parkedAt travelling beside the expression, and that side-car is ' +
       'exactly what the expression form removes.'
   )
@@ -1521,7 +1521,7 @@ export async function runFinalizeAsync<E extends AnyEffect>(
 }
 
 // ---------------------------------------------------------------------------
-// Conditions — the payload of `radiant:reconcile/status@0.1.0`.
+// Conditions — the payload of `perseid:reconcile/status@0.1.0`.
 //
 // engi decided the vocabulary 2026-08-25: copy Kubernetes. This mirrors
 // `metav1.Condition` minus the two fields a guest cannot supply — the host owns
@@ -1633,7 +1633,7 @@ export const unsure = (reason: string, message: string): Condition => ({
 // component's world. A misspelled interface derives a world naming an import no
 // host supplies, and the component then fails to INSTANTIATE — the failure is at
 // link time, far from the string that caused it. This file already records the
-// same class of defect: main.ts named `radiant:reconcile/emit@0.1.0` for four
+// same class of defect: main.ts named `perseid:reconcile/emit@0.1.0` for four
 // days after that interface was deleted, and it built and passed its own tests
 // throughout.
 /**
@@ -1645,15 +1645,15 @@ export const unsure = (reason: string, message: string): Condition => ({
  * world importing the cluster read also import the namespaced one, so a program
  * had to be granted a read it never calls.
  */
-export const WIT_TYPES = 'radiant:reconcile/types@0.1.0'
-export const WIT_OBSERVE = 'radiant:reconcile/observe@0.1.0'
-export const WIT_OBSERVE_CLUSTER = 'radiant:reconcile/observe-cluster@0.1.0'
+export const WIT_TYPES = 'perseid:reconcile/types@0.1.0'
+export const WIT_OBSERVE = 'perseid:reconcile/observe@0.1.0'
+export const WIT_OBSERVE_CLUSTER = 'perseid:reconcile/observe-cluster@0.1.0'
 // ***`WIT_WORKLOADS` WAS REMOVED 2026-09-05 WITH THE INTERFACE.*** engi:
 // "remove workloads". `scale(path, n)` rendered the same `Ensure(path,
 // "spec.replicas", n)` that `ensure` renders, and the interface had already
 // stopped conferring anything on 2026-09-01 - so the id named a grant no host
 // would honour. Use WIT_ENSURE.
-export const WIT_STATUS = 'radiant:reconcile/status@0.1.0'
+export const WIT_STATUS = 'perseid:reconcile/status@0.1.0'
 // ***THE INTERFACE IS THE GRANT, WHICH IS WHY THESE ARE SEPARATE IDS.***
 // WIT_ENSURE writes any field `spec.writes` declares and WIT_DELETE removes the
 // object outright, so a program permitted to adjust a Deployment must not
@@ -1663,14 +1663,14 @@ export const WIT_STATUS = 'radiant:reconcile/status@0.1.0'
 // single field spec.replicas" - and that narrowing was removed on 2026-09-01,
 // four days before the interface itself. Nothing narrows an Ensure by field
 // today; `scopedEffectFields` is an empty mechanism awaiting a user.
-export const WIT_ENSURE = 'radiant:reconcile/ensure@0.1.0'
-export const WIT_DELETE = 'radiant:reconcile/delete@0.1.0'
-export const WIT_CREATE = 'radiant:reconcile/create@0.1.0'
+export const WIT_ENSURE = 'perseid:reconcile/ensure@0.1.0'
+export const WIT_DELETE = 'perseid:reconcile/delete@0.1.0'
+export const WIT_CREATE = 'perseid:reconcile/create@0.1.0'
 // A program's OWN memory, read back. The write half is not an interface at all -
 // it rides on the outcome (see `remember`/`forget`) - and that asymmetry is the
 // design: a call could change what a program remembers and then fail, leaving it
 // holding a value no pass ever concluded.
-export const WIT_CARRY = 'radiant:reconcile/carry@0.1.0'
+export const WIT_CARRY = 'perseid:reconcile/carry@0.1.0'
 
 // Which operands of this program's OWN resume held at the wake that started
 // this pass - the host half of keyed dispatch, so a step can do the work for the
@@ -1692,7 +1692,7 @@ export const WIT_CARRY = 'radiant:reconcile/carry@0.1.0'
 // width, which is correct and still fragile: ***the host evaluates the PREVIOUS
 // pass's park, so an index is resolved against one expression and minted against
 // another.*** Text survives that; a position cannot.
-export const WIT_WOKE = 'radiant:reconcile/woke@0.1.0'
+export const WIT_WOKE = 'perseid:reconcile/woke@0.1.0'
 
 /** The interfaces this SDK knows. Autocompletion comes from this union. */
 export type KnownWit =
@@ -1712,7 +1712,7 @@ export type KnownWit =
  * ***THE ID IS TYPED, NOT MERELY OPEN*** (engi, 2026-08-29: "can you type wit
  * string, or make a builder"). This is the whole reason it is a template literal
  * type and not `(string & {})`: that idiom keeps the set open and validates
- * NOTHING, so `'observe'`, `'radiant:reconcile/observe'` (no version) and
+ * NOTHING, so `'observe'`, `'perseid:reconcile/observe'` (no version) and
  * `'periapsis/reconcile:observe@0.1.0'` (separators swapped) are all accepted.
  *
  * ***AND A MALFORMED ID IS INVISIBLE UNTIL LINK TIME.*** It is data: it feeds
@@ -1720,7 +1720,7 @@ export type KnownWit =
  * A misspelled interface derives a world naming an import no host supplies, and
  * the component then fails to INSTANTIATE — far from the string that caused it,
  * with a message about an unsatisfied import rather than a typo. This tree has
- * already paid for that once: main.ts named `radiant:reconcile/emit@0.1.0` for
+ * already paid for that once: main.ts named `perseid:reconcile/emit@0.1.0` for
  * four days after that interface was deleted, and it built and passed its own
  * tests throughout.
  *
@@ -1803,8 +1803,8 @@ export type Step<E extends AnyEffect, A = Outcome> = Generator<E, A, any>
  * Define an effect wrapper. Curried so the RESULT type is explicit and the
  * argument type is inferred:
  *
- *     const observe = defineEffect<string, Obs<number>>()('radiant:reconcile/observe@0.1.0', 'get')
- *     const scale   = defineEffect<{path: string, n: number}, void>()('radiant:reconcile/workloads@0.1.0', 'scale')
+ *     const observe = defineEffect<string, Obs<number>>()('perseid:reconcile/observe@0.1.0', 'get')
+ *     const scale   = defineEffect<{path: string, n: number}, void>()('perseid:reconcile/workloads@0.1.0', 'scale')
  *
  * `scale` rather than a generic `emit`: actions are TYPED WIT imports as of
  * 2026-08-21, so the effect names the function it calls. The old form passed an
@@ -1849,7 +1849,7 @@ export function defineEffect<A, R>() {
 // against its own handler and marshals to something radiant cannot read.
 
 /**
- * The `radiant:reconcile` contract as ready-made effects.
+ * The `perseid:reconcile` contract as ready-made effects.
  *
  *     const observe = reconcile.observe<number>()
  *     const have    = yield* observe(deployment)   // Obs<number>, checked
@@ -2124,7 +2124,7 @@ export const reconcile = {
    * ⚠ ***TAKES NO ARGUMENT BECAUSE THERE IS NOTHING TO NAME.*** A program can
    * only read ITS OWN memory. Reading what a DIFFERENT program concluded is a
    * cluster read of that Perseid's object — `observe` plus `carriedBy`, gated by
-   * `radiant:reconcile/observe-perseids@0.1.0` — and keeping the two apart is
+   * `perseid:reconcile/observe-perseids@0.1.0` — and keeping the two apart is
    * what lets a grant say "may see peers" without saying "may see this one".
    *
    * ⛔ ***THE OP IS `'carry'` AND THE WIT FUNCTION IS `get`. THAT DIVERGENCE IS

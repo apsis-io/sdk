@@ -546,7 +546,7 @@ export const and = (...bs: Expr<'bool'>[]): Expr<'bool'> => mk('and', bs, bs.map
  * field-scoping would have made two programs writing one object stop looking
  * like a conflict.
  *
- * What bounds this instead is its OWN capability (`radiant:reconcile/ensure`,
+ * What bounds this instead is its OWN capability (`perseid:reconcile/ensure`,
  * so no existing scaler silently gains it), the grant's namespace, and the KIND:
  * configmaps, secrets, deployments, statefulsets, daemonsets, replicasets.
  *
@@ -1019,7 +1019,7 @@ export const ensureAll = <K extends string>(o: {
  * toward a declared state and can be re-declared if it lands wrong; a delete
  * cannot be undone by re-running the step.
  *
- * ***ITS OWN INTERFACE (`radiant:reconcile/delete`), NOT `ensure`'s.***
+ * ***ITS OWN INTERFACE (`perseid:reconcile/delete`), NOT `ensure`'s.***
  * Authority is conferred by IMPORTING an interface, so folding it in would grant
  * it to every program already granted Ensure - and `spec.writes` bounds WHICH
  * object either verb may touch while saying nothing about which VERB, so a

@@ -282,9 +282,9 @@ export type _WitHasNotCollapsedToString = Assert<
 export const _malformedWitIdsAreRejected = () => {
   const d = defineEffect<string, string>()
   // @ts-expect-error no @version - derives a world naming an import no host supplies
-  d('radiant:reconcile/observe', 'get')
+  d('perseid:reconcile/observe', 'get')
   // @ts-expect-error no /interface segment
-  d('radiant:reconcile@0.1.0', 'get')
+  d('perseid:reconcile@0.1.0', 'get')
   // @ts-expect-error separators swapped
   d('periapsis/reconcile:observe@0.1.0', 'get')
   // @ts-expect-error a bare word
