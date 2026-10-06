@@ -34,12 +34,12 @@
  * the one mechanism that works identically for every language, since
  * componentize-js has no way to emit one.
  *
- *     radiant:backstop  ->  trail --inspect  ->  ComponentManifest
+ *     perseid:backstop  ->  trail --inspect  ->  ComponentManifest
  *       status.backstop ->  admission, and the park's actual bound
  */
 
 /** The wasm custom section carrying the bound. A NAME, so a `const`. */
-export const BACKSTOP_SECTION = 'radiant:backstop'
+export const BACKSTOP_SECTION = 'perseid:backstop'
 
 /**
  * The host's bound when a program declares none.

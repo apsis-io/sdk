@@ -26,7 +26,7 @@
 //! # How it reaches the host
 //!
 //! ```text
-//! radiant:backstop  ->  trail --inspect  ->  ComponentManifest status.backstop
+//! perseid:backstop  ->  trail --inspect  ->  ComponentManifest status.backstop
 //!                   ->  admission, and the park's actual bound
 //! ```
 //!
@@ -45,7 +45,7 @@
 //! declared no bound.
 
 /// The wasm custom section carrying the bound. **A NAME, so a `const`.**
-pub const BACKSTOP_SECTION: &str = "radiant:backstop";
+pub const BACKSTOP_SECTION: &str = "perseid:backstop";
 
 /// The host's bound when a program declares none.
 ///
@@ -246,6 +246,11 @@ mod tests {
     /// section bytes from that file, and the Rust SDK reproduces them EXACTLY -
     /// which is what makes two producers for one consumer safe.
     ///
+    /// Renamed 2026-10-06: `radiant:backstop` -> `perseid:backstop`, extending
+    /// the capability-vocabulary rename to the last `radiant:` marker. Both
+    /// spellings are 16 bytes, so the framing transcript survives the swap with
+    /// only the name bytes re-spelled.
+    ///
     /// If this fails, the two SDKs have drifted and one of them is emitting a
     /// section trail will read as absent - silently, in the reassuring
     /// direction, since a component with a malformed trailing section still
@@ -254,7 +259,7 @@ mod tests {
     fn the_bytes_are_the_ones_trail_actually_read() {
         let want: &[u8] = &[
             0x00, 0x1d, 0x10, // custom-section id, size 29, name length 16
-            b'r', b'a', b'd', b'i', b'a', b'n', b't', b':', //
+            b'p', b'e', b'r', b's', b'e', b'i', b'd', b':', //
             b'b', b'a', b'c', b'k', b's', b't', b'o', b'p', //
             b'{', b'"', b'm', b's', b'"', b':', b'9', b'0', b'0', b'0', b'0', b'}',
         ];

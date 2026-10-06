@@ -44,7 +44,7 @@
 //! }
 //! ```
 //!
-//! A step must ALSO declare a `radiant:backstop` ([`crate::backstop`]), or
+//! A step must ALSO declare a `perseid:backstop` ([`crate::backstop`]), or
 //! nothing will ever signal it: the host signals a step only when it outlives
 //! its own declared bound.
 

@@ -89,7 +89,7 @@ test('the default is the host bound, and is declarable', () => {
 test('the bytes are the ones trail actually read', () => {
   const want = new Uint8Array([
     0x00, 0x1d, 0x10, // custom-section id, size 29, name length 16
-    ...new TextEncoder().encode('radiant:backstop'),
+    ...new TextEncoder().encode('perseid:backstop'),
     ...new TextEncoder().encode('{"ms":90000}'),
   ])
   expect(attachBackstop(new Uint8Array(), declareBackstop.seconds(90))).toEqual(want)

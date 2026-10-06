@@ -38,7 +38,7 @@
  *     }
  *     export const signal = wake.handler(() => 'terminating')
  *
- * The step must ALSO declare a `radiant:backstop`, or nothing will ever signal
+ * The step must ALSO declare a `perseid:backstop`, or nothing will ever signal
  * it - the host signals a step only when it outlives its own declared bound. See
  * `backstop.ts`.
  */
