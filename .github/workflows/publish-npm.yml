@@ -20,6 +20,7 @@ on:
     # registries version independently; a bare v* would claim otherwise.
     tags:
       - 'periapsis-sdk-v*'
+      - 'perseid-v*'
       - 'magicseam-v*'
   workflow_dispatch:
     inputs:
@@ -29,6 +30,7 @@ on:
         type: choice
         options:
           - ts/periapsis
+          - ts/perseid
           - ts/magicseam
 
 permissions:
@@ -83,6 +85,7 @@ jobs:
             push)
               case "${GITHUB_REF_NAME}" in
                 periapsis-sdk-v*) dir=ts/periapsis ;;
+                perseid-v*)       dir=ts/perseid ;;
                 magicseam-v*)     dir=ts/magicseam ;;
                 *) echo "::error::tag ${GITHUB_REF_NAME} maps to no package"; exit 1 ;;
               esac ;;
