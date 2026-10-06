@@ -680,6 +680,45 @@ export const countNe = (selector: LabelSelector, n: number): Resume =>
   leaf(E.ne(E.length(E.listPods(selector)), n))
 
 /**
+ * Wake when AT LEAST ONE pod matches `selector`.
+ *
+ * ***THE SELECTOR IS A LITERAL BY TYPE, AND THAT IS THE §6 CONTRACT.*** The
+ * static walk extracts subjects from literals, and `PodsOf(workload)` was
+ * declined (§10) precisely because a selector hidden behind an object cannot
+ * be walked - such a park "would poll while looking subscribed".
+ * `LabelSelector`'s template-literal shape refuses anything that is not a
+ * `k=v` string written at the call site, so a park here is indexable by
+ * construction rather than by review. (Host-side `ListPods` subscribes as one
+ * subject carrying the selector literal, so this costs one watch however many
+ * objects match.)
+ *
+ * ⛔ COUNT FORMS ONLY. "Every matching pod has field == X" / "some does not"
+ * over a STRING field needs a quantifier aperture does not have - `min`/`max`
+ * are numeric (see `anyFieldNe` for what they do cover). Existence, absence
+ * and count comparisons are the expressible whole; do not reach for more
+ * without a LANGUAGE_VERSION bump coordinated with the host's fingerprint.
+ *
+ * ⚠ ***PAIR THIS WITH A ROOT GUARD WHEN THE SELECTOR CAME FROM A WORKLOAD.***
+ * The pods are watched; the WORKLOAD'S selector is not, so an edit that
+ * changes who matches is invisible without one:
+ *
+ *	allOf(fieldNoLonger(dep, 'metadata.generation', n), anyPods(sel))
+ *
+ * `metadata.generation`, NOT `spec.selector` - the selector is a map and a
+ * scalar comparison over it evaluates UNKNOWN, while the generation is a
+ * number, always present, and increments on exactly the edit that matters.
+ */
+export const anyPods = (selector: LabelSelector): Resume =>
+  leaf(E.gt(E.length(E.listPods(selector)), 0))
+
+/**
+ * Wake when NO pod matches `selector` - the drained half of `anyPods`, under
+ * the same literal-selector contract, count-only note and root-guard pairing.
+ */
+export const noPods = (selector: LabelSelector): Resume =>
+  leaf(E.eq(E.length(E.listPods(selector)), 0))
+
+/**
  * Wake when the pods matching a SELECTOR stop numbering what the WORKLOAD asks
  * for.
  *
@@ -805,6 +844,55 @@ export const fieldNoLonger = (
         : E.neScalar(E.get(path, field), value),
     ),
   ])
+
+/**
+ * One edge of a multi-hop chain, as the step OBSERVED it during its active
+ * pass: the object whose edge field was read, the field that named the next
+ * object, and the value that field held.
+ */
+export interface Hop {
+  /** The hop's SOURCE - e.g. the Pod, not the PVC it points at. */
+  readonly path: E.ReadPathLike
+  /** The edge field (`spec.volumeName`, `persistentVolumeClaim.claimName`). */
+  readonly field: string
+  /** What that field held - the name of the next hop in the chain. */
+  readonly value: string | boolean | number
+}
+
+/**
+ * Wake when `target` holds AND every edge the trace crossed still points where
+ * the step observed it pointing - the PINNED TRACE for a multi-hop chain
+ * (Pod -> PVC -> PV), authored entirely from what the step resolved while it
+ * was awake.
+ *
+ * ***LAYER 1, DELIBERATELY.*** LANGUAGE.md §1: authoring problems are solved in
+ * the SDK, which is a real language; §11: if it is layer 1, stop. Every hop is
+ * an ordinary `fieldNoLonger` guard over a LITERAL path, so the static walk
+ * (§6) subscribes the step to every object in the chain - the wake index never
+ * traverses a pointer, and the host grows no symbol (LANGUAGE_VERSION is
+ * unchanged; nothing here needs fingerprint coordination).
+ *
+ * ⛔ ***THE GUARDS ARE `fieldNoLonger`, NOT `fieldIs`, AND THE DIFFERENCE IS
+ * LIVENESS.*** A bare `==` on an edge reads ABSENT when the edge's object is
+ * deleted, absent propagates as UNKNOWN, and a conjunction holding an UNKNOWN
+ * operand never fires - so the park sleeps through the very edit that
+ * invalidates the trace, looking subscribed the whole time. The `!exists ||`
+ * arm makes a deleted or re-pointed edge WAKE the program, which re-traces on
+ * its next pass. The target condition keeps its own semantics: that is what
+ * the step is waiting FOR.
+ *
+ * The hops speak as of park time - what the chain looked like when the step
+ * last ran - which is the same property the host's Phase 2 edge resolution has
+ * for ONE hop, authored here for the whole chain. For a hop whose target does
+ * not exist yet at park time, park on the ROOT's edge field with this builder;
+ * the host's HopResolver follows the live chain at registration and
+ * re-resolves on every wake.
+ *
+ * For a SET hop (Deployment -> Pods) the same shape applies with a literal
+ * selector - see `anyPods` for the root-guard pairing.
+ */
+export const pinned = (hops: readonly Hop[], target: Resume): Resume =>
+  allOf(...hops.map((h) => fieldNoLonger(h.path, h.field, h.value)), target)
 
 // ---------------------------------------------------------------------------
 // DERIVING A RESUME FROM WHAT THE STEP ACTUALLY OBSERVED.

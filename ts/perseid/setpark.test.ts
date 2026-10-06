@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { expect, test } from 'bun:test'
-import { anyFieldNe, allFieldsAre, path } from './perseid.js'
+import { anyFieldNe, allFieldsAre, anyPods, noPods, allOf, fieldNoLonger, path } from './perseid.js'
 
 const DEPS = path.ns('default').collectionOf('apps', 'v1', 'deployments')
 
@@ -43,4 +43,23 @@ test('the two builders render different operators, not one negated', () => {
   expect(b).toContain('==')
   expect(a).not.toContain('&&')
   expect(b).not.toContain('||')
+})
+
+// ⭐ ***THE LITERAL-SELECTOR CONTRACT, PINNED AS TEXT.*** The selector must
+// appear verbatim - it IS the subject the wake index keys on (§6); a selector
+// hidden behind an expression is the PodsOf shape §10 declined.
+test('anyPods/noPods ask the count question of a literal selector', () => {
+  expect(String(anyPods('app=frontend,tier=api'))).toBe(
+    'ListPods("app=frontend,tier=api").length > 0',
+  )
+  expect(String(noPods('app=frontend,tier=api'))).toBe(
+    'ListPods("app=frontend,tier=api").length == 0',
+  )
+})
+
+test('a set park root-guards the workload that supplied the selector', () => {
+  const dep = path.ns('default').deployments('frontend')
+  expect(String(allOf(fieldNoLonger(dep, 'metadata.generation', 5), anyPods('app=frontend')))).toBe(
+    `((!Get("/apis/apps/v1/namespaces/default/deployments/frontend", "metadata.generation").exists) || (Get("/apis/apps/v1/namespaces/default/deployments/frontend", "metadata.generation") != 5)) && (ListPods("app=frontend").length > 0)`,
+  )
 })
