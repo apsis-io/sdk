@@ -2,7 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { expect, test } from 'bun:test'
-import { perseidTS, toYaml, type PerseidTSManifestInput } from './manifest.js'
+import { perseidTS, toYaml, type PerseidTSManifest, type PerseidTSManifestInput } from './manifest.js'
+
+// ⭐ ***EVERY GOLDEN IS ALSO PARSE-BACK VERIFIED.*** The text pins the layout;
+// Bun.YAML.parse proves the same bytes read back as the object that went in -
+// a golden that renders pretty but parses wrong would die here, not in
+// someone's `kubectl apply`.
+const roundTrips = (m: PerseidTSManifest): void => {
+  expect(Bun.YAML.parse(toYaml(m))).toEqual(JSON.parse(JSON.stringify(m)))
+}
 
 // ***THE GOLDENS ARE THE CONTRACT WITH kubectl.*** This module is the first
 // producer of PerseidTS manifests anywhere - the CRD is the only other voice -
@@ -15,7 +23,9 @@ const minimal = (): PerseidTSManifestInput => ({
 })
 
 test('the minimal inline manifest renders in CRD presentation order', () => {
-  expect(toYaml(perseidTS(minimal()))).toBe(
+  const m = perseidTS(minimal())
+  roundTrips(m)
+  expect(toYaml(m)).toBe(
     `apiVersion: perseid.apsis/v1
 kind: PerseidTS
 metadata:
@@ -28,11 +38,12 @@ spec:
   )
 })
 
-test('the stepRef form renders the image coordinate quoted', () => {
+test('the stepRef form renders the image coordinate bare - Bun.YAML knows sha256:abcd is colon-safe', () => {
   const m = perseidTS({
     metadata: { name: 'canary', namespace: 'prod' },
     spec: { stepRef: { image: 'registry.example/ops/canary@sha256:abcd' } },
   })
+  roundTrips(m)
   expect(toYaml(m)).toBe(
     `apiVersion: perseid.apsis/v1
 kind: PerseidTS
@@ -41,7 +52,7 @@ metadata:
   namespace: prod
 spec:
   stepRef:
-    image: "registry.example/ops/canary@sha256:abcd"
+    image: registry.example/ops/canary@sha256:abcd
 `,
   )
 })
@@ -56,6 +67,7 @@ test('the full field set renders labels sorted and optionals in place', () => {
     },
     spec: { step: 'export function* run() {}\n', backstopMs: 90000, suspend: false },
   })
+  roundTrips(m)
   expect(toYaml(m)).toBe(
     `apiVersion: perseid.apsis/v1
 kind: PerseidTS
@@ -90,7 +102,9 @@ test('a hostile step source survives the literal block byte for byte', () => {
     '  key: value',
     '  done}',
   ].join('\n')
-  const yaml = toYaml(perseidTS({ metadata: { name: 'warden', namespace: 'prod' }, spec: { step: source } }))
+  const m = perseidTS({ metadata: { name: 'warden', namespace: 'prod' }, spec: { step: source } })
+  roundTrips(m)
+  const yaml = toYaml(m)
   expect(yaml).toBe(
     `apiVersion: perseid.apsis/v1
 kind: PerseidTS

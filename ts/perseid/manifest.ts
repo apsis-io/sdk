@@ -174,19 +174,25 @@ export const perseidTS = (input: PerseidTSManifestInput): PerseidTSManifest => {
 }
 
 // ---------------------------------------------------------------------------
-// YAML. Zero deps, ~60 lines, and safe for exactly one reason: the schema is
-// flat, so the writer renders from the TYPED fields in CRD presentation order
-// and never walks an untyped object.
+// YAML. The LAYOUT is ours - structural key order, the literal block for the
+// step source - because kubectl-applied manifests are read by humans and
+// block style is what `kubectl get -o yaml` produces. The SCALARS are Bun's:
+// `Bun.YAML.stringify` emits bare-when-unambiguous and double-quoted
+// otherwise (YAML 1.2 quoted scalars are JSON strings), which retires the
+// hand-rolled safe-character regex this module used to carry. So toYaml runs
+// where Bun runs - an ops-side tool, not a guest import; the builder above is
+// pure TypeScript and portable everywhere.
 
-/** Bare iff it cannot possibly be misread; otherwise quoted. YAML 1.2
- * double-quoted scalars ARE JSON strings, so `JSON.stringify` is the quoting
- * layer - the same move as the expression language's `lit`, which is proven
- * against the host's decoder rather than hand-rolled. */
-const scalar = (s: string): string =>
-  /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(s) &&
-  !/^(?:true|false|null|yes|no|on|off|~|[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)$/i.test(s)
-    ? s
-    : JSON.stringify(s)
+/** One scalar, emitted by Bun.YAML (trailing newline stripped; the layout
+ * owns line breaks). */
+const scalar = (s: string): string => {
+  if (typeof Bun === 'undefined') {
+    throw new Error(
+      'toYaml runs where Bun runs - it emits scalars through Bun.YAML. The builder is portable; render the YAML under bun.',
+    )
+  }
+  return Bun.YAML.stringify(s).replace(/\n$/, '')
+}
 
 /**
  * Render a validated manifest as one YAML document - no leading `---`;
