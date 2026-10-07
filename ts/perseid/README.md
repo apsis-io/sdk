@@ -15,6 +15,9 @@ What lives here:
   `invariant-composition.ts`)
 - backstop (`backstop.ts`) and wake (`wake.ts`) - the trail-runtime park
   contract
+- the PerseidTS manifest (`manifest.ts`): `perseidTS()` builds and validates
+  one, `toYaml()` renders it for `kubectl apply` - the manifest carries only
+  the code; admission derives capabilities and writes from the step
 
 Namespaced for the registry, direct for the importer - the same split
 `apsis-perseid`'s Cargo.toml records. There is no barrel: import the specific
