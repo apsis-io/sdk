@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.wasm
+*.byte
+*.cmi
+*.cmo
+src/step.js

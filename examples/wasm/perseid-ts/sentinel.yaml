@@ -1,0 +1,116 @@
+# Build and publish first:
+#   ./build.sh
+#   apsis ingest ./perseid-sentinel.wasm --name sentinel:vN
+#      (derive N from `apsis images` - an existing tag is OVERWRITTEN silently)
+#
+# ═══════════════════════════════════════════════════════════════════════════
+# THE SENTINEL - the first Perseid that DISPATCHES on which of its own park
+# conditions held.
+#
+# It watches four INDEPENDENT subjects - a Node's readiness and three
+# Deployments' ready counts - and reports which is unhealthy. `held()` names the
+# operands the host says held, so a wake caused by one subject reads ONE object
+# instead of four.
+#
+# ⛔ IT WRITES NOTHING. There is no `spec.writes` and the artifact imports no
+# write interface at all, so this program cannot act on what it sees even if a
+# later edit tried to - the closure below is the enforcement, not the intention.
+# ═══════════════════════════════════════════════════════════════════════════
+apiVersion: radiant.apsis/v1
+kind: Perseid
+metadata:
+  name: sentinel-demo
+  namespace: default
+spec:
+  # ⛔ ***v5 AND v6+ ARE NOT INTERCHANGEABLE - THIS IS A HARD CUTOVER, AND IT IS
+  # THE ONLY ONE ON THE FLEET.*** `held` changed from `func() -> list<u32>` (the
+  # operand's POSITION) to `func() -> list<string>` (the operand's own source
+  # TEXT). A component links against a signature, so v5 CANNOT run on a
+  # trail at or past 1b6e99311 and v6+ CANNOT run on one before it. Every other
+  # mixed pairing on this fleet degrades to "nothing held", which is safe,
+  # because no other component imports `perseid:reconcile/woke` at all -
+  # measured against the built artifacts, not inferred from the manifests.
+  #
+  # ⚠ TWO LAYERS, AND THEY ARE EASY TO CONFLATE - I DID, AND PUBLISHED IT. The
+  # radiant->trail JSON wire ALSO changed, `Held string` (comma-joined indices,
+  # via a `joinHeld` that is now deleted) -> `Held []string`. That `string` is
+  # the WIRE field, never the WIT return type; `held: func() -> string` has
+  # never existed. Only the WIT layer decides whether a component links.
+  #
+  # ⚠ ***`ci/wit-skew.sh` CANNOT SEE THIS AND SAID PASS.*** Its `wit_functions`
+  # extracts `iface#name` plus an `:async` marker - names, never types - so it
+  # compared v6 against the old trail, found `held` present on both, and
+  # reported "6 checked" green. The guard built to catch component/trail skew is
+  # blind to the one kind of skew that cannot be degraded around.
+  component: sentinel:v8
+  # The expression language this program's SDK emits (sdk/ts LANGUAGE_VERSION).
+  #
+  # ⚠ ***3 IS LOAD-BEARING HERE RATHER THAN INCIDENTAL.*** This program parks on
+  # `status.conditions[?type=Ready].status`, a field-path SELECTOR, which a
+  # radiant speaking 2 cannot parse. Admission refuses it against such a host
+  # BEFORE a pod and a pass; unstamped it would be admitted and then read Absent
+  # forever - reporting a healthy node as unhealthy.
+  language: 5
+  # DERIVED FROM THE BUILT COMPONENT by `trail --inspect`, not hand-written.
+  # `perseid:reconcile/woke@0.1.0` is the one no other Perseid here carries.
+  imports:
+    - perseid:reconcile/observe-cluster@0.1.0
+    - perseid:reconcile/observe@0.1.0
+    - perseid:reconcile/status@0.1.0
+    - perseid:reconcile/types@0.1.0
+    - perseid:reconcile/woke@0.1.0
+    - wasi:cli/environment@0.2.12
+    - wasi:cli/environment@0.3.0
+    - wasi:cli/exit@0.2.12
+    - wasi:cli/exit@0.3.0
+    - wasi:cli/stderr@0.2.12
+    - wasi:cli/stderr@0.3.0
+    - wasi:cli/stdin@0.2.12
+    - wasi:cli/stdin@0.3.0
+    - wasi:cli/stdout@0.2.12
+    - wasi:cli/stdout@0.3.0
+    - wasi:cli/terminal-input@0.2.12
+    - wasi:cli/terminal-input@0.3.0
+    - wasi:cli/terminal-output@0.2.12
+    - wasi:cli/terminal-output@0.3.0
+    - wasi:cli/terminal-stderr@0.2.12
+    - wasi:cli/terminal-stderr@0.3.0
+    - wasi:cli/terminal-stdin@0.2.12
+    - wasi:cli/terminal-stdin@0.3.0
+    - wasi:cli/terminal-stdout@0.2.12
+    - wasi:cli/terminal-stdout@0.3.0
+    - wasi:cli/types@0.3.0
+    - wasi:clocks/monotonic-clock@0.2.12
+    - wasi:clocks/monotonic-clock@0.3.0
+    - wasi:clocks/system-clock@0.3.0
+    - wasi:clocks/types@0.3.0
+    - wasi:clocks/wall-clock@0.2.12
+    - wasi:filesystem/preopens@0.2.12
+    - wasi:filesystem/preopens@0.3.0
+    - wasi:filesystem/types@0.2.12
+    - wasi:filesystem/types@0.3.0
+    - wasi:io/error@0.2.12
+    - wasi:io/poll@0.2.12
+    - wasi:io/streams@0.2.12
+    - wasi:random/insecure-seed@0.2.12
+    - wasi:random/insecure-seed@0.3.0
+    - wasi:random/insecure@0.3.0
+    - wasi:random/random@0.3.0
+    - wasi:sockets/ip-name-lookup@0.3.0
+    - wasi:sockets/types@0.3.0
+  # `woke` is granted because the artifact imports it: the capability gate
+  # compares this list against the closure above, and a demanded interface that
+  # is not conferred refuses the program.
+  capabilities:
+    - perseid:reconcile/observe-cluster@0.1.0
+    - perseid:reconcile/observe@0.1.0
+    - perseid:reconcile/status@0.1.0
+    - perseid:reconcile/types@0.1.0
+    - perseid:reconcile/woke@0.1.0
+    - wasi:sockets/ip-name-lookup@0.3.0
+    - wasi:sockets/types@0.3.0
+  # THE CLUSTER-SCOPED READ, per object. `observe-cluster` confers the verb; this
+  # names the one machine this program may look at. The Deployments need no entry:
+  # they are namespaced and covered by the grant's namespace.
+  reads:
+    - /api/v1/nodes/engix99-trail-1

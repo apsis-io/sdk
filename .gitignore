@@ -29,3 +29,10 @@ zig-out/
 # C
 *.o
 *.a
+
+# the perseid examples: build outputs stay out (regenerate with examples/wasm/perseid-ts/build.sh)
+examples/wasm/**/node_modules/
+examples/wasm/**/dist/
+examples/wasm/**/.store/
+examples/wasm/**/wit/.registry/
+examples/wasm/**/*.wasm

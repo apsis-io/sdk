@@ -1,0 +1,47 @@
+[package]
+name = "perseid-exec"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# A Perseid that delegates its VERDICT to an allowlisted child component.
+#
+# ⛔ ***THE RUST ARM. IT IS NOT THE ONLY ONE, AND THIS COMMENT CLAIMED IT WAS.***
+# It read: "the TS SDK has no binding for the exec seam, so a TS Perseid cannot
+# call it without SDK work". ***THAT WAS FALSE WHEN WRITTEN.***
+# `sdk/ts/periapsis/exec.ts` has been an ergonomic wrapper over
+# periapsis:host/exec the whole time - extracted from ../js-dwarf-shell, which
+# has run it live on a real pod. The TS arm is ../perseid-ts/src/execcheck.ts and
+# it builds.
+#
+# ***THE ERROR WAS THE POPULATION, NOT THE READING***: `perseid.ts` was grepped
+# for `WIT_` constants and reported none, which is true and answers a different
+# question - the seam lives in its own SDK module and never had a `WIT_`
+# constant. An absence found by looking in one file is a fact about that file.
+#
+# What is true, and is why this arm is still worth having: the two differ in
+# TOOLCHAIN, not in capability - rustc/wit-bindgen with no JS engine, ~180 KB
+# against dwarf's ~1.5 MB, and no WASI in the world at all. `perseid-wake-rs`
+# next door exists for the same reason and says so: one toolchain agreeing with
+# itself proves less.
+#
+# Built --target wasm32-unknown-unknown and componentized with `wasm-tools
+# component new` - no adapter, because the world imports no WASI at all
+# (`stream<u8>` and `async` are Component Model builtins, not WASI). See
+# build.sh, which stages the WIT deps from HEAD rather than vendoring them.
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.61"
+# For `select`: the step body races a wake future against its own reads, without
+# which trail refuses to serve a program that performs I/O. See src/lib.rs.
+futures = "0.3"
+# The subject arrives as an object's JSON. A hand-rolled scan for
+# `"resourceVersion":"..."` would be the wrong thing to teach in a reference
+# program, and this is a std target, so the real parser costs nothing but bytes.
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"

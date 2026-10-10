@@ -1,0 +1,3 @@
+# Build output. Never commit a .wasm - build.sh reproduces it from HEAD's WIT.
+*.wasm
+target/

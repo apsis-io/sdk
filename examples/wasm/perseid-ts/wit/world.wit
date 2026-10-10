@@ -1,0 +1,327 @@
+package periapsis:perseidts;
+
+// ***THIS WORLD IS WHAT GETS BUILT, AND IT DECLARED NONE OF WHAT THE CODE USES
+// UNTIL 2026-08-25.***
+//
+// It read:
+//
+//	// Minimal: the probe only needs to run once and print. A real operator
+//	// component would import periapsis:component/* and export a step function
+//	world perseid-ts {
+//	  include wasi:cli/command@0.3.0;
+//	}
+//
+// That comment described a PROBE. `src/main.ts` stopped being one - it observes
+// a replica count, scales a Deployment and reports a condition - and the world
+// it is compiled against never followed.
+//
+// ***THE FAILURE IS SILENT AT BUILD TIME AND FAIL-CLOSED AT ADMISSION.*** dwarf
+// builds against THIS file, so the component came out with 39 wasi imports and
+// no `perseid:reconcile/*` at all. The host reads a component's imports from
+// the ARTIFACT, found none, and refused:
+//
+//	admissionBasis:  gate-did-not-run
+//	admissionReason: unknown capability: could not read scaler:v4's imports,
+//	                 so the capability gate did not run
+//	importSourcing:  none
+//
+// Measured on the cluster 2026-08-25 by ingesting a rebuild as `scaler:v4`.
+// ***The refusal is CORRECT - it declined to admit a component whose capabilities
+// it could not verify - and it is the only reason this was caught.***
+//
+// ***WHY build.sh's OWN CHECK DID NOT CATCH IT, WHICH IS THE PART TO KEEP.***
+// Step 2 runs `derive-wit --check`, which compares `src/main.ts` against
+// `derived/step.wit`. Both were correct and agreed. ***Nothing compares either
+// of them to THIS file - the one the compiler actually reads*** - so a check
+// that looks like it guards the capability set guards a different pair of
+// artifacts entirely. `derived/step.wit` is the DEMAND; this is the BUILD; they
+// were free to disagree and did, for as long as nobody rebuilt.
+//
+// So: the three imports below must stay in step with `derived/step.wit`. If you
+// add a capability to `src/main.ts`, `derive-wit` will update `derived/` and
+// say nothing about this file.
+world perseid-ts {
+  include wasi:cli/command@0.3.0;
+
+  // Exactly the set in derived/step.wit, which derive-wit reads out of the
+  // Generator yield type in src/main.ts.
+  //
+  // ***`ensure` REPLACED `workloads` ON 2026-09-01, AND THE OLD IMPORT WOULD
+  // STILL HAVE BUILT.*** e75c8c392 removed the specialized writes, so
+  // `perseid:reconcile/workloads@0.1.0` still EXISTS and still LINKS - it simply
+  // confers nothing. A component left on it instantiates, runs, parks and has
+  // every obligation refused with "is not conferred by this program's
+  // capabilities", which is exactly what default/scaler-v4 and default/dag-demo
+  // did on the cluster until their manifests named `ensure`. This world is
+  // shared by src/main.ts and src/dag.ts and both now write through `ensure`.
+  import perseid:reconcile/observe@0.1.0;
+  import perseid:reconcile/ensure@0.1.0;
+  import perseid:reconcile/status@0.1.0;
+
+  // ***THIS LINE IS WHY scaler:v5 COULD NEVER RUN, AND IT WAS MISSING FOR THE
+  // WHOLE LIFE OF THE COMPONENT.*** Without it the artifact builds, ingests and
+  // ADMITS, and trail's instantiate fails inside the pod with "no exported
+  // instance named perseid:reconcile/step@0.1.0" - measured on
+  // default/scaler-v4, 42 identical failures in 12 hours against a component
+  // that had no entrypoint to call.
+  //
+  // The world kept BOTH exports on purpose. `wasi:cli/command`'s `run` is the
+  // five-case probe this file has always been, which is worth keeping and is
+  // what `build.sh` still produces; `step` is the reconcile entrypoint radiant
+  // invokes. A component may export both, and the probe is the only executable
+  // demonstration of the SDK's capability typing in the tree.
+  export perseid:reconcile/step@0.1.0;
+  export perseid:reconcile/signal@0.1.0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE SAME WORLD PLUS `finalize` - the deletion path.
+//
+// ***A SECOND WORLD RATHER THAN AN EXPORT ADDED ABOVE, FOR THE REASON THE HOST'S
+// OWN WIT GIVES.*** `export` in a world is MANDATORY, so adding finalize to
+// `perseid-ts` would make every component built from it - `main.ts` and
+// `dag.ts`, both live on the cluster - fail to instantiate until each grew an
+// entrypoint it does not need. wit/reconcile/reconcile.wit splits `perseid` and
+// `perseid-finalizing` for exactly this, and this mirrors it one layer down.
+//
+// ***AND A STUB THAT RETURNS `done` IS NOT A CHEAPER ALTERNATIVE.*** It is a
+// finalizer that LOOKS like cleanup and is not: the host would report
+// `Finalized` - "cleanup complete" - about a component that ran none, which is
+// the one distinction `NoFinalizer` exists to preserve.
+//
+// ***THE IMPORTS WERE "IDENTICAL TO perseid-ts, DELIBERATELY" UNTIL 2026-08-31
+// AND ARE NOT ANY MORE.*** That sentence stood here and stopped being true twice
+// in one day: first when the janitor migrated from the deprecated `workloads` to
+// `ensure`, then when its step gained `create` and its finalizer `delete`.
+//
+// The claim it was making is still worth keeping in its accurate form: being on
+// the deletion path grants nothing extra - a finalizer declares with the same
+// VOCABULARY a step does. What differs is which of that vocabulary each
+// entrypoint uses, and the world is their UNION.
+// The readiness-gated canary uses the generalized write rather than the
+// deprecated workloads interface, but does not export a finalizer. A separate
+// world keeps its artifact demand exact without forcing create/delete imports or
+// a mandatory finalize export onto it.
+// ***AUTHORED BY memcached-adr, COMMITTED BY coordinator IN e75c8c392 BY
+// ACCIDENT.*** That commit used `git add -A` over this directory and swept this
+// block in with unrelated aperture work, so the commit that introduces this
+// world says nothing about who wrote it. The canary program itself is 3fcd5e60f.
+// Recorded here rather than by rewriting history: master is published, and the
+// attribution belongs where the next reader meets the code.
+/// The metric-gated canary: it acts on a measurement ANOTHER program took.
+///
+/// ⚠ ***`observe-perseids` IS NOT LISTED HERE, THOUGH THIS PROGRAM READS ANOTHER
+/// PERSEID. THAT IS CORRECT AND IT IS THE ONE CASE WHERE THE MANIFEST IS NOT
+/// DERIVABLE FROM THE ARTIFACT.***
+///
+/// The interface is deliberately EMPTY - it declares no functions, because the
+/// read is an ordinary `observe.get` of the Perseid's path and the interface is
+/// only the AUTHORITY for it. So there is nothing for dwarf to import, nothing
+/// for the linker to bind, and nothing for `trail --inspect` to report.
+///
+/// ⇒ The grant lives in `spec.capabilities` (canary.yaml), which is where
+/// admission looks. A reader checking "does the grant match the imports" will
+/// find this one legitimately unmatched.
+///
+/// ***IT WAS LISTED HERE FOR ONE BUILD AND `derive-wit --check` REFUSED IT***:
+/// "the build world declares 1 capability the code never demands ... the built
+/// component will import them and the host linker must bind them anyway - the
+/// shape that killed scaler:v1 when emit was deleted". That guard is right about
+/// its hazard and the hazard cannot reach an empty interface, which is exactly
+/// why the answer is to leave it out rather than to widen the guard.
+world perseid-ts-canary {
+  include wasi:cli/command@0.3.0;
+
+  import perseid:reconcile/observe@0.1.0;
+  import perseid:reconcile/ensure@0.1.0;
+  import perseid:reconcile/status@0.1.0;
+
+  export perseid:reconcile/step@0.1.0;
+  export perseid:reconcile/signal@0.1.0;
+}
+
+/// The node drainer: the first world here that WRITES a cluster-scoped object.
+///
+/// ⚠ ***THE IMPORT LIST LOOKS THE SAME AS A NAMESPACED WRITER'S, AND THE
+/// AUTHORITY IS NOT.*** `ensure` covers both scopes on one symbol (see
+/// reconcile.wit), so nothing here says "may cordon a node" - only
+/// `spec.writes` does, by naming `/api/v1/nodes/NAME`. That is the cost of the
+/// unification, recorded where somebody reading the world would otherwise
+/// conclude this program can only touch its own namespace.
+///
+/// `observe-cluster` IS visible, because reading the node is a separate grant
+/// from writing it and always was.
+world perseid-ts-drainer {
+  include wasi:cli/command@0.3.0;
+
+  import perseid:reconcile/observe@0.1.0;
+  import perseid:reconcile/observe-cluster@0.1.0;
+  import perseid:reconcile/ensure@0.1.0;
+  import perseid:reconcile/status@0.1.0;
+
+  export perseid:reconcile/step@0.1.0;
+  export perseid:reconcile/signal@0.1.0;
+}
+
+/// The measuring program: it observes, and it REMEMBERS.
+///
+/// ***THE ONLY WORLD HERE THAT IMPORTS `carry`, AND THAT IMPORT IS THE WHOLE
+/// POINT OF THE PROGRAM.*** Every other Perseid in this tree is a total step
+/// that re-derives its conclusion from the present world. A rate, a streak or a
+/// rolling average is not a function of the present, so a program that measures
+/// over time needs its previous samples handed back - which is what this import
+/// is (`internal/reconcilehost/carry.go`).
+///
+/// It writes NOTHING: no `ensure`, no `create`, no `delete`. A probe publishes
+/// its measurement on its own `status.carry`, which rides on the outcome and
+/// needs no interface, and a DIFFERENT program acts on it. Keeping the measuring
+/// and the acting in separate programs is engi's shape (2026-09-05: "one perseid
+/// do metrics and writes them as data on itself, another reads them"), and the
+/// empty write set is what makes it enforceable rather than a convention.
+world perseid-ts-probe {
+  include wasi:cli/command@0.3.0;
+
+  import perseid:reconcile/observe@0.1.0;
+  import perseid:reconcile/carry@0.1.0;
+  import perseid:reconcile/status@0.1.0;
+
+  export perseid:reconcile/step@0.1.0;
+  export perseid:reconcile/signal@0.1.0;
+}
+
+world perseid-ts-finalizing {
+  include wasi:cli/command@0.3.0;
+
+  import perseid:reconcile/observe@0.1.0;
+  // ***`ensure`, NOT `workloads`*** (engi, 2026-08-31: "we deprecated
+  // workloads.scale and status.set" / "okay status can stay"). The janitor is
+  // the worked example of the migration, so its world was the FIRST to name the
+  // general write.
+  //
+  // ⚠ ***THIS SAID `perseid-ts` ABOVE "STILL IMPORTS workloads BECAUSE main.ts AND
+  // dag.ts ARE LIVE ON THE FLEET AND DEPRECATED IS NOT REMOVED". BOTH HALVES ARE
+  // NOW FALSE*** (60e24605d). e75c8c392 REMOVED the grant - `workloads` confers
+  // nothing - and being live on the fleet is what made that urgent rather than
+  // what made it safe to defer: `default/scaler-v4` and `default/dag-demo` ran,
+  // parked and had every obligation refused. `perseid-ts` imports `ensure` now.
+  //
+  // ⚠ THE MIGRATION WIDENS THIS COMPONENT'S GRANT, and the world is where that
+  // is visible: `workloads` is scoped by the aperture to `spec.replicas` alone,
+  // `ensure` writes ANY field. What still bounds the janitor to one object is
+  // its Perseid's `spec.writes`, not its capability list.
+  import perseid:reconcile/ensure@0.1.0;
+  // ***THE TWO ENTRYPOINTS DEMAND DIFFERENT THINGS, AND THE WORLD IS THEIR
+  // UNION.*** The step creates the object this program owns; the finalizer
+  // deletes it. Neither demands the other's capability, so a per-entrypoint
+  // world check reports each as "declared and never demanded" - which is why
+  // derive-wit grew `--world-entrypoints`.
+  import perseid:reconcile/create@0.1.0;
+  import perseid:reconcile/delete@0.1.0;
+  import perseid:reconcile/status@0.1.0;
+
+  export perseid:reconcile/step@0.1.0;
+  export perseid:reconcile/signal@0.1.0;
+  export perseid:reconcile/finalize@0.1.0;
+}
+
+// The pod-maker: it CREATES and REPORTS, and reads nothing. Its park condition
+// (`objectGone`) is a resume the HOST evaluates, so `observe` is deliberately
+// absent from THIS WORLD and from the artifact's imports. A separate world keeps
+// that exactness rather than inheriting imports the component would then force
+// the host linker to bind.
+//
+// ***THE PARK RESOLVES BECAUSE THE PROGRAM DECLARED THE WRITE*** (9dcbbcfe3): a
+// program's own `spec.writes` confers the read of what it writes, FOR A PARK ONLY.
+// podmaker parks on the pod it declared, so it needs no read grant at all and this
+// world stays exact.
+//
+// ⚠ ***TWO SUPERSEDED ANSWERS SIT UNDER THIS ONE, BOTH DATED 2026-09-01, AND THE
+// SECOND IS THE INSTRUCTIVE ONE.***
+//   1. This paragraph once ended "reconcilehost.resumeCaps confers pod reads on
+//      every parked program". TRUE WHEN WRITTEN; `resumeCapsFor` made it false
+//      hours later by evaluating a resume with the PROGRAM's OWN capabilities.
+//   2. The repair for that was to GRANT `observe` in podmaker.yaml (eb9ac1a95).
+//      It worked, and it was REVERTED anyway - a grant every author would then
+//      copy is a workaround that OCCUPIES the defect. perseidrun.DerivedRules
+//      already grants `get` on every object in spec.writes, so the aperture was
+//      refusing a read the apiserver would have served to that program's own
+//      ServiceAccount.
+//
+// ⚠ IT IS A REAL WIDENING AND `PARK ONLY` IS THE WHOLE BOUND. Capabilities are
+// kind-granular, so declaring one pod write confers reading PODS in that
+// namespace. What contains it: `resumeExtraCaps` is a separate Host field from
+// `programCaps` and never reaches `mayReadKind`, so THE STEP'S READ SURFACE IS
+// UNTOUCHED - `mayReadKind` consults `programCaps` alone.
+//
+// The distinction that survives all three answers: ***capabilities is a GRANT,
+// imports is a FACT***. The artifact does not import `observe` under any of them.
+world perseid-ts-podmaker {
+  include wasi:cli/command@0.3.0;
+
+  import perseid:reconcile/create@0.1.0;
+  import perseid:reconcile/status@0.1.0;
+
+  export perseid:reconcile/step@0.1.0;
+  export perseid:reconcile/signal@0.1.0;
+}
+
+/// The sentinel: several INDEPENDENT subjects, one park, a handler per subject.
+///
+/// ⭐ ***THE FIRST WORLD HERE THAT IMPORTS `woke`, AND THAT IMPORT IS THE WHOLE
+/// POINT OF THE PROGRAM.*** `perseid:reconcile/woke` hands a program the arms of
+/// its OWN resume that held at the wake, so a step watching N subjects can read
+/// the one that moved instead of all N. Every other world here dispatches on
+/// nothing and correctly omits it.
+///
+/// ⚠ ***IT IS A HINT AND THE WORLD CANNOT SAY SO, WHICH IS WHY THE PROGRAM MUST.***
+/// `held` is empty on a backstop tick and on any host that does not serve the
+/// interface, so importing it buys a CHEAPER common case and never a correctness
+/// guarantee. sentinel.ts falls back to reading every subject when nothing
+/// dispatched; a world that made `woke` look load-bearing would be describing a
+/// different program.
+///
+/// ⛔ ***IT WRITES NOTHING - NO `ensure`, NO `create`, NO `delete`.*** A sentinel
+/// that could act is a different program with a different blast radius, and an
+/// empty write set is what makes that enforceable rather than a convention. Same
+/// argument `perseid-ts-probe` makes one world up.
+///
+/// `observe-cluster` is here because one subject is a NODE: reading a
+/// cluster-scoped object is a separate grant from reading a namespaced one, and
+/// the node's `status.conditions[?type=Ready].status` is the fact that has no
+/// scalar form and therefore needs language 3.
+world perseid-ts-sentinel {
+  include wasi:cli/command@0.3.0;
+
+  import perseid:reconcile/observe@0.1.0;
+  import perseid:reconcile/observe-cluster@0.1.0;
+  import perseid:reconcile/woke@0.1.0;
+  import perseid:reconcile/status@0.1.0;
+
+  export perseid:reconcile/step@0.1.0;
+  export perseid:reconcile/signal@0.1.0;
+}
+
+// ⭐ ***THE FIRST WORLD HERE THAT IS BOTH A PERSEID AND AN EXEC CONSUMER.***
+// `periapsis:host/exec` is a HOST capability rather than a reconcile one, so it
+// is named per-program instead of being widened into `world perseid` - a program
+// that wants it declares it, which is what `spec.capabilities` then has to grant.
+//
+// ⚠ p3-ONLY, and not optionally: `stream<u8>` and `child-process.wait`'s `async
+// func` need trail's --p3 launch path. That is what every perigeos pod already
+// launches (`trailExecStart` passes `--p3` unconditionally), so this costs
+// nothing here - but the same world under a p2 host would fail at instantiation
+// rather than at the first spawn.
+world perseid-ts-execcheck {
+  include wasi:cli/command@0.3.0;
+
+  import perseid:reconcile/observe@0.1.0;
+  import perseid:reconcile/status@0.1.0;
+  // Added 2026-09-08 with `woke.cause`: the program reports WHY it ran alongside
+  // the checker's verdict, which is what makes the coarse wake reason observable
+  // on a live cluster rather than only in a test.
+  import perseid:reconcile/woke@0.1.0;
+  import periapsis:host/exec@0.1.0;
+
+  export perseid:reconcile/step@0.1.0;
+  export perseid:reconcile/signal@0.1.0;
+}
