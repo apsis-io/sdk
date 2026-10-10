@@ -1,9 +1,0 @@
-// DERIVED from src/canary.ts by tools/derive-wit.ts — do not edit by hand.
-// These are the capabilities 'step' can actually perform, read out of
-// its inferred Generator yield type. Regenerate with: bun tools/derive-wit.ts src/canary.ts step --write
-
-world step-derived {
-  import perseid:reconcile/ensure@0.1.0;
-  import perseid:reconcile/observe@0.1.0;
-  import perseid:reconcile/status@0.1.0;
-}
