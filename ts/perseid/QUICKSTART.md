@@ -126,6 +126,44 @@ the program is: `phase` (`Admitted` → `Running`, or `Parked` with the wake
 condition in `message`), plus the derived `capabilities` and `writes` - the
 derivation, on the object, where an operator can read it.
 
+## 6. The real thing
+
+The smoke program below is live on a real cluster (engifire, `default/smoke`) -
+the same scalar-scaler shape, using more of the vocabulary: a typed `reader`
+over the observation, a `status` report, and a park that wakes on drift **or**
+deletion. It converged and terminated on its first pass, because the target was
+already at want - which is what a level-triggered program should do.
+
+```yaml
+apiVersion: perseid.apsis/v1
+kind: Perseid
+metadata:
+  name: smoke
+  namespace: apsis
+spec:
+  step: |
+    import { path, reconcile, reader, defineStep, wakeCause, quiesce, anyOf, yieldStep, ready, fieldNe, objectGone } from '@apsis-io/perseid'
+    import { asDeployment, wantedReplicas } from '@apsis-io/perseid/k8s'
+    const observe = reconcile.observe()
+    const ensure = reconcile.ensure()
+    const report = reconcile.status()
+    const read = reader(observe, asDeployment)
+    export const TARGET = path.ns('default').deployments('simple-demo')
+    export const WANT = 2
+    export const step = defineStep(function* () {
+      const dep = yield* read.need(TARGET)
+      if (wantedReplicas(dep) !== WANT) {
+        yield* ensure({ path: TARGET, field: 'spec.replicas', value: WANT })
+        return yieldStep
+      }
+      const why = yield* wakeCause()
+      yield* report(ready('Converged', 'at want'))
+      return quiesce(anyOf(fieldNe(TARGET, 'spec.replicas', WANT), objectGone(TARGET)))
+    })
+```
+
+Point `metadata.namespace` at your own and it is ready to apply.
+
 ## Where to go next
 
 - **Parking vocabulary** - `fieldIs`, `fieldNoLonger` (fires on deletion,
