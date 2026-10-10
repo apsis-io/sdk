@@ -1,0 +1,16 @@
+package spike:perseidwakers;
+
+// The Rust arm's world. Deliberately the SAME SHAPE as the TS fixtures'
+// (cmd/trail/tests/fixtures/signal/world.wit) minus the wasi include: a Rust
+// guest built for wasm32-unknown-unknown has no WASI at all, which is what keeps
+// the artifact at ~83 KB and means nothing about WASI can explain the result.
+//
+// `deps/reconcile` is assembled from the repo's own wit/reconcile by the fixture
+// recipe, so this guest always tracks HEAD's contract.
+world perseid-wake-rs {
+  import perseid:reconcile/observe@0.1.0;
+  import perseid:reconcile/status@0.1.0;
+
+  export perseid:reconcile/step@0.1.0;
+  export perseid:reconcile/signal@0.1.0;
+}

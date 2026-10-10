@@ -1,0 +1,28 @@
+[package]
+name = "perseid-wake-rs"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# The RUST arm of trail's wake A/B (reconcile.rs::a_wedged_step_is_freed_only_by_a_waitable).
+#
+# ***IT EXISTS BECAUSE ONE TOOLCHAIN AGREEING WITH ITSELF PROVES LESS.*** The TS
+# fixtures are dwarf/componentize-js, which owns its own JS job queue - so on
+# that evidence alone, "a promise cannot wake a suspended task and a WIT future
+# can" is equally well explained by a quirk of componentize-js. This shares no
+# code path from source to component with them: rustc, wit-bindgen, no JS engine,
+# 83 KB against 2 MB. Same result.
+#
+# Built --target wasm32-unknown-unknown and componentized with `wasm-tools
+# component new` - no adapter, because there is no WASI to adapt. The world
+# imports only perseid:reconcile/*, which is also what keeps the artifact small.
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.61"
+futures = "0.3"
+
+[profile.release]
+opt-level = "s"
