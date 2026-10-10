@@ -97,6 +97,16 @@ impl Namespaced<'_> {
         ))
     }
 
+    /// `/api/v1/namespaces/NS/configmaps/NAME` - configuration; `data` keys
+    /// are the fields, and a key can vanish, so absent is a normal answer.
+    #[must_use]
+    pub fn configmaps(self, name: &str) -> ApiPath {
+        ApiPath(format!(
+            "/api/v1/namespaces/{}/configmaps/{}",
+            self.namespace, name
+        ))
+    }
+
     /// An arbitrary namespaced resource, for a kind with no named helper.
     ///
     /// Still a builder: the group/version/resource ORDER is the thing that goes

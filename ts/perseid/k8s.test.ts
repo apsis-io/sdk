@@ -8,7 +8,7 @@
 // with no `unschedulable` key - because that is the case every inline reader in
 // this repo got to decide for itself.
 
-import { test } from 'bun:test'
+import { expect, test } from 'bun:test'
 import {
   type Deployment,
   asConfigMap,
@@ -108,4 +108,16 @@ export function runtimeGuards(): void {
 
 test('k8s.test.ts: runtime guards pass', () => {
   runtimeGuards()
+})
+
+test('spec carries the fields a scaler or drainer reads', () => {
+  const dep = asDeployment(
+    JSON.stringify({
+      metadata: { name: 'web' },
+      spec: { replicas: 2, minReadySeconds: 30, paused: false },
+    }),
+  )
+  expect(dep?.spec?.replicas).toBe(2)
+  expect(dep?.spec?.minReadySeconds).toBe(30)
+  expect(dep?.spec?.paused).toBe(false)
 })

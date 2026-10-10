@@ -363,6 +363,18 @@ export const path = {
       >,
 
     /**
+     * `/api/v1/namespaces/NS/configmaps/NAME` — configuration, read and
+     * written by `ensure` like any other field surface (`data` keys are the
+     * fields; a key can vanish, so absent is a normal answer — see
+     * `fieldNoLonger` for the withdrawal-sensitive form).
+     */
+    configmaps: <N extends string>(name: N) =>
+      `/api/v1/namespaces/${namespace}/configmaps/${name}` as Canonical<
+        'apiserver-path',
+        `/api/v1/namespaces/${NS}/configmaps/${N}`
+      >,
+
+    /**
      * `/apis/radiant.apsis/v1/namespaces/NS/perseids/NAME` — ANOTHER PROGRAM.
      *
      * ***THE ADDRESS OF A CONCLUSION RATHER THAN OF A WORKLOAD***, which is why
@@ -773,8 +785,34 @@ export const countNeField = (
  * because `Get` made every field reachable, so a builder per field would be the
  * shape the collapse removed.
  */
-export const fieldNe = (path: E.ReadPathLike, field: string, n: number): Resume =>
-  leaf(E.ne(E.get(path, field), n))
+/**
+ * Wake when a field stops being `value`.
+ *
+ * Widened on 2026-10-10 from number-only: a string- or boolean-field
+ * predicate is the same sentence, and the narrowing killed every one of them
+ * at the type level (TS2345, live on engifire). The numeric arm keeps the
+ * numeric comparator; the scalar arms go through `neScalar`, exactly as
+ * `fieldNoLonger` dispatches.
+ *
+ * ⛔ ***THE ABSENT TRAP NOW APPLIES TO THE SCALAR ARMS.*** A bare inequality
+ * reads UNKNOWN when the field is ABSENT, and a park holding UNKNOWN never
+ * fires - correct for a field that is always present (`spec.replicas`), and
+ * a SILENT park for a field that can be withdrawn (`data` keys on a
+ * configmap). For withdrawal-sensitive fields, either wrap the object's
+ * disappearance in the park - `anyOf(fieldNe(...), objectGone(path))`, the
+ * idiom the live scaler uses - or reach for `fieldNoLonger`, which carries
+ * the `!exists` arm in one builder.
+ */
+export const fieldNe = (
+  path: E.ReadPathLike,
+  field: string,
+  value: string | boolean | number,
+): Resume =>
+  leaf(
+    typeof value === 'number'
+      ? E.ne(E.get(path, field), value)
+      : E.neScalar(E.get(path, field), value),
+  )
 
 /**
  * Wake when a STRING or BOOLEAN field becomes `value`.

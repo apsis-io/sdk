@@ -40,7 +40,7 @@
 // instruction nobody has executed is the same untested claim as any other.
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { test } from 'bun:test'
+import { expect, test } from 'bun:test'
 import {
   type Handler,
   type Obs,
@@ -723,3 +723,20 @@ export const _anEmptyRetryReasonIsRefused = () => {
 // It was only the runtime half that was dead, which is the harder case to
 // notice: the file genuinely did enforce something, just not this.
 test('runtime guards', runtimeGuards)
+
+// ⛔ THE SHAPE engifire REFUSED (cm-alpha, field-minready-gamma): a ConfigMap
+// address and a string-field predicate. The builder is new - the four-word
+// core call was the only spelling - and the scalar arm of `fieldNe` goes
+// through the same `neScalar` dispatch `fieldNoLonger` uses.
+test('a configmap address and a string-field predicate, the shape the live refusals blocked', () => {
+  const CM = path.ns('default').configmaps('app-config')
+  expect(String(CM)).toBe('/api/v1/namespaces/default/configmaps/app-config')
+  expect(String(fieldNe(CM, 'data.mode', 'stream'))).toBe(
+    'Get("/api/v1/namespaces/default/configmaps/app-config", "data.mode") != "stream"',
+  )
+  // The numeric arm renders exactly as before - the widening changed nothing
+  // for every caller that compiled.
+  expect(String(fieldNe(WEB, 'spec.replicas', 2))).toBe(
+    'Get("/apis/apps/v1/namespaces/default/deployments/web", "spec.replicas") != 2',
+  )
+})

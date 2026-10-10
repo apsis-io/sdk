@@ -75,6 +75,11 @@ export interface Deployment {
   readonly spec?: {
     /** ⚠ OMITTED AT ITS DEFAULT OF **1**. See `wantedReplicas`. */
     readonly replicas?: number
+    /** ⚠ OMITTED AT ITS DEFAULT OF **0** - the pod template may not change
+     * for that long. */
+    readonly minReadySeconds?: number
+    /** ⚠ OMITTED AT ITS DEFAULT OF **FALSE** - the scaler's pause switch. */
+    readonly paused?: boolean
   }
   readonly status?: {
     readonly replicas?: number
