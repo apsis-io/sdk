@@ -25,6 +25,7 @@
     "*.ts",
     "!*.test.ts",
     "README.md",
+    "QUICKSTART.md",
     "LICENSE"
   ],
   "exports": {
