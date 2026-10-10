@@ -1055,3 +1055,15 @@ export const setCondition = (
   message: string,
 ): Expr<'effect'> =>
   mk('SetCondition', [type, status, reason, message], `SetCondition(${lit(type)}, ${lit(status)}, ${lit(reason)}, ${lit(message)})`)
+
+/**
+ * `fetch(url)` - the NETWORK READ, the first effect symbol outside the
+ * reconcile package (perseid:network). Self-targeted like `setCondition`: the
+ * subject is the grant's own Perseid, one argument, no path. The response is
+ * not returned through the expression - it is recorded on the program's own
+ * status; the kernel's cache serves it idempotently (retries are invisible;
+ * `fresh`/`forget` expose the invalidation - see `network.fetch` in
+ * perseid.ts, the typed wrapper this constructor underlies).
+ */
+export const fetch = (url: string): Expr<'effect'> =>
+  mk('Fetch', [url], `Fetch(${lit(url)})`)
