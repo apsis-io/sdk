@@ -56,12 +56,14 @@ import {
   type LabelSelectorShape,
   type Canonical,
   type Wit,
+  type KnownWit,
   type EnsureArgs,
   type EnsureBodyArgs,
   cleanupDone,
   retry,
   defineEffect,
   defineStep,
+  network,
   path,
   reconcile,
   runStep,
@@ -75,6 +77,7 @@ import {
   unsafeApiPath,
   WIT_OBSERVE,
   WIT_ENSURE,
+  WIT_NETWORK_FETCH,
 } from './perseid'
 
 const WEB = path.ns('default').deployments('web')
@@ -739,4 +742,64 @@ test('a configmap address and a string-field predicate, the shape the live refus
   expect(String(fieldNe(WEB, 'spec.replicas', 2))).toBe(
     'Get("/apis/apps/v1/namespaces/default/deployments/web", "spec.replicas") != 2',
   )
+})
+
+// ⛔ THE FETCH GATE, PINNED. The kernel confers perseid:network/fetch@0.1.0
+// only on programs whose derived capabilities name it, and the derivation
+// reads the yield type - so the builder's yields must carry the marker and
+// the args the engine's memo keys on. These goldens are that contract.
+test('network.fetch yields the marked effect the kernel derives from', () => {
+  const fetch = network.fetch()
+  const step = defineStep(function* () {
+    yield* fetch({ url: 'https://example.test/metrics' })
+    return terminate
+  })
+
+  const it = step()
+  const yielded = it.next().value as { op?: string; args?: { url: string } }
+  expect(yielded.op).toBe('fetch')
+  expect(yielded.args).toEqual({ url: 'https://example.test/metrics' })
+  expect(WIT_NETWORK_FETCH).toBe('perseid:network/fetch@0.1.0')
+
+  // ***THE MARKER LIVES IN THE TYPE, NOT THE INSTANCE.*** Effect carries
+  // readonly wit?: W for the derive walk; the runtime instance is op+args
+  // only. Both halves pinned: the full shape by assignment, the wit literal
+  // by the house Assert.
+  const _theYieldCarriesTheMarker: {
+    op: 'fetch'
+    args: { url: string }
+    wit?: typeof WIT_NETWORK_FETCH
+  } = undefined as YieldOf<typeof step>
+  void _theYieldCarriesTheMarker
+  type MarkedProbe = YieldOf<typeof step> extends {
+    readonly op: 'fetch'
+    readonly args: { url: string }
+    readonly wit?: typeof WIT_NETWORK_FETCH
+  }
+    ? 'MARKED'
+    : 'NOT_MARKED'
+  const _probe: MarkedProbe = 'MARKED'
+  void _probe
+
+  // The typed capability: KnownWit knows the network namespace now.
+  const known: KnownWit = WIT_NETWORK_FETCH
+  expect(known).toBe(WIT_NETWORK_FETCH)
+})
+
+test('network.fetch runs through runStep with the kernel response shape', () => {
+  const fetch = network.fetch()
+  const step = defineStep(function* () {
+    const res = yield* fetch({ url: 'https://example.test/metrics' })
+    return quiesce(fieldNe(WEB, 'spec.replicas', res.status))
+  })
+
+  const dials: string[] = []
+  const outcome = runStep(step, {
+    fetch: (args) => {
+      dials.push(args.url)
+      return { status: 200, body: 'metrics-body' }
+    },
+  })
+  expect(dials).toEqual(['https://example.test/metrics'])
+  expect(outcome.o).toBe('quiesce')
 })

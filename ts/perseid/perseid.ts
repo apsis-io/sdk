@@ -1843,6 +1843,20 @@ export const WIT_CARRY = 'perseid:reconcile/carry@0.1.0'
 // another.*** Text survives that; a position cannot.
 export const WIT_WOKE = 'perseid:reconcile/woke@0.1.0'
 
+/**
+ * A NETWORK READ - the first interface OUTSIDE the `perseid:reconcile`
+ * package, and that is the design: the interface is the grant, and a network
+ * read is not a reconcile obligation. GET-only by the kernel's own gate, with
+ * a 1MiB body cap whose breach is DETECTED, not silently truncated.
+ *
+ * ⚠ The kernel confers it ONLY on programs whose derived capabilities name it
+ * - and the derived capabilities name it exactly when the step yields the
+ * `network.fetch` effect, so using the builder IS the declaration. A
+ * hand-spelled marker also works (the derivation walk is generic), but the
+ * builder is the spelling that cannot misspell.
+ */
+export const WIT_NETWORK_FETCH = 'perseid:network/fetch@0.1.0'
+
 /** The interfaces this SDK knows. Autocompletion comes from this union. */
 export type KnownWit =
   | typeof WIT_TYPES
@@ -1854,6 +1868,7 @@ export type KnownWit =
   | typeof WIT_CREATE
   | typeof WIT_CARRY
   | typeof WIT_WOKE
+  | typeof WIT_NETWORK_FETCH
 
 /**
  * The SHAPE of a WIT interface id: `namespace:package/interface@major.minor.patch`.
@@ -3302,6 +3317,43 @@ export function* held(): Generator<Effect<typeof WIT_WOKE, 'held', void>, Held, 
     which: (...conditions: Resume[]): Resume[] =>
       conditions.filter((c) => leavesOf(c).every((l) => named.has(l))),
   }
+}
+
+/**
+ * Network reads - the `perseid:network` package, deliberately outside
+ * `reconcile`: the same reason `WIT_NETWORK_FETCH` carries its own namespace,
+ * stated at the grouping level. A network read confers a different grant than
+ * a reconcile obligation, so it does not sit under the reconcile name.
+ */
+export const network = {
+  /**
+   * `network.fetch()`, then `yield* fetch(url) -> {status, body}`. A GET-only
+   * network read, idempotent-transparent by the kernel's per-pass memo: every
+   * re-fetch of the same URL within one pass returns the SAME response -
+   * retries are invisible, the origin takes one hit per pass - and a new pass
+   * is a new epoch that may see a changed world. The response is verbatim: no
+   * caching across passes, no rewriting.
+   *
+   * ***USING THE BUILDER IS THE DECLARATION.*** The kernel confers
+   * `perseid:network/fetch@0.1.0` only on programs whose derived capabilities
+   * name it, and the derivation reads the yield type - so `yield*
+   * network.fetch(url)` makes the capability flow exactly like every other
+   * effect's, and a program without it fails closed at the gate (the
+   * fail-closed arm is the kernel's; a raw-yield program that hand-spells the
+   * marker also works, but the builder is the spelling that cannot misspell).
+   *
+   * Shape: GET-only, one URL argument, `{status, body}` back - the body is a
+   * string, capped at 1MiB with the breach DETECTED rather than silently
+   * truncated. The memo is the kernel's (per pass, per URL); the builder is
+   * stateless, so there is nothing here to invalidate.
+   */
+  fetch: () => defineEffect<{ url: string }, FetchResult>()(WIT_NETWORK_FETCH, 'fetch'),
+}
+
+/** What `network.fetch` resolves to: the origin's status and body, verbatim. */
+export interface FetchResult {
+  readonly status: number
+  readonly body: string
 }
 
 /**
