@@ -1,11 +1,11 @@
-// ⚠ ***LEGACY PATH, BY DIRECTION (engi, 2026-10-10: "fetch will be via
-// perseid").*** The kernel's `perseid:network/fetch@0.1.0` effect - exposed in
-// @apsis-io/perseid as `network.fetch` - is the future of TS fetch: it carries
-// the idempotent-transparent semantics (host-held cache surviving passes,
-// exposed fresh/forget verbs) that THIS path never had, and it needs no
-// compose step. This module and fetch-provider/ remain for existing wasm
-// Perseids on the composed path; no new consumer wiring is planned for it,
-// and the known limits below stay known rather than being fixed forward.
+// ***ONE OF TWO FETCH PATHS, DELIBERATELY SEPARATE (engi, 2026-10-10: "keep
+// dwarf's fetch separate from the perseid one").*** This module is the WASM
+// world's own fetch - `dwarf:fetch/client`, composed into the component - and
+// it stays. TS-kernel programs fetch through the perseid kernel's
+// `network/fetch` effect (`network.fetch` in @apsis-io/perseid), which carries
+// the idempotency semantics (host-held cache, exposed fresh/forget verbs).
+// Neither wraps the other, neither is the other's legacy: different runtimes,
+// different contracts, and this path's known limits below are ITS limits.
 //
 // ---------------------------------------------------------------------------
 //
