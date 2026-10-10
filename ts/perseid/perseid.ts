@@ -2736,7 +2736,37 @@ export type RaceEff = {
  * name functions, and collapsing them would force a `ReturnType` at whichever
  * end lost.
  */
-export type YieldOf<S> = S extends Step<infer E, any> ? E : never
+export type YieldOf<S> = S extends () => Step<infer E, any>
+  ? E
+  : S extends Step<infer E, any>
+    ? E
+    : never
+
+/**
+ * Whether a step's yield type carries an effect marked with `wit` - the
+ * type-level form of the kernel's capability derivation, as a conformance
+ * check any builder can run.
+ *
+ * The kernel confers a capability only on programs whose DERIVED capabilities
+ * name its interface, and the derivation reads the yield TYPE through
+ * `defineStep` - whose contextual typing nearly widens a fresh marker to
+ * `unknown` (network.fetch, 2026-10-10: two naive inference patterns said the
+ * marker was lost when it was present). This type is the probe that survived:
+ * unmarked effects (which carry no `wit` key at all) are excluded first, the
+ * remainder matched on the literal, and the answer is fail-closed both ways -
+ * a step that does not yield the effect derives `false`, exactly as the gate
+ * does.
+ *
+ * The conformance test (`perseid.test.ts`, "every effect builder derives
+ * exactly its own capability") runs this over EVERY builder in both
+ * directions, so a new builder whose marker does not survive `defineStep`
+ * dies in the suite rather than on the cluster.
+ */
+export type DerivesCapability<S, W extends Wit> = [
+  Extract<Exclude<YieldOf<S>, { readonly wit?: never }>, { readonly wit?: W }>,
+] extends [never]
+  ? false
+  : true
 
 /** What a `Step` returns — `Outcome` for a step, the sub-result inside a `group`. */
 export type ReturnOf<S> = S extends Step<any, infer R> ? R : never

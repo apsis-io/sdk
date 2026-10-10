@@ -515,6 +515,37 @@ mod tests {
         );
     }
 
+    // ***THE VALUE-PARAM SHAPE TABLE, ENFORCED BY COERCION.*** The ts twin is
+    // ts/perseid/shapes.test.ts (compile-time probes, one positive and one
+    // negative per row); when a row changes there, change it here in the same
+    // commit - the two tables are the two producers of one vocabulary, and the
+    // drift this catches is real: ts fieldNe widened to scalars while
+    // field_ne stayed i64, and every string-field predicate died ts-side.
+    // Declared rows (rust view): field_ne numeric, field_is ScalarValue,
+    // field_no_longer FieldValue, pinned Hop{FieldValue}, count_ne and
+    // count_ne_field i64, any_pods/no_pods &str.
+    #[test]
+    fn shapes_match_the_declared_table() {
+        let d = path::ns("default").deployments("web");
+
+        // fn-pointer coercion fails to compile if a signature widens or
+        // narrows. A generic fn does not coerce, so field_is (impl
+        // ScalarValue) is pinned by its call arms below instead.
+        let _numeric: fn(&ApiPath, &str, i64) -> Resume = field_ne;
+        let _no_longer: fn(&ApiPath, &str, FieldValue<'_>) -> Resume = field_no_longer;
+        let _pinned: fn(&[Hop<'_>], Resume) -> Resume = pinned;
+        let _count: fn(&str, i64) -> Resume = count_ne;
+        let _count_field: fn(&str, &ApiPath) -> Resume = count_ne_field;
+        let _any: fn(&str) -> Resume = any_pods;
+        let _none: fn(&str) -> Resume = no_pods;
+
+        // The scalar home, pinned by its call arms:
+        let _is_text = field_is(&d, "data.mode", "stream");
+        let _is_bool = field_is(&d, "spec.unschedulable", true);
+        let _ = (_no_longer(&d, "spec.replicas", FieldValue::Int(2)), _is_text, _is_bool);
+        let _ = (_numeric, _pinned, _count, _count_field, _any, _none);
+    }
+
     // ***THE EQUIVALENCE ARM.*** Autoderivation is adoptable only if it emits
     // what a correct hand-written resume emitted; otherwise every parked
     // program's wake behaviour changes silently.

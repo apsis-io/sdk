@@ -57,6 +57,7 @@ import {
   type Canonical,
   type Wit,
   type KnownWit,
+  type DerivesCapability,
   type EnsureArgs,
   type EnsureBodyArgs,
   cleanupDone,
@@ -78,6 +79,13 @@ import {
   WIT_OBSERVE,
   WIT_ENSURE,
   WIT_NETWORK_FETCH,
+  WIT_OBSERVE_CLUSTER,
+  WIT_STATUS,
+  WIT_DELETE,
+  WIT_CREATE,
+  WIT_CARRY,
+  WIT_WOKE,
+  WIT_TYPES,
 } from './perseid'
 
 const WEB = path.ns('default').deployments('web')
@@ -763,14 +771,9 @@ test('network.fetch yields the marked effect; the verbs ride the args', () => {
   expect(first.args).toEqual({ url: 'https://example.test/metrics' })
   // ***THE MARKER LIVES IN THE TYPE, NOT THE INSTANCE.*** Effect carries
   // readonly wit?: W for the derive walk; the runtime instance is op+args
-  // only. Both halves pinned: the full shape by assignment, the wit literal
-  // by the house conditional.
-  const _theYieldCarriesTheMarker: {
-    op: 'fetch'
-    args: { url: string; fresh?: boolean; forget?: boolean }
-    wit?: typeof WIT_NETWORK_FETCH
-  } = undefined as YieldOf<typeof step>
-  void _theYieldCarriesTheMarker
+  // only. The conditional probe is real now that YieldOf unwraps thunks -
+  // under the old thunk-blind YieldOf it was MARKED vacuously (never extends
+  // everything), which is exactly the trap this pin exists to keep shut.
   type MarkedProbe = YieldOf<typeof step> extends {
     readonly op: 'fetch'
     readonly args: { url: string; fresh?: boolean; forget?: boolean }
@@ -807,3 +810,115 @@ test('network.fetch runs through runStep; the verbs reach the host', () => {
   expect(verbs).toEqual([{ url: 'https://example.test/metrics', fresh: true }])
   expect(outcome.o).toBe('quiesce')
 })
+
+// ⭐ THE DERIVATION CONFORMANCE HARNESS, RUN OVER EVERY BUILDER. The kernel
+// confers capabilities from the DERIVED set, and the derivation reads the
+// yield TYPE through defineStep - whose contextual typing nearly widened
+// network.fetch's fresh marker to unknown (2026-10-10; DerivesCapability is
+// the probe that survived). Every builder is pinned in BOTH directions: it
+// derives its own id, and it does not derive a neighbour's.
+//
+// ⚠ ***ONE STEP PER BUILDER, DELIBERATELY.*** A first draft stacked all
+// thirteen effects into ONE step and the probe collapsed to false for every
+// id - not a marker loss, but TypeScript's union inference giving up through
+// the contextual defineStep at ~13 delegates (verified: 6 ✓, 7 ✓, and every
+// 12-member leave-one-out ✓; only the full 13 fell). Real programs sit well
+// under that, and the KERNEL's derive is its own compiler's walk - but the
+// width cliff is flagged to kinetics-main regardless, because if their walk
+// has the same shape, a very wide program derives NOTHING and fails the gate
+// silently. Until that is answered, one step per builder is the conformance.
+const _deps = path.ns('default').deployments('web')
+const _pv = path.clusterCore('v1', 'persistentvolumes', 'pv-x')
+const _coll = path.ns('default').collectionOf('apps', 'v1', 'deployments')
+
+const observeStep = defineStep(function* () {
+  yield* reconcile.observe<string>()(_deps)
+  return terminate
+})
+const observeClusterStep = defineStep(function* () {
+  yield* reconcile.observeCluster<string>()(_pv)
+  return terminate
+})
+const countStep = defineStep(function* () {
+  yield* reconcile.count()('app=api')
+  return terminate
+})
+const enumerateStep = defineStep(function* () {
+  yield* reconcile.enumerate<string>()(_coll)
+  return terminate
+})
+const nowStep = defineStep(function* () {
+  yield* reconcile.now()()
+  return terminate
+})
+const ensureStep = defineStep(function* () {
+  yield* reconcile.ensure()({ path: _deps, field: 'spec.replicas', value: 2 })
+  return terminate
+})
+const deleteStep = defineStep(function* () {
+  yield* reconcile.delete()(_deps)
+  return terminate
+})
+const createStep = defineStep(function* () {
+  yield* reconcile.create()({ path: _deps, body: [] })
+  return terminate
+})
+const statusStep = defineStep(function* () {
+  yield* reconcile.status()({ type: 'Ready', status: 'True', reason: 'r', message: 'm' })
+  return terminate
+})
+const carryStep = defineStep(function* () {
+  yield* reconcile.carry()()
+  return terminate
+})
+const heldStep = defineStep(function* () {
+  yield* reconcile.held()()
+  return terminate
+})
+const causeStep = defineStep(function* () {
+  yield* reconcile.cause()()
+  return terminate
+})
+const fetchStep = defineStep(function* () {
+  yield* network.fetch('https://example.test/metrics')
+  return terminate
+})
+
+// Own id derives - all thirteen, one assertion each.
+const _c1: DerivesCapability<typeof observeStep, typeof WIT_OBSERVE> = true
+const _c2: DerivesCapability<typeof observeClusterStep, typeof WIT_OBSERVE_CLUSTER> = true
+const _c3: DerivesCapability<typeof countStep, typeof WIT_OBSERVE> = true
+const _c4: DerivesCapability<typeof enumerateStep, typeof WIT_OBSERVE> = true
+const _c5: DerivesCapability<typeof nowStep, typeof WIT_OBSERVE> = true
+const _c6: DerivesCapability<typeof ensureStep, typeof WIT_ENSURE> = true
+const _c7: DerivesCapability<typeof deleteStep, typeof WIT_DELETE> = true
+const _c8: DerivesCapability<typeof createStep, typeof WIT_CREATE> = true
+const _c9: DerivesCapability<typeof statusStep, typeof WIT_STATUS> = true
+const _c10: DerivesCapability<typeof carryStep, typeof WIT_CARRY> = true
+const _c11: DerivesCapability<typeof heldStep, typeof WIT_WOKE> = true
+const _c12: DerivesCapability<typeof causeStep, typeof WIT_WOKE> = true
+const _c13: DerivesCapability<typeof fetchStep, typeof WIT_NETWORK_FETCH> = true
+
+// Fail-closed the other way: nobody derives a neighbour's grant, and the
+// types-only interface (which declares nothing) is derived by nothing.
+const _x1: DerivesCapability<typeof observeStep, typeof WIT_ENSURE> = false
+const _x2: DerivesCapability<typeof observeStep, typeof WIT_NETWORK_FETCH> = false
+const _x3: DerivesCapability<typeof fetchStep, typeof WIT_OBSERVE> = false
+const _x4: DerivesCapability<typeof fetchStep, typeof WIT_ENSURE> = false
+void _c1
+void _c2
+void _c3
+void _c4
+void _c5
+void _c6
+void _c7
+void _c8
+void _c9
+void _c10
+void _c11
+void _c12
+void _c13
+void _x1
+void _x2
+void _x3
+void _x4
