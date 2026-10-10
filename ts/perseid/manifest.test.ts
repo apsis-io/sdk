@@ -2,32 +2,32 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { expect, test } from 'bun:test'
-import { perseidTS, toYaml, type PerseidTSManifest, type PerseidTSManifestInput } from './manifest.js'
+import { perseid, toYaml, type PerseidManifest, type PerseidManifestInput } from './manifest.js'
 
+// ***THE GOLDENS ARE THE CONTRACT WITH kubectl.*** This module is the only
+// producer of kernel-Perseid manifests - the CRD is the only other voice - so
+// the rendered text is pinned exactly, and every refusal quotes the words the
+// host itself uses (ParseStepSource, the CRD's CEL, admission.go).
+//
 // ⭐ ***EVERY GOLDEN IS ALSO PARSE-BACK VERIFIED.*** The text pins the layout;
 // Bun.YAML.parse proves the same bytes read back as the object that went in -
 // a golden that renders pretty but parses wrong would die here, not in
 // someone's `kubectl apply`.
-const roundTrips = (m: PerseidTSManifest): void => {
+const roundTrips = (m: PerseidManifest): void => {
   expect(Bun.YAML.parse(toYaml(m))).toEqual(JSON.parse(JSON.stringify(m)))
 }
 
-// ***THE GOLDENS ARE THE CONTRACT WITH kubectl.*** This module is the first
-// producer of PerseidTS manifests anywhere - the CRD is the only other voice -
-// so the rendered text is pinned exactly, and every refusal quotes the words
-// admission itself uses.
-
-const minimal = (): PerseidTSManifestInput => ({
+const minimal = (): PerseidManifestInput => ({
   metadata: { name: 'canary', namespace: 'prod' },
   spec: { step: 'export function* run() {}\n' },
 })
 
 test('the minimal inline manifest renders in CRD presentation order', () => {
-  const m = perseidTS(minimal())
+  const m = perseid(minimal())
   roundTrips(m)
   expect(toYaml(m)).toBe(
     `apiVersion: perseid.apsis/v1
-kind: PerseidTS
+kind: Perseid
 metadata:
   name: canary
   namespace: prod
@@ -39,14 +39,14 @@ spec:
 })
 
 test('the stepRef form renders the image coordinate bare - Bun.YAML knows sha256:abcd is colon-safe', () => {
-  const m = perseidTS({
+  const m = perseid({
     metadata: { name: 'canary', namespace: 'prod' },
     spec: { stepRef: { image: 'registry.example/ops/canary@sha256:abcd' } },
   })
   roundTrips(m)
   expect(toYaml(m)).toBe(
     `apiVersion: perseid.apsis/v1
-kind: PerseidTS
+kind: Perseid
 metadata:
   name: canary
   namespace: prod
@@ -57,20 +57,20 @@ spec:
   )
 })
 
-test('the full field set renders labels sorted and optionals in place', () => {
-  const m = perseidTS({
+test('the full field set renders engine, labels sorted and optionals in place', () => {
+  const m = perseid({
     metadata: {
       name: 'scaler',
       namespace: 'prod',
       labels: { tier: 'web', 'app.kubernetes.io/name': 'scaler' },
       annotations: { 'perseid.apsis.io/capabilities': 'observe,ensure' },
     },
-    spec: { step: 'export function* run() {}\n', backstopMs: 90000, suspend: false },
+    spec: { step: 'export function* run() {}\n', engine: 'kinetics', backstopMs: 90000, suspend: false },
   })
   roundTrips(m)
   expect(toYaml(m)).toBe(
     `apiVersion: perseid.apsis/v1
-kind: PerseidTS
+kind: Perseid
 metadata:
   name: scaler
   namespace: prod
@@ -82,6 +82,7 @@ metadata:
 spec:
   step: |
     export function* run() {}
+  engine: kinetics
   backstopMs: 90000
   suspend: false
 `,
@@ -102,12 +103,12 @@ test('a hostile step source survives the literal block byte for byte', () => {
     '  key: value',
     '  done}',
   ].join('\n')
-  const m = perseidTS({ metadata: { name: 'warden', namespace: 'prod' }, spec: { step: source } })
+  const m = perseid({ metadata: { name: 'warden', namespace: 'prod' }, spec: { step: source } })
   roundTrips(m)
   const yaml = toYaml(m)
   expect(yaml).toBe(
     `apiVersion: perseid.apsis/v1
-kind: PerseidTS
+kind: Perseid
 metadata:
   name: warden
   namespace: prod
@@ -124,54 +125,80 @@ spec:
 })
 
 test('multiple trailing newlines keep-chomp so the source is not silently clipped', () => {
-  const yaml = toYaml(perseidTS({ metadata: { name: 'a', namespace: 'b' }, spec: { step: 'x\n\n' } }))
+  const yaml = toYaml(perseid({ metadata: { name: 'a', namespace: 'b' }, spec: { step: 'x\n\n' } }))
   expect(yaml).toContain('step: |+')
   expect(yaml).toContain('    x\n\n')
 })
 
-// The refusals quote admission's own words where the host has words
-// (ParseStepSource) and name the rule where it does not (field.ts's select).
+// The refusals quote the host where the host has words (ParseStepSource minus
+// its `stepref:` log prefix - the same sentences the CRD's CEL carries - and
+// admission.go's engine sentence) and name the rule where it does not.
 test('the refusals', () => {
   const meta = { name: 'canary', namespace: 'prod' }
   expect(() =>
-    perseidTS({ metadata: meta, spec: { step: 'x', stepRef: { image: 'y' } } as unknown as PerseidTSManifestInput['spec'] }),
-  ).toThrow('spec.step and spec.stepRef are mutually exclusive; set one.')
-  expect(() => perseidTS({ metadata: meta, spec: {} as PerseidTSManifestInput['spec'] })).toThrow(
-    'neither spec.step nor spec.stepRef is set - a manifest with no program is not a program.',
-  )
-  expect(() => perseidTS({ metadata: meta, spec: { step: '' } })).toThrow(
+    perseid({ metadata: meta, spec: { step: 'x', stepRef: { image: 'y' } } as unknown as PerseidManifestInput['spec'] }),
+  ).toThrow('spec.step and spec.stepRef are mutually exclusive; set one')
+  expect(() => perseid({ metadata: meta, spec: {} as PerseidManifestInput['spec'] })).toThrow(
     'neither spec.step nor spec.stepRef is set',
   )
-  expect(() => perseidTS({ metadata: { name: 'Canary', namespace: 'prod' }, spec: { step: 'x' } })).toThrow(
+  expect(() => perseid({ metadata: meta, spec: { step: '' } })).toThrow(
+    'spec.step is missing or not a string - a Perseid object without a step (or component) is not a kernel program',
+  )
+  expect(() => perseid({ metadata: meta, spec: { step: 42 } as unknown as PerseidManifestInput['spec'] })).toThrow(
+    'spec.step is missing or not a string',
+  )
+  expect(() => perseid({ metadata: { name: 'Canary', namespace: 'prod' }, spec: { step: 'x' } })).toThrow(
     'DNS-1123 subdomain',
   )
-  expect(() => perseidTS({ metadata: { name: 'canary', namespace: 'pro.d' }, spec: { step: 'x' } })).toThrow(
+  expect(() => perseid({ metadata: { name: 'canary', namespace: 'pro.d' }, spec: { step: 'x' } })).toThrow(
     'DNS-1123 label',
   )
   expect(() =>
-    perseidTS({ metadata: meta, spec: { step: 'x', backstopMs: 0 } }),
+    perseid({ metadata: meta, spec: { step: 'x', backstopMs: 0 } }),
   ).toThrow('0 is the operator default in the CRD; omit the field to say that.')
   expect(() =>
-    perseidTS({ metadata: meta, spec: { step: 'x', backstopMs: 1.5 } }),
+    perseid({ metadata: meta, spec: { step: 'x', backstopMs: 1.5 } }),
   ).toThrow('positive integer')
   expect(() =>
-    perseidTS({ metadata: meta, spec: { step: 'x', suspend: 'yes' } as unknown as PerseidTSManifestInput['spec'] }),
+    perseid({ metadata: meta, spec: { step: 'x', suspend: 'yes' } as unknown as PerseidManifestInput['spec'] }),
   ).toThrow('spec.suspend must be a boolean.')
 })
 
+// ⛔ THE ENGINE REFUSALS, WORD FOR WORD FROM admission.go. trail executes
+// spec.component artifacts; a TS step naming it is refusing the kernel, and
+// the builder says so before admission does. The enum is kinetics|trail -
+// engi corrected the first relay's quickjs/wasmtime.
+test('the engine refusals', () => {
+  const meta = { name: 'canary', namespace: 'prod' }
+  expect(() =>
+    perseid({
+      metadata: meta,
+      spec: { step: 'x', engine: 'trail' } as unknown as PerseidManifestInput['spec'],
+    }),
+  ).toThrow(
+    'spec.engine=trail cannot run this program - trail executes spec.component artifacts, not a TS step; omit spec.engine or declare kinetics',
+  )
+  expect(() =>
+    perseid({
+      metadata: meta,
+      spec: { step: 'x', engine: 'v8' } as unknown as PerseidManifestInput['spec'],
+    }),
+  ).toThrow('spec.engine must be "kinetics" or "trail".')
+})
+
 test('the built object is JSON-ready as-is', () => {
-  const m = perseidTS(minimal())
+  const m = perseid(minimal())
   const parsed = JSON.parse(JSON.stringify(m))
   expect(parsed).toEqual({
     apiVersion: 'perseid.apsis/v1',
-    kind: 'PerseidTS',
+    kind: 'Perseid',
     metadata: { name: 'canary', namespace: 'prod' },
     spec: { step: 'export function* run() {}\n' },
   })
 })
 
 const _typeLevelOnly = () =>
-  perseidTS({
+  perseid({
     metadata: { name: 'canary', namespace: 'prod' },
     // @ts-expect-error - both forms at once is the admission refusal, enforced
     // by the type before any runtime sees it
