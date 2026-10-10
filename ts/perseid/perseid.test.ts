@@ -78,7 +78,7 @@ import {
   unsafeApiPath,
   WIT_OBSERVE,
   WIT_ENSURE,
-  WIT_NETWORK_FETCH,
+  WIT_NETWORK_HTTP,
   WIT_OBSERVE_CLUSTER,
   WIT_STATUS,
   WIT_DELETE,
@@ -753,7 +753,7 @@ test('a configmap address and a string-field predicate, the shape the live refus
 })
 
 // ⛔ THE FETCH GATE + THE IDEMPOTENCY VERBS, PINNED. The kernel confers
-// perseid:network/fetch@0.1.0 only on programs whose derived capabilities name
+// perseid:network/http@0.1.0 only on programs whose derived capabilities name
 // it, and the derivation reads the yield type - so the builder's yields must
 // carry the marker and the args the cache keys on, verbs included. These
 // goldens are that contract.
@@ -777,7 +777,7 @@ test('network.fetch yields the marked effect; the verbs ride the args', () => {
   type MarkedProbe = YieldOf<typeof step> extends {
     readonly op: 'fetch'
     readonly args: { url: string; fresh?: boolean; forget?: boolean }
-    readonly wit?: typeof WIT_NETWORK_FETCH
+    readonly wit?: typeof WIT_NETWORK_HTTP
   }
     ? 'MARKED'
     : 'NOT_MARKED'
@@ -790,8 +790,8 @@ test('network.fetch yields the marked effect; the verbs ride the args', () => {
   expect(third.args).toEqual({ url: 'https://example.test/metrics', forget: true })
 
   // The typed capability: KnownWit knows the network namespace now.
-  const known: KnownWit = WIT_NETWORK_FETCH
-  expect(known).toBe(WIT_NETWORK_FETCH)
+  const known: KnownWit = WIT_NETWORK_HTTP
+  expect(known).toBe(WIT_NETWORK_HTTP)
 })
 
 test('network.fetch runs through runStep; the verbs reach the host', () => {
@@ -897,12 +897,12 @@ const _c9: DerivesCapability<typeof statusStep, typeof WIT_STATUS> = true
 const _c10: DerivesCapability<typeof carryStep, typeof WIT_CARRY> = true
 const _c11: DerivesCapability<typeof heldStep, typeof WIT_WOKE> = true
 const _c12: DerivesCapability<typeof causeStep, typeof WIT_WOKE> = true
-const _c13: DerivesCapability<typeof fetchStep, typeof WIT_NETWORK_FETCH> = true
+const _c13: DerivesCapability<typeof fetchStep, typeof WIT_NETWORK_HTTP> = true
 
 // Fail-closed the other way: nobody derives a neighbour's grant, and the
 // types-only interface (which declares nothing) is derived by nothing.
 const _x1: DerivesCapability<typeof observeStep, typeof WIT_ENSURE> = false
-const _x2: DerivesCapability<typeof observeStep, typeof WIT_NETWORK_FETCH> = false
+const _x2: DerivesCapability<typeof observeStep, typeof WIT_NETWORK_HTTP> = false
 const _x3: DerivesCapability<typeof fetchStep, typeof WIT_OBSERVE> = false
 const _x4: DerivesCapability<typeof fetchStep, typeof WIT_ENSURE> = false
 void _c1

@@ -1855,7 +1855,7 @@ export const WIT_WOKE = 'perseid:reconcile/woke@0.1.0'
  * hand-spelled marker also works (the derivation walk is generic), but the
  * builder is the spelling that cannot misspell.
  */
-export const WIT_NETWORK_FETCH = 'perseid:network/fetch@0.1.0'
+export const WIT_NETWORK_HTTP = 'perseid:network/http@0.1.0'
 
 /** The interfaces this SDK knows. Autocompletion comes from this union. */
 export type KnownWit =
@@ -1868,7 +1868,7 @@ export type KnownWit =
   | typeof WIT_CREATE
   | typeof WIT_CARRY
   | typeof WIT_WOKE
-  | typeof WIT_NETWORK_FETCH
+  | typeof WIT_NETWORK_HTTP
 
 /**
  * The SHAPE of a WIT interface id: `namespace:package/interface@major.minor.patch`.
@@ -3351,7 +3351,7 @@ export function* held(): Generator<Effect<typeof WIT_WOKE, 'held', void>, Held, 
 
 /**
  * Network reads - the `perseid:network` package, deliberately outside
- * `reconcile`: the same reason `WIT_NETWORK_FETCH` carries its own namespace,
+ * `reconcile`: the same reason `WIT_NETWORK_HTTP` carries its own namespace,
  * stated at the grouping level. A network read confers a different grant than
  * a reconcile obligation, so it does not sit under the reconcile name.
  */
@@ -3376,7 +3376,7 @@ export const network = {
    * `fromCache` says which kind you got: eviction is visible, post-hoc.
    *
    * ***USING THE BUILDER IS THE DECLARATION.*** The kernel confers
-   * `perseid:network/fetch@0.1.0` only on programs whose derived capabilities
+   * `perseid:network/http@0.1.0` only on programs whose derived capabilities
    * name it, and the derivation reads the yield type - so yielding this effect
    * makes the capability flow exactly like every other effect's, and a program
    * without it fails closed at the gate (the fail-closed arm is the kernel's; a
@@ -3390,7 +3390,7 @@ export const network = {
     const args: { url: string; fresh?: boolean; forget?: boolean } = { url }
     if (opts?.fresh !== undefined) args.fresh = opts.fresh
     if (opts?.forget !== undefined) args.forget = opts.forget
-    return defineEffect<typeof args, FetchResult>()(WIT_NETWORK_FETCH, 'fetch')(args)
+    return defineEffect<typeof args, FetchResult>()(WIT_NETWORK_HTTP, 'fetch')(args)
   },
 }
 
