@@ -355,6 +355,8 @@ pub fn now() -> Expr<Int> {
 ///                backstop. `listProperties` is now folded into the fingerprint
 ///                - the same remedy as `pathGrammarDigest` in 3, in the third
 ///                place it was needed.
+///     5  2026-10-10  `Fetch(url)` - the network read, the first symbol outside
+///                the reconcile package. Minted fingerprint 4dccb6719572428b.
 /// ```
 ///
 /// ⚠ ***THE HOST AND THIS CONSTANT MUST MOVE TOGETHER, AND THE ORDER IS A TRAP.***
@@ -363,7 +365,7 @@ pub fn now() -> Expr<Int> {
 /// its tree red until a tagged release carries this value, and releasing this
 /// first means a program built here declares a language the fleet's radiant
 /// refuses. Tag the release and bump the host in the same change.
-pub const LANGUAGE_VERSION: u32 = 4;
+pub const LANGUAGE_VERSION: u32 = 5;
 
 // ---------------------------------------------------------------------------
 // Properties.
@@ -760,6 +762,28 @@ pub fn ensure(path: impl PathArg, field: &str, value: impl EnsureValue) -> Expr<
 // than the verb. The AUTHORITY is unchanged - `spec.writes` names the object,
 // and for a cluster object that declaration is the ONLY bound, since there is no
 // namespace to compare against.
+
+
+/// `Fetch(url) -> effect`. The NETWORK READ - the first symbol outside the
+/// reconcile package (`perseid:network`), and the only one whose fulfilment is
+/// not an obligation: the kernel's cache serves it idempotently (retries are
+/// invisible; `fresh`/`forget` expose the invalidation) and the response is
+/// recorded on the program's own status.
+///
+/// GET-only; the url is the whole argument.
+///
+/// ```
+/// use perseid::expr::fetch;
+///
+/// assert_eq!(
+///     fetch("https://metrics.internal/ready").as_str(),
+///     r#"Fetch("https://metrics.internal/ready")"#
+/// );
+/// ```
+#[must_use]
+pub fn fetch(url: &str) -> Expr<Effect> {
+    Expr::new(format!("Fetch({})", lit(url)))
+}
 
 
 /// `OwnedBy(path) -> path`. The CONTROLLER owner of an object.

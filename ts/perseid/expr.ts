@@ -232,8 +232,13 @@ const intText = (v: IntLike): string => (typeof v === 'number' ? String(Math.tru
  *                    table cannot see, alongside the field-path grammar - so
  *                    the host now folds `listProperties` into the fingerprint
  *                    for the same reason version 3 folded in the parser.
+ *     5  2026-10-10  `Fetch(url)` - THE NETWORK READ, and the first symbol
+ *                    outside the reconcile package (perseid:network): the
+ *                    kernel effect landed LIVE before the symbol existed, so
+ *                    the capability was real while the language could not say
+ *                    it. Minted fingerprint 4dccb6719572428b.
  */
-export const LANGUAGE_VERSION = 4
+export const LANGUAGE_VERSION = 5
 
 // ---------------------------------------------------------------------------
 // Symbols. One per entry in aperture's `signatures` table.
