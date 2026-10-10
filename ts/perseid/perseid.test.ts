@@ -801,7 +801,7 @@ test('network.fetch runs through runStep; the verbs reach the host', () => {
   const outcome = runStep(step, {
     fetch: (args) => {
       verbs.push(args)
-      return { status: 200, body: 'metrics-body' }
+      return { status: 200, body: 'metrics-body', fromCache: false }
     },
   })
   expect(verbs).toEqual([{ url: 'https://example.test/metrics', fresh: true }])

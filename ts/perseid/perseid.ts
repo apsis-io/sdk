@@ -3342,7 +3342,8 @@ export const network = {
    *
    * Omit both and the idempotent default holds. The cache is LRU-bounded at
    * 64 entries per program and survives passes; an operator restart loses it,
-   * which is a transparent re-fetch, never a wrong answer.
+   * which is a transparent re-fetch, never a wrong answer - and the result's
+   * `fromCache` says which kind you got: eviction is visible, post-hoc.
    *
    * ***USING THE BUILDER IS THE DECLARATION.*** The kernel confers
    * `perseid:network/fetch@0.1.0` only on programs whose derived capabilities
@@ -3367,6 +3368,14 @@ export const network = {
 export interface FetchResult {
   readonly status: number
   readonly body: string
+  /**
+   * Where the response came from. `true` = the cache served it (idempotent
+   * retry - the origin was not touched). `false` = re-dialed, which covers
+   * the first-ever fetch, a post-`forget` fetch, and the post-eviction
+   * fetch - so LRU eviction SURFACES here, post-hoc, instead of hiding in
+   * the cache.
+   */
+  readonly fromCache: boolean
 }
 
 /**
