@@ -26,7 +26,6 @@ import { identity } from "@apsis-io/periapsis-sdk/identity.js";
 | `checkpoint.ts` | `periapsis:component/checkpoint@0.1.0` | any |
 | `exec.ts` | `periapsis:host/exec@0.1.0` | **p3-only** (`stream<u8>`, async `wait`) |
 | `magic.ts` | `periapsis:magic/handler@0.1.0` | any (`handle` is sync) |
-| `fetch.ts` | `dwarf:fetch/client` (separate composed component) | any, `async`-only call site |
 | `console.ts` | dwarf's built-in `consoleP3` global (pinned, not the plain `console`) | **p3-only** |
 | `sockets.ts` | `wasi:sockets/types@0.3.0` (not periapsis-specific) | **p3-only** |
 | `websocket.ts` | built on `sockets.ts` + `sha1.ts` | **p3-only**, command-style component only (no `wasi:http/service`) |
@@ -79,9 +78,6 @@ class SeamError extends Error { readonly tag: SeamErrorTag }
 seamUnavailable() / seamRejected() / seamTooLarge(): SeamError
 definePlugProvider(handle: (req: Uint8Array) => Uint8Array): { handle: (req: Uint8Array) => Uint8Array }
 callSeam(hostHandle: (req: Uint8Array) => Uint8Array, req: Uint8Array): Uint8Array
-
-// fetch.ts (async-export-only; needs wac plug compose, see README)
-fetch(input: string | Request, init?: RequestInit): Promise<Response>
 
 // console.ts — a pinned binding to dwarf's own consoleP3 global (real,
 // separately-built by dwarf, not a cast of the plain `console`)
@@ -149,10 +145,6 @@ concatBytes(chunks: Uint8Array[]): Uint8Array
 - **`websocket.ts` needs a command-style component**, not `wasi:http/service`
   (`trail --serve`) — `wasi:http` has no socket-hijack/upgrade primitive, so
   a WS server's own `run()` must bind/listen/accept directly.
-- **`fetch.ts` needs a build-time compose step**, not just an import — see
-  README's "Outbound HTTP" section for the full `wac plug` recipe. Run the
-  *composed* output; the plain one has an unsatisfied `dwarf:fetch/client`
-  import and won't instantiate.
 - **`magic.ts`'s `handle` is sync** — a provider can't do async I/O through
   this seam at all (use `exec.ts` for that shape instead).
 

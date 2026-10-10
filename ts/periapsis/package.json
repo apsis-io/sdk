@@ -1,6 +1,6 @@
 {
   "name": "@apsis-io/periapsis-sdk",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "TypeScript SDK for Periapsis's periapsis:* WASI component-model interfaces (identity, config, log, metrics, status, checkpoint, exec, magic-seam RPC) - for WASM components built with dwarf (WASI 0.3/Preview 3, QuickJS) and run under the trail runtime.",
   "keywords": [
     "periapsis",
@@ -24,8 +24,6 @@
     "*.ts",
     "!*.test.ts",
     "types",
-    "fetch-provider",
-    "!fetch-provider/*.wasm",
     "README.md",
     "CHEATSHEET.md",
     "LICENSE"

@@ -9,10 +9,7 @@ for components built with [dwarf](https://github.com/apsis-io/dwarf)
 hand-copied `src/periapsis.ts` per `examples/wasm/*` example into one shared
 module, plus two new pieces (`exec`, `magic`) that had no wrapper before.
 
-Published as `@apsis-io/periapsis-sdk`. It ships no `.wasm`: `fetch()` needs a
-separate component that the package deliberately does not carry, only the recipe
-to build it (`fetch-provider/build.sh`, which needs a dwarf checkout). Every
-other module works from the package alone. It ships TypeScript SOURCE rather than
+Published as `@apsis-io/periapsis-sdk`. Every module works from the package alone. It ships TypeScript SOURCE rather than
 built output - dwarf componentizes each consumer's own Vite bundle, so there is
 nothing to compile here - and its `exports` map resolves `./x.js` to `./x.ts`,
 which is why the imports below carry a `.js` suffix that no `.js` file has:
@@ -40,7 +37,7 @@ Then depend on the copy by NAME, so imports do not change:
 "@apsis-io/periapsis-sdk": "file:vendor/periapsis-sdk"
 ```
 
-Copies the whole SDK (every module, `types/`, `fetch-provider/`) into
+Copies the whole SDK (every module, `types/`) into
 `vendor/periapsis-sdk/` in your own tree; re-run it to pick up upstream
 changes (it's a snapshot copy, not a symlink - `--delete`d and replaced each
 run, same model as the WIT sync script). Update your imports to point at
@@ -99,9 +96,6 @@ import it never called).
   (ADR-0028) - `handle` is a plain sync WIT func, not `async func`, so a
   provider can't do async I/O through this seam (see `exec.ts` for the
   subprocess-shaped alternative).
-- **`fetch.ts`** - `fetch(input, init) -> Response`, a standard outbound
-  `fetch()`. Unlike every other module here, this one needs a build-time
-  compose step, not just an import - see "Outbound HTTP (`fetch.ts`)" below.
 - **`console.ts`** - `consoleP3`, a typed, documented binding to dwarf's own
   pinned `consoleP3` global - see the `console` section below for why it's
   pinned rather than just re-exporting the plain `console`.
@@ -208,50 +202,6 @@ gap/feature request; dwarf-main confirmed it as an upstream wkg/wit-parser
 dependency-resolution constraint, not a dwarf bug it can paper over, and
 shipped the `log`/`info`/`debug`/`warn`/`error` p3-fallback described above in
 response - both independently verified live against a fresh dwarf build.)
-
-## Outbound HTTP (`fetch.ts`)
-
-`fetch.ts` wraps `dwarf:fetch/client` (a SEPARATE component,
-`fetch-provider/fetch-provider.wasm`, built from dwarf's own
-`examples/fetch-provider` - not part of dwarf itself, adapted from that
-example's own `fetch.js` DX wrapper). Unlike every other module in this
-package, importing it isn't enough on its own - `dwarf:fetch/client`'s
-implementation needs `wit.Future`/`wit.Stream` type indices that only make
-sense inside `fetch-provider`'s own fixed, minimal world, so it has to be
-composed in as a separate component at build time:
-
-1. Vendor `fetch-provider/package.wit`'s `interface client {...}` block into
-   your own `wit/deps/dwarf-fetch/package.wit`, and
-   `import dwarf:fetch/client;` in your world (auto-vendoring also works -
-   the global wkg config's `dwarf` namespace mapping, alongside `periapsis`,
-   points at the same local registry `wit/.registry/`, which includes a copy
-   of this interface).
-2. Build with `--polyfill fetch-classes` (for `Request`/`Response`/`Headers`),
-   then compose `fetch-provider.wasm` in via `wac plug`:
-   ```bash
-   dwarf --wit wit --js dist/main.js -o my-app.wasm --polyfill fetch-classes
-   wac plug --plug .@apsis-io/periapsis-sdk/fetch-provider/fetch-provider.wasm my-app.wasm -o my-app.composed.wasm
-   ```
-   Run the COMPOSED output, not the plain one - the plain one has an
-   unsatisfied `dwarf:fetch/client` import and fails to instantiate.
-
-`fetch` is `async` end to end - only callable from an async export.
-`fetch-provider/build.sh` rebuilds `fetch-provider.wasm` from dwarf's own
-example (`$DWARF_REPO`, defaults to `~/git/dwarf`) - re-run it when picking
-up a newer dwarf.
-
-Live-validated end to end: a real POST with a body, through `fetch.ts`,
-composed via `wac plug`, run on `trail --p3` against a real local HTTP
-server - correct status/body round-trip. (One real dead end along the way,
-worth recording: an empty response body first looked like a `fetch-provider`
-or trail bug, reproduced identically under raw `wasmtime` too - turned out to
-be the test's OWN throwaway HTTP server not decoding `Transfer-Encoding:
-chunked` request bodies, nothing to do with `fetch-provider`/trail at all.)
-
-Known limits (inherited from `fetch-provider`, not fixed here): response
-bodies are read with a single `read(65536)` call, not a drain loop - bodies
-larger than 64KB are truncated. `request.url` is parsed with a small regex
-(`http(s)://host[:port]/path?query`), not full WHATWG URL parsing.
 
 ## What this doesn't replace
 
