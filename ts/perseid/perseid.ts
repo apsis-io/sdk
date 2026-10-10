@@ -3327,27 +3327,40 @@ export function* held(): Generator<Effect<typeof WIT_WOKE, 'held', void>, Held, 
  */
 export const network = {
   /**
-   * `network.fetch()`, then `yield* fetch(url) -> {status, body}`. A GET-only
-   * network read, idempotent-transparent by the kernel's per-pass memo: every
-   * re-fetch of the same URL within one pass returns the SAME response -
-   * retries are invisible, the origin takes one hit per pass - and a new pass
-   * is a new epoch that may see a changed world. The response is verbatim: no
-   * caching across passes, no rewriting.
+   * `network.fetch(url, opts?) -> {status, body}`. A GET-only network read
+   * under the kernel's IDEMPOTENCY VERBS, and the idempotency is AROUND
+   * epochs, not hidden inside one: the response cache is the HOST's,
+   * program-scoped, SURVIVING passes - a wake re-drive returns the cached
+   * response, so a program cannot tell one fetch from N however many passes
+   * pass. Verbatim always: no rewriting, no header invention.
+   *
+   * The two verbs are the EXPOSED invalidation (engi: the SDK exposes it
+   * instead of the engine hiding it):
+   *
+   *   `fresh: true`   force a re-read and UPDATE the cache entry
+   *   `forget: true`  drop the entry - the next plain fetch re-dials
+   *
+   * Omit both and the idempotent default holds. The cache is LRU-bounded at
+   * 64 entries per program and survives passes; an operator restart loses it,
+   * which is a transparent re-fetch, never a wrong answer.
    *
    * ***USING THE BUILDER IS THE DECLARATION.*** The kernel confers
    * `perseid:network/fetch@0.1.0` only on programs whose derived capabilities
-   * name it, and the derivation reads the yield type - so `yield*
-   * network.fetch(url)` makes the capability flow exactly like every other
-   * effect's, and a program without it fails closed at the gate (the
-   * fail-closed arm is the kernel's; a raw-yield program that hand-spells the
-   * marker also works, but the builder is the spelling that cannot misspell).
+   * name it, and the derivation reads the yield type - so yielding this effect
+   * makes the capability flow exactly like every other effect's, and a program
+   * without it fails closed at the gate (the fail-closed arm is the kernel's; a
+   * raw-yield program that hand-spells the marker also works, but the builder
+   * is the spelling that cannot misspell).
    *
-   * Shape: GET-only, one URL argument, `{status, body}` back - the body is a
-   * string, capped at 1MiB with the breach DETECTED rather than silently
-   * truncated. The memo is the kernel's (per pass, per URL); the builder is
-   * stateless, so there is nothing here to invalidate.
+   * Shape: GET-only, `{status, body}` back - the body is a string, capped at
+   * 1MiB with the breach DETECTED rather than silently truncated.
    */
-  fetch: () => defineEffect<{ url: string }, FetchResult>()(WIT_NETWORK_FETCH, 'fetch'),
+  fetch: (url: string, opts?: { fresh?: boolean; forget?: boolean }) => {
+    const args: { url: string; fresh?: boolean; forget?: boolean } = { url }
+    if (opts?.fresh !== undefined) args.fresh = opts.fresh
+    if (opts?.forget !== undefined) args.forget = opts.forget
+    return defineEffect<typeof args, FetchResult>()(WIT_NETWORK_FETCH, 'fetch')(args)
+  },
 }
 
 /** What `network.fetch` resolves to: the origin's status and body, verbatim. */

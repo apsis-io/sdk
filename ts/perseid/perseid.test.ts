@@ -744,36 +744,36 @@ test('a configmap address and a string-field predicate, the shape the live refus
   )
 })
 
-// ⛔ THE FETCH GATE, PINNED. The kernel confers perseid:network/fetch@0.1.0
-// only on programs whose derived capabilities name it, and the derivation
-// reads the yield type - so the builder's yields must carry the marker and
-// the args the engine's memo keys on. These goldens are that contract.
-test('network.fetch yields the marked effect the kernel derives from', () => {
-  const fetch = network.fetch()
+// ⛔ THE FETCH GATE + THE IDEMPOTENCY VERBS, PINNED. The kernel confers
+// perseid:network/fetch@0.1.0 only on programs whose derived capabilities name
+// it, and the derivation reads the yield type - so the builder's yields must
+// carry the marker and the args the cache keys on, verbs included. These
+// goldens are that contract.
+test('network.fetch yields the marked effect; the verbs ride the args', () => {
   const step = defineStep(function* () {
-    yield* fetch({ url: 'https://example.test/metrics' })
+    yield* network.fetch('https://example.test/metrics')
+    yield* network.fetch('https://example.test/metrics', { fresh: true })
+    yield* network.fetch('https://example.test/metrics', { forget: true })
     return terminate
   })
 
   const it = step()
-  const yielded = it.next().value as { op?: string; args?: { url: string } }
-  expect(yielded.op).toBe('fetch')
-  expect(yielded.args).toEqual({ url: 'https://example.test/metrics' })
-  expect(WIT_NETWORK_FETCH).toBe('perseid:network/fetch@0.1.0')
-
+  const first = it.next().value as { op?: string; args?: Record<string, unknown>; wit?: string }
+  expect(first.op).toBe('fetch')
+  expect(first.args).toEqual({ url: 'https://example.test/metrics' })
   // ***THE MARKER LIVES IN THE TYPE, NOT THE INSTANCE.*** Effect carries
   // readonly wit?: W for the derive walk; the runtime instance is op+args
   // only. Both halves pinned: the full shape by assignment, the wit literal
-  // by the house Assert.
+  // by the house conditional.
   const _theYieldCarriesTheMarker: {
     op: 'fetch'
-    args: { url: string }
+    args: { url: string; fresh?: boolean; forget?: boolean }
     wit?: typeof WIT_NETWORK_FETCH
   } = undefined as YieldOf<typeof step>
   void _theYieldCarriesTheMarker
   type MarkedProbe = YieldOf<typeof step> extends {
     readonly op: 'fetch'
-    readonly args: { url: string }
+    readonly args: { url: string; fresh?: boolean; forget?: boolean }
     readonly wit?: typeof WIT_NETWORK_FETCH
   }
     ? 'MARKED'
@@ -781,25 +781,29 @@ test('network.fetch yields the marked effect the kernel derives from', () => {
   const _probe: MarkedProbe = 'MARKED'
   void _probe
 
+  const second = it.next().value as { args?: Record<string, unknown> }
+  expect(second.args).toEqual({ url: 'https://example.test/metrics', fresh: true })
+  const third = it.next().value as { args?: Record<string, unknown> }
+  expect(third.args).toEqual({ url: 'https://example.test/metrics', forget: true })
+
   // The typed capability: KnownWit knows the network namespace now.
   const known: KnownWit = WIT_NETWORK_FETCH
   expect(known).toBe(WIT_NETWORK_FETCH)
 })
 
-test('network.fetch runs through runStep with the kernel response shape', () => {
-  const fetch = network.fetch()
+test('network.fetch runs through runStep; the verbs reach the host', () => {
   const step = defineStep(function* () {
-    const res = yield* fetch({ url: 'https://example.test/metrics' })
+    const res = yield* network.fetch('https://example.test/metrics', { fresh: true })
     return quiesce(fieldNe(WEB, 'spec.replicas', res.status))
   })
 
-  const dials: string[] = []
+  const verbs: Record<string, unknown>[] = []
   const outcome = runStep(step, {
     fetch: (args) => {
-      dials.push(args.url)
+      verbs.push(args)
       return { status: 200, body: 'metrics-body' }
     },
   })
-  expect(dials).toEqual(['https://example.test/metrics'])
+  expect(verbs).toEqual([{ url: 'https://example.test/metrics', fresh: true }])
   expect(outcome.o).toBe('quiesce')
 })
