@@ -375,27 +375,36 @@ export const path = {
       >,
 
     /**
-     * `/apis/radiant.apsis/v1/namespaces/NS/perseids/NAME` — ANOTHER PROGRAM.
+     * `/apis/radiant.apsis/v1/namespaces/NS/perseids/NAME` — the RETIRED wasm
+     * kind (radiant.apsis Perseid, kept with its own world). ***NOT THE
+     * KERNEL'S KIND***: addressing a kernel program through this spelling
+     * loses at the host's kind gate - the kernel kind's address is
+     * `pures()` below.
      *
-     * ***THE ADDRESS OF A CONCLUSION RATHER THAN OF A WORKLOAD***, which is why
-     * it gets a name of its own instead of being left to `resource(...)`. What a
-     * reader wants off this object is `status.carry` — what that program
-     * decided — and `carriedBy` is the parser for it.
-     *
-     * Reading it needs `perseid:reconcile/observe-perseids@0.1.0`. That is a
-     * SEPARATE grant from `observe` on purpose: "may see another program's
-     * conclusions" and "may see a Deployment's replica count" are different
-     * sentences, and a manifest should be able to say one without the other.
-     *
-     * A four-argument `resource('radiant.apsis', 'v1', 'perseids', name)` is the
-     * same string and is exactly the call this builder exists to remove — the
-     * group and the plural are both easy to get subtly wrong, and a wrong path
-     * reads as a permanent `absent`, not as an error.
+     * Kept because the wasm path's own examples and manifests still speak it.
      */
     perseids: <N extends string>(name: N) =>
       `/apis/radiant.apsis/v1/namespaces/${namespace}/perseids/${name}` as Canonical<
         'apiserver-path',
         `/apis/radiant.apsis/v1/namespaces/${NS}/perseids/${N}`
+      >,
+
+    /**
+     * `/apis/perseid.apsis/v1/namespaces/NS/pures/NAME` — A KERNEL PROGRAM
+     * (the Pure kind, ADR-0113 shape B). ***THE ADDRESS OF A CONCLUSION***
+     * rather than of a workload: what a reader wants off this object is
+     * `status.carry` — what that program decided.
+     *
+     * Reading it needs `perseid:reconcile/observe-perseids@0.1.0` — the same
+     * SEPARATE-GRANT rule the retired spelling carried: "may see another
+     * program's conclusions" and "may see a Deployment's replica count" are
+     * different sentences. Yield `observePerseids()(this path)` to declare
+     * the capability; the derivation reads the marker.
+     */
+    pures: <N extends string>(name: N) =>
+      `/apis/perseid.apsis/v1/namespaces/${namespace}/pures/${name}` as Canonical<
+        'apiserver-path',
+        `/apis/perseid.apsis/v1/namespaces/${NS}/pures/${N}`
       >,
 
     /** Any grouped resource: `/apis/GROUP/VERSION/namespaces/NS/KIND/NAME`. */
@@ -1857,6 +1866,22 @@ export const WIT_WOKE = 'perseid:reconcile/woke@0.1.0'
  */
 export const WIT_NETWORK_HTTP = 'perseid:network/http@0.1.0'
 
+/**
+ * The SIBLING-CONCLUSION READ - deliberately empty, exactly like
+ * `observe-configmaps`: the read itself is `observe.get(purePath)` and this
+ * interface is the AUTHORITY for it. It confers `CapPerseidsRead` ("reading
+ * another Perseid in the program's own namespace"), because a Perseid's
+ * status carries what a program CONCLUDED, not what the cluster is - "you may
+ * see another program's conclusions" is a different sentence from "you may
+ * see a Deployment's replica count", and a grant should be able to say one
+ * without the other.
+ *
+ * v1 note: the operator credential is the read credential - the sentence rule
+ * is the bound this builder's doc carries, not a per-program Role (that
+ * enforcement is documented as v1-forward).
+ */
+export const WIT_OBSERVE_PERSEIDS = 'perseid:reconcile/observe-perseids@0.1.0'
+
 /** The interfaces this SDK knows. Autocompletion comes from this union. */
 export type KnownWit =
   | typeof WIT_TYPES
@@ -1869,6 +1894,7 @@ export type KnownWit =
   | typeof WIT_CARRY
   | typeof WIT_WOKE
   | typeof WIT_NETWORK_HTTP
+  | typeof WIT_OBSERVE_PERSEIDS
 
 /**
  * The SHAPE of a WIT interface id: `namespace:package/interface@major.minor.patch`.
@@ -2165,6 +2191,26 @@ export const reconcile = {
    */
   observeCluster: <T = string>() =>
     defineEffect<ClusterPath, Obs<T>>()(WIT_OBSERVE_CLUSTER, 'get'),
+
+  /**
+   * `observePerseids()(purePath) -> Obs<T>` - read a SIBLING program's
+   * published conclusion (`status.carry` on a Pure object). The
+   * `observe-perseids` interface is DELIBERATELY EMPTY (a capability, not a
+   * call - the same shape as observe-configmaps): the read is
+   * `observe.get(path)` and this interface is the AUTHORITY for it, conferring
+   * `CapPerseidsRead` ("reading another Perseid in the program's own
+   * namespace").
+   *
+   * ***THE SENTENCE RULE***: "you may see another program's conclusions" is a
+   * different sentence from "you may see a Deployment's replica count", and a
+   * grant should be able to say one without the other. Yielding this effect is
+   * the declaration; the derivation reads the marker.
+   *
+   * v1: the operator credential is the read credential - the sentence rule is
+   * the bound; per-program Role enforcement is documented v1-forward.
+   */
+  observePerseids: <T = string>() =>
+    defineEffect<E.ReadPathLike, Obs<T>>()(WIT_OBSERVE_PERSEIDS, 'get'),
 
   /**
    * `observe.count(query) -> obs`.

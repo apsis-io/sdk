@@ -27,7 +27,7 @@ test('the minimal inline manifest renders in CRD presentation order', () => {
   roundTrips(m)
   expect(toYaml(m)).toBe(
     `apiVersion: perseid.apsis/v1
-kind: Perseid
+kind: Pure
 metadata:
   name: canary
   namespace: prod
@@ -46,7 +46,7 @@ test('the stepRef form renders the image coordinate bare - Bun.YAML knows sha256
   roundTrips(m)
   expect(toYaml(m)).toBe(
     `apiVersion: perseid.apsis/v1
-kind: Perseid
+kind: Pure
 metadata:
   name: canary
   namespace: prod
@@ -70,7 +70,7 @@ test('the full field set renders engine, labels sorted and optionals in place', 
   roundTrips(m)
   expect(toYaml(m)).toBe(
     `apiVersion: perseid.apsis/v1
-kind: Perseid
+kind: Pure
 metadata:
   name: scaler
   namespace: prod
@@ -108,7 +108,7 @@ test('a hostile step source survives the literal block byte for byte', () => {
   const yaml = toYaml(m)
   expect(yaml).toBe(
     `apiVersion: perseid.apsis/v1
-kind: Perseid
+kind: Pure
 metadata:
   name: warden
   namespace: prod
@@ -191,7 +191,7 @@ test('the built object is JSON-ready as-is', () => {
   const parsed = JSON.parse(JSON.stringify(m))
   expect(parsed).toEqual({
     apiVersion: 'perseid.apsis/v1',
-    kind: 'Perseid',
+    kind: 'Pure',
     metadata: { name: 'canary', namespace: 'prod' },
     spec: { step: 'export function* run() {}\n' },
   })

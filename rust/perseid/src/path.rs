@@ -107,6 +107,17 @@ impl Namespaced<'_> {
         ))
     }
 
+    /// `/apis/perseid.apsis/v1/namespaces/NS/pures/NAME` - A KERNEL PROGRAM
+    /// (the Pure kind, ADR-0113 shape B): the address of a CONCLUSION rather
+    /// than of a workload. Reading it needs the observe-perseids capability.
+    #[must_use]
+    pub fn pures(self, name: &str) -> ApiPath {
+        ApiPath(format!(
+            "/apis/perseid.apsis/v1/namespaces/{}/pures/{}",
+            self.namespace, name
+        ))
+    }
+
     /// An arbitrary namespaced resource, for a kind with no named helper.
     ///
     /// Still a builder: the group/version/resource ORDER is the thing that goes
@@ -192,6 +203,10 @@ mod tests {
                 .resource("apps", "v1", "daemonsets", "kube-proxy")
                 .as_str(),
             "/apis/apps/v1/namespaces/kube-system/daemonsets/kube-proxy"
+        );
+        assert_eq!(
+            ns("default").pures("scaler").as_str(),
+            "/apis/perseid.apsis/v1/namespaces/default/pures/scaler"
         );
     }
 

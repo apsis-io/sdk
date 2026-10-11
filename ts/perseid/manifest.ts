@@ -16,10 +16,12 @@
  * step. It validates the fields that exist, renders them, and refuses to
  * invent the rest.
  *
- * ***THE KIND MERGE, 2026-10-10*** (engi: "remove PerseidTS, instead extend
- * Perseid CRD" + "perseid is perseid.apsis"): PerseidTS is gone - this IS the
- * merged destination, and its refusal words are the CRD's own CEL messages
- * where the two could be one voice. The wasm-era kind keeps its old world:
+ * ***THE KIND NAMES, BOTH RENAMES RECORDED*** (engi: "remove PerseidTS, instead
+ * extend Perseid CRD" + "perseid is perseid.apsis", then 4324ec536 / ADR-0113
+ * shape B: the kernel kind is PURE - the discipline is the kind, Pure is the
+ * default, Stateful joins as its own slice): PerseidTS is gone, Perseid was
+ * the interim, Pure is the destination this module speaks. The refusal words
+ * are the CRD's own CEL messages, where the two could be one voice. The wasm-era kind keeps its old world:
  * `path.perseids()` addresses `/apis/radiant.apsis/.../perseids/...`
  * (radiant.apsis Perseids, off `deploy/perseid-wasm-crd.yaml`), while the
  * kernel kind's paths are `/apis/perseid.apsis/v1/namespaces/NS/perseids/NAME`
@@ -76,7 +78,7 @@ export interface PerseidManifestInput {
  * field the caller cannot set cannot be mis-typed. */
 export interface PerseidManifest {
   readonly apiVersion: 'perseid.apsis/v1'
-  readonly kind: 'Perseid'
+  readonly kind: 'Pure'
   readonly metadata: {
     readonly name: string
     readonly namespace: string
@@ -198,7 +200,7 @@ export const perseid = (input: PerseidManifestInput): PerseidManifest => {
 
   return {
     apiVersion: 'perseid.apsis/v1',
-    kind: 'Perseid',
+    kind: 'Pure',
     metadata: { ...metadata },
     spec: { ...spec },
   }
