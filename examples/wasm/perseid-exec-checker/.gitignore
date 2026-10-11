@@ -1,0 +1,3 @@
+# Build output. Never commit a .wasm.
+*.wasm
+target/

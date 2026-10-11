@@ -1,0 +1,8 @@
+package periapsis:perseidocaml;
+
+// Minimal: the probe only needs to run once and print. A real operator
+// component would import periapsis:component/* and export a step function -
+// see ADR-0075, "STILL UNTESTED".
+world perseid-ocaml {
+  include wasi:cli/command@0.3.0;
+}

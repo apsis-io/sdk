@@ -1,0 +1,48 @@
+package periapsis:perseidts;
+
+// ***ITS OWN FILE, AND NOT BECAUSE OF TIDINESS.*** `tools/derive-wit.ts` reads
+// the build world with `parseWitDecls`, which is LINE-BASED and world-unaware:
+// it collects every `import`/`export` line in the file it is handed. With two
+// worlds in `world.wit` it attributed this world's `observe-cluster` to
+// `perseid-ts` and refused the build:
+//
+//     error: the build world declares 1 capability the code never demands:
+//            perseid:reconcile/observe-cluster
+//
+// The refusal was CORRECT about the file it was given and wrong about the world,
+// which is the failure mode of a textual parser used as a semantic one. Splitting
+// the worlds is the one-line fix; teaching the parser about worlds is the other,
+// and is worth doing if a third world ever lands here.
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE GOVERNANCE MONITOR — apogeos' gazer-governance check as a Perseid.
+//
+// A SECOND WORLD IN THE SAME PACKAGE rather than a second example directory:
+// it shares this one's `wit/deps`, its toolchain and its SDK import path, and
+// the thing worth demonstrating is the CAPABILITY SET, which is the one part
+// that differs.
+//
+// ***IT IMPORTS observe-cluster AND NOT observe.*** That is the whole point of
+// the port: the monitor reads two CLUSTER-SCOPED objects, and the namespaced
+// read cannot address them - a cluster-scoped object has no namespace for the
+// grant to bound, which is why reading one needs its own interface and an
+// explicit `spec.reads`.
+//
+// It imports NO `workloads`: a monitor reports and does not mutate. A world that
+// granted it anyway would be admitted and would confer an authority the program
+// has no code to use - the widening this contract keeps arguing against.
+//
+// Must stay in step with `derived/governance.wit`, which derive-wit reads out of
+// the Generator yield type in `src/governance-main.ts`. Nothing compares them
+// automatically; that gap is documented on `perseid-ts` above and cost a
+// component that could not be admitted.
+// ═══════════════════════════════════════════════════════════════════════════
+world governance {
+  include wasi:cli/command@0.3.0;
+
+  import perseid:reconcile/observe-cluster@0.1.0;
+  import perseid:reconcile/status@0.1.0;
+
+  export perseid:reconcile/step@0.1.0;
+  export perseid:reconcile/signal@0.1.0;
+}

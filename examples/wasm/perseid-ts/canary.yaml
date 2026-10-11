@@ -1,0 +1,110 @@
+# Build and publish first:
+#   ./build.sh
+#   apsis ingest -n canary:v4 perseid-canary.wasm
+#
+# The two Deployments are subjects, not created by the component. Their pod
+# templates may use different images or configuration; this Perseid owns only
+# their replica fields.
+#
+# ⭐ BOTH PROMOTIONS ARE GATED ON A MEASUREMENT THIS PROGRAM DID NOT TAKE.
+# `probe-demo` (probe.yaml) watches the same candidate and publishes a rolling
+# availability on its own `status.carry`; this program reads that object and
+# decides. It therefore requires probe-demo to be running - with no usable
+# measurement the gate holds the candidate at probe scale and says so through
+# Ready=False/MetricGate, which is fail-closed and deliberate.
+#
+# Stable must also remain healthy before it is drained; a degraded stable
+# reports StableNotReady and deliberately retains both workloads.
+#
+# ⚠ This paragraph said "promotion is readiness-gated ... this component
+# intentionally does not implement one" until 2026-09-05. It was an accurate
+# scope note while it was true and a false description of the program the moment
+# the gate landed.
+apiVersion: radiant.apsis/v1
+kind: Perseid
+metadata:
+  name: canary-demo
+  namespace: default
+spec:
+  # v5: the five `deadline(Date.now() + RECHECK_MS)` park operands became
+  # `backstop()`. ***NO BEHAVIOUR CHANGE*** - this program declares 30s
+  # (`canary-backstop.ts`) and the host takes the MINIMUM of the declared bound
+  # and its flag, so a 60s operand could never fire first. The artifact still
+  # carries `perseid:backstop{"ms":30000}`, verified after the rebuild.
+  component: canary:v5
+  # The expression language this program's SDK emits (sdk/ts LANGUAGE_VERSION).
+  # Admission refuses it against a radiant that speaks an older one, BEFORE a pod
+  # and a pass; build.sh step 7 refuses a mismatch with the SDK it was built with.
+  language: 5
+  # THE ARTIFACT'S CLOSURE, not the program's demand - admission compares
+  # against `trail --inspect`, which reports what `wasi:cli/command` drags in as
+  # well as what the step calls. `derived/canary-step.wit` is the other number
+  # (3) and both are right; the README records the same surprise for podmaker.
+  # Generated from `trail --inspect perseid-canary.wasm`.
+  imports:
+    - perseid:reconcile/ensure@0.1.0
+    - perseid:reconcile/observe@0.1.0
+    - perseid:reconcile/status@0.1.0
+    - perseid:reconcile/types@0.1.0
+    - wasi:cli/environment@0.2.12
+    - wasi:cli/environment@0.3.0
+    - wasi:cli/exit@0.2.12
+    - wasi:cli/exit@0.3.0
+    - wasi:cli/stderr@0.2.12
+    - wasi:cli/stderr@0.3.0
+    - wasi:cli/stdin@0.2.12
+    - wasi:cli/stdin@0.3.0
+    - wasi:cli/stdout@0.2.12
+    - wasi:cli/stdout@0.3.0
+    - wasi:cli/terminal-input@0.2.12
+    - wasi:cli/terminal-input@0.3.0
+    - wasi:cli/terminal-output@0.2.12
+    - wasi:cli/terminal-output@0.3.0
+    - wasi:cli/terminal-stderr@0.2.12
+    - wasi:cli/terminal-stderr@0.3.0
+    - wasi:cli/terminal-stdin@0.2.12
+    - wasi:cli/terminal-stdin@0.3.0
+    - wasi:cli/terminal-stdout@0.2.12
+    - wasi:cli/terminal-stdout@0.3.0
+    - wasi:cli/types@0.3.0
+    - wasi:clocks/monotonic-clock@0.2.12
+    - wasi:clocks/monotonic-clock@0.3.0
+    - wasi:clocks/system-clock@0.3.0
+    - wasi:clocks/types@0.3.0
+    - wasi:clocks/wall-clock@0.2.12
+    - wasi:filesystem/preopens@0.2.12
+    - wasi:filesystem/preopens@0.3.0
+    - wasi:filesystem/types@0.2.12
+    - wasi:filesystem/types@0.3.0
+    - wasi:io/error@0.2.12
+    - wasi:io/poll@0.2.12
+    - wasi:io/streams@0.2.12
+    - wasi:random/insecure-seed@0.2.12
+    - wasi:random/insecure-seed@0.3.0
+    - wasi:random/insecure@0.3.0
+    - wasi:random/random@0.3.0
+    - wasi:sockets/ip-name-lookup@0.3.0
+    - wasi:sockets/types@0.3.0
+  # ⚠ ***`observe-perseids` IS GRANTED AND IS NOT IN THE IMPORTS ABOVE, AND THAT
+  # IS NOT AN OVERSIGHT.*** The interface is deliberately EMPTY: reading another
+  # Perseid is an ordinary `observe.get` of its path, and the interface exists
+  # only as the AUTHORITY for that read. So there is nothing for dwarf to import
+  # and nothing for `trail --inspect` to report - the grant is the only place
+  # this capability can appear.
+  #
+  # ⇒ This is the one case where "capabilities should match imports" is wrong,
+  # and it is worth knowing before somebody deletes the line to make the two
+  # lists agree. Without it, the metric gate reads `absent` for the probe on
+  # every pass and the canary never promotes - failing CLOSED, which is the
+  # right direction and is also why it would take a while to notice.
+  capabilities:
+    - perseid:reconcile/ensure@0.1.0
+    - perseid:reconcile/observe-perseids@0.1.0
+    - perseid:reconcile/observe@0.1.0
+    - perseid:reconcile/status@0.1.0
+    - perseid:reconcile/types@0.1.0
+    - wasi:sockets/ip-name-lookup@0.3.0
+    - wasi:sockets/types@0.3.0
+  writes:
+    - /apis/apps/v1/namespaces/default/deployments/canary-stable
+    - /apis/apps/v1/namespaces/default/deployments/canary-candidate

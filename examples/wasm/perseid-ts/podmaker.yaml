@@ -1,0 +1,110 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# A PERSEID THAT CREATES A POD — the end-to-end proof of the identity work.
+#
+# Until 2026-09-01 this object could not exist usefully: `aperture.unwritableKinds`
+# refused pods to ANY program, because every obligation was applied with radiant's
+# credential and seam-binding-vap.yaml exempts exactly that identity on pods.
+#
+# It now works because radiant provisions `perseid-podmaker` in THIS namespace
+# with RBAC derived from `spec.writes` below, and impersonates it — so the VAP
+# governs this program the way it governs everyone else.
+#
+# ⚠ `serviceAccountName` IS DELIBERATELY UNSET. Unset means DERIVED, not "apply
+# as radiant" — that path no longer exists. Setting it would opt OUT of
+# derivation and hand the account to the operator to grant.
+# ═══════════════════════════════════════════════════════════════════════════
+apiVersion: radiant.apsis/v1
+kind: Perseid
+metadata:
+  name: podmaker
+  namespace: perseid-demo
+spec:
+  component: podmaker:v2
+  # The expression language this program's SDK emits (sdk/ts LANGUAGE_VERSION).
+  # Admission refuses it against a radiant that speaks an older one, BEFORE a pod
+  # and a pass; build.sh step 7 refuses a mismatch with the SDK it was built with.
+  language: 5
+  # DERIVED FROM THE BUILT COMPONENT, not hand-written: this is its full
+  # import closure. `include wasi:cli/command` pulls in most of it.
+  imports:
+    - perseid:reconcile/create@0.1.0
+    - perseid:reconcile/ensure@0.1.0
+    - perseid:reconcile/status@0.1.0
+    - wasi:cli/environment@0.2.12
+    - wasi:cli/environment@0.3.0
+    - wasi:cli/exit@0.2.12
+    - wasi:cli/exit@0.3.0
+    - wasi:cli/stderr@0.2.12
+    - wasi:cli/stderr@0.3.0
+    - wasi:cli/stdin@0.2.12
+    - wasi:cli/stdin@0.3.0
+    - wasi:cli/stdout@0.2.12
+    - wasi:cli/stdout@0.3.0
+    - wasi:cli/terminal-input@0.2.12
+    - wasi:cli/terminal-input@0.3.0
+    - wasi:cli/terminal-output@0.2.12
+    - wasi:cli/terminal-output@0.3.0
+    - wasi:cli/terminal-stderr@0.2.12
+    - wasi:cli/terminal-stderr@0.3.0
+    - wasi:cli/terminal-stdin@0.2.12
+    - wasi:cli/terminal-stdin@0.3.0
+    - wasi:cli/terminal-stdout@0.2.12
+    - wasi:cli/terminal-stdout@0.3.0
+    - wasi:cli/types@0.3.0
+    - wasi:clocks/monotonic-clock@0.2.12
+    - wasi:clocks/monotonic-clock@0.3.0
+    - wasi:clocks/system-clock@0.3.0
+    - wasi:clocks/types@0.3.0
+    - wasi:clocks/wall-clock@0.2.12
+    - wasi:filesystem/preopens@0.2.12
+    - wasi:filesystem/preopens@0.3.0
+    - wasi:filesystem/types@0.2.12
+    - wasi:filesystem/types@0.3.0
+    - wasi:io/error@0.2.12
+    - wasi:io/poll@0.2.12
+    - wasi:io/streams@0.2.12
+    - wasi:random/insecure-seed@0.2.12
+    - wasi:random/insecure-seed@0.3.0
+    - wasi:random/insecure@0.3.0
+    - wasi:random/random@0.3.0
+    - wasi:sockets/ip-name-lookup@0.3.0
+    - wasi:sockets/types@0.3.0
+  # ⚠ `ensure` IS GRANTED THOUGH THE PROGRAM NEVER CALLS IT. `interface
+  # create` does `use ensure.{value}` - one value type for every
+  # generalized write rather than two variants that must agree - so
+  # importing create transitively imports ensure. The capability gate sees
+  # the COMPONENT's imports, not the program's calls.
+  capabilities:
+    - perseid:reconcile/create@0.1.0
+    - perseid:reconcile/status@0.1.0
+    - perseid:reconcile/ensure@0.1.0
+    # ⛔ ***NO `observe`, AND THERE WAS ONE HERE FOR ABOUT AN HOUR ON 2026-09-01.***
+    # This program parks on `objectGone(POD)` - the pod it declares in spec.writes
+    # below - and its STEP never reads, so a `get` handler in podmaker-main.ts is a
+    # compile error. When resumeCapsFor narrowed a resume to the program's own read
+    # capabilities, the park lost the ability to resolve Get and this object failed
+    # AFTER a completely successful pass:
+    #
+    #   Applied         Create(".../pods/podmaker-proof")   the write LANDED
+    #   podmaker-proof  1/1 Running                         the pod came UP
+    #   PerseidFailed   unresolved identifier: "Get"        parking FAILED
+    #
+    # eb9ac1a95 granted `observe` here and it worked. ***IT WAS REVERTED ANYWAY, AND
+    # NOT AS CHURN:*** perseidrun.DerivedRules already grants `get` on every object
+    # in spec.writes, so the aperture was refusing a read the apiserver would have
+    # served to this program's own ServiceAccount. A grant every author copies
+    # OCCUPIES the defect. 9dcbbcfe3 makes a declared WRITE confer the park-only
+    # read of what it writes, so this line is unnecessary - and a capability nobody
+    # needs is one everybody grants.
+    #
+    # ⚠ The remedy changed; ***THE SHAPE TO RECOGNISE DID NOT: THE STEP SUCCEEDS AND
+    # THE PROGRAM DIES PARKING.*** A reader watching only whether the write landed
+    # sees a complete success. The BUILD cannot catch a park's demand either way -
+    # derive-wit reads the STEP's yield type, and a park is not part of it.
+    - wasi:sockets/ip-name-lookup@0.3.0
+    - wasi:sockets/types@0.3.0
+  # ONE pod. The derived Role grants `create pods` KIND-level in this
+  # namespace regardless - RBAC cannot scope a create by name - so this
+  # declaration is what bounds the program, and the aperture enforces it.
+  writes:
+    - /api/v1/namespaces/perseid-demo/pods/podmaker-proof

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.wasm
+# The manifest describes the BUILD OUTPUT above, which is itself ignored, so it
+# is ignored with it. A COMMITTED fixture's manifest is a different file in a
+# different place and belongs in git beside the fixture it makes falsifiable.
+*.wasm.manifest
+*.byte
+*.cmi
+*.cmo

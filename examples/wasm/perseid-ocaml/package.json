@@ -1,0 +1,21 @@
+{
+  "name": "periapsis-perseid-ocaml",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ADR-0075 feasibility probe: OCaml 5 effect handlers as the reconciliation step contract, carried through js_of_ocaml -> vite -> dwarf -> wasm component -> trail. Proves effects survive the toolchain; not a production pattern.",
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1"
+  },
+  "scripts": {
+    "build": "bash build.sh"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "nub",
+      "version": "^0.7.5",
+      "onFail": "ignore"
+    }
+  }
+}

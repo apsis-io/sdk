@@ -1,0 +1,25 @@
+[package]
+name = "perseid-exec-checker"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# The POLICY half of the perseid-exec pair: reads a projection of a Deployment on
+# stdin, prints one line, and exits 0 (ready) or non-zero (not ready).
+#
+# ***THE POINT IS THAT IT IS REPLACEABLE.*** `perseid-exec` never names this
+# component - it spawns the allowlist NAME `check`, and
+# `--exec-with check=<path>` decides which artifact that is. Changing the policy
+# is a relaunch of the pod, not a rebuild of the operator.
+#
+# Structurally identical to ../exec-child (same vendored wit/deps, same async
+# wasi:cli/run@0.3.0 export). Built for wasm32-wasip2, which emits a component
+# directly; the 0.3 export comes from wit-bindgen rather than from the target -
+# see ../trail-p3/README.md.
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.58"
+serde_json = "1"

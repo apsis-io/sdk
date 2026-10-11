@@ -1,0 +1,28 @@
+{
+  "name": "periapsis-perseid-ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ADR-0075 step contract in plain TS via generators. Size/behaviour baseline against ../perseid-ocaml.",
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/bun": "latest",
+    "@typescript/native-preview": "^7.0.0-dev.20260707.2",
+    "typescript": "5.9",
+    "vite": "^8.2.1"
+  },
+  "scripts": {
+    "build": "bash build.sh"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "nub",
+      "version": "^0.7.5",
+      "onFail": "ignore"
+    }
+  },
+  "dependencies": {
+    "@apsis-io/periapsis-sdk": "link:../../../ts/periapsis",
+    "@apsis-io/perseid": "file:../../../ts/perseid"
+  }
+}
