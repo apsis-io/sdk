@@ -791,8 +791,10 @@ interface create {
   /// variants in two interfaces would be two facts that must agree, and the one
   /// that drifts is the one nothing fails on - this package has paid for that
   /// shape twice (HOST_PACKAGES, and the vendored WIT this file is copied into).
-  // `field` lives in `ensure` since 2026-09-01, because `ensure-all` takes the
-  // same list. A `use` re-exports it, so `create::field` is still a name.
+  // `field` lives in `ensure` since 2026-09-01, because `ensure` takes the
+  // same list - one write, one field list, since the merge (engi, 2026-10-11:
+  // "ensure-all is merged into ensure"). A `use` re-exports it, so
+  // `create::field` is still a name.
   use ensure.{value, field};
 
   /// Declare that an object should exist at `path` with these fields.
