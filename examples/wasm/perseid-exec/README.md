@@ -30,7 +30,7 @@ builds a Perseid's pod itself — the only trail annotation it used to set was
 `spec.capabilities` and every `spawn` still returned `not-allowed`: a capability
 you could be granted and could never use.
 
-⛔ **EVERY PATH MUST SIT UNDER `/var/lib/apsis/wasm-exec`, and radiant refuses to
+⚠ **EVERY PATH MUST SIT UNDER `/var/lib/apsis/wasm-exec`, and radiant refuses to
 launch the program otherwise** — an `ExecWithInvalid` Event naming the path,
 rather than a dropped entry, because a dropped name reaches the guest as
 `not-allowed`, which is exactly what "nobody wired a checker" looks like. A typo
@@ -44,7 +44,7 @@ widening of authority nobody granted, arriving as a convenience feature. Confine
 what it confers is *"whoever can put a file in that directory"*, which is the
 authority that directory already had.
 
-⛔ **Leaving `spec.execWith` out does not produce `NoChecker` — the program fails
+⚠ **Leaving `spec.execWith` out does not produce `NoChecker` — the program fails
 at instantiation.** trail's `step_linker` withholds `periapsis:host/exec` from a
 Perseid's linker unless the allowlist is non-empty, so an ungranted program
 importing exec is refused with *"component imports instance
@@ -74,7 +74,7 @@ arbitrary host path or program from inside the guest.
 | `perseid-exec/` (here) | **Rust** — rustc + wit-bindgen, no JS engine, ~180 KB, no WASI in the world |
 | `../perseid-ts/src/execcheck.ts` | **TypeScript** — dwarf, ~1.5 MB, and the arm with unit tests |
 
-⛔ **THIS SECTION SAID RUST WAS FORCED. IT WAS NOT, AND THE CORRECTION IS THE
+⚠ **THIS SECTION SAID RUST WAS FORCED. IT WAS NOT, AND THE CORRECTION IS THE
 USEFUL PART.** It claimed the TS SDK had no binding for the exec seam because
 `child-process` is a resource carrying `stream<u8>`. **`sdk/ts/periapsis/exec.ts`
 has wrapped exactly that the whole time** — extracted from `../js-dwarf-shell`,
@@ -168,7 +168,7 @@ Also measured live, each as its own arm:
 | `=` in a name | `check=/etc/shadow` → refused, naming the delimiter |
 | no grant at all | refused at INSTANTIATION: *"not found in the linker"* |
 
-⛔ **THE RUST ARM WAS NOT SERVABLE UNTIL THIS RUN, AND ONLY SERVING IT COULD SHOW
+⚠ **THE RUST ARM WAS NOT SERVABLE UNTIL THIS RUN, AND ONLY SERVING IT COULD SHOW
 THAT.** It built, passed `wasm-tools validate` and reported the intended surface
 under `trail --inspect` — and trail refused it: *"this program imports 2 and
 exports no `perseid:reconcile/signal@0.1.0`. A program that reads can WEDGE."* A

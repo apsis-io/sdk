@@ -111,7 +111,7 @@ export function runtimeGuards(): void {
     'a Ready node was not read as ready')
   assert(readyOf_node(JSON.stringify({ status: { conditions: [{ type: 'Ready', status: 'False' }] } })) === false,
     'a NotReady node was not read as not-ready')
-  // ⛔ `Unknown` AND ABSENT ARE `null`, NOT `false`. Collapsing either into
+  // ⚠ `Unknown` AND ABSENT ARE `null`, NOT `false`. Collapsing either into
   // NotReady makes this program announce a machine is down because a read was
   // half-written - the exact defect the drainer's own parse shipped for one
   // commit until a test caught it.
@@ -165,7 +165,7 @@ export function runtimeGuards(): void {
   assert(two.read.length === 2, `two held arms read ${two.read.length} objects, want 2`)
 
   // ═══════════════════════════════════════════════════════════════════════
-  // ⛔ AND THE FALLBACK IS THE CORRECTNESS. `held` is empty on a backstop tick
+  // ⚠ AND THE FALLBACK IS THE CORRECTNESS. `held` is empty on a backstop tick
   // and on any host that does not serve `woke`, so the step must reach the same
   // verdict having dispatched nothing - by reading everything.
   // ═══════════════════════════════════════════════════════════════════════

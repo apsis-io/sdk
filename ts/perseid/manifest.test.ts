@@ -89,7 +89,7 @@ spec:
   )
 })
 
-// ⛔ ***THE HOSTILE SOURCE IS THE ROUND-TRIP PROOF.*** The manifest is the
+// ⚠ ***THE HOSTILE SOURCE IS THE ROUND-TRIP PROOF.*** The manifest is the
 // code: quotes, comment lines, a document separator, a `key: value` line, an
 // empty line and a missing trailing newline must all come back as the bytes
 // that went in - which is why the chomping indicator is DECIDED BY THE SOURCE
@@ -164,7 +164,7 @@ test('the refusals', () => {
   ).toThrow('spec.suspend must be a boolean.')
 })
 
-// ⛔ THE ENGINE REFUSALS, WORD FOR WORD FROM admission.go. trail executes
+// ⚠ THE ENGINE REFUSALS, WORD FOR WORD FROM admission.go. trail executes
 // spec.component artifacts; a TS step naming it is refusing the kernel, and
 // the builder says so before admission does. The enum is kinetics|trail -
 // engi corrected the first relay's quickjs/wasmtime.

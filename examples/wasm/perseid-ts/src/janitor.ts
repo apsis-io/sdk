@@ -105,7 +105,7 @@ const MARKER = path.ns('default').core('v1', 'configmaps', 'janitor-marker')
 const SVC = path.ns('default').core('v1', 'services', 'janitor-svc')
 
 const WANT = 2
-// ⛔ There was a `const RECHECK_MS = 60_000` here. Its number did not go away -
+// ⚠ There was a `const RECHECK_MS = 60_000` here. Its number did not go away -
 // it moved into `janitor-backstop.ts`, where a bound belongs: readable off the
 // artifact, refusable at admission, and adjustable without touching the step.
 // The park operand it fed is gone and the effective bound is unchanged.

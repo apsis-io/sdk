@@ -19,7 +19,7 @@
 // direction that reads as healthy: `readyReplicas` defaulted to 1 would report a
 // fully-down workload as satisfied.
 //
-// ⛔ ***SO THIS FILE OFFERS BOTH, AND REFUSES TO CHOOSE FOR YOU.*** The raw
+// ⚠ ***SO THIS FILE OFFERS BOTH, AND REFUSES TO CHOOSE FOR YOU.*** The raw
 // optional field stays on the type; the defaulted reading is a named function you
 // call deliberately. `execcheck.ts` is the case that proves the raw one is not
 // redundant: it projects `readyReplicas ?? null` onto a wire a CHILD component
@@ -83,7 +83,7 @@ export interface Deployment {
   }
   readonly status?: {
     readonly replicas?: number
-    /** ⛔ OMITTED AT **0** - the failure a watchdog exists for. See `readyReplicas`. */
+    /** ⚠ OMITTED AT **0** - the failure a watchdog exists for. See `readyReplicas`. */
     readonly readyReplicas?: number
     readonly availableReplicas?: number
     readonly unavailableReplicas?: number
@@ -129,7 +129,7 @@ export interface ConfigMap {
  * Replicas the spec asks for. **Absent means 1**, which is the apiserver's
  * default for `apps/v1` Deployments.
  *
- * ⛔ NOT ZERO. Defaulting this to 0 makes an ordinary single-replica Deployment
+ * ⚠ NOT ZERO. Defaulting this to 0 makes an ordinary single-replica Deployment
  * look satisfied at zero ready pods - it inverts the verdict of every watchdog
  * that compares ready against wanted.
  */
@@ -138,7 +138,7 @@ export const wantedReplicas = (d: Deployment): number => d.spec?.replicas ?? 1
 /**
  * Replicas actually ready. **Absent means 0.**
  *
- * ⛔ Kubernetes omits `readyReplicas` entirely when nothing is ready rather than
+ * ⚠ Kubernetes omits `readyReplicas` entirely when nothing is ready rather than
  * writing 0, so the total-outage case arrives as a MISSING FIELD. A reader that
  * treats absent as "unknown, skip" reports a fully-down workload as healthy.
  */

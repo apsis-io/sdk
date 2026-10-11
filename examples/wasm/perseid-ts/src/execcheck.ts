@@ -30,7 +30,7 @@
 // because a Perseid author may not hold pod-create; see `ExecWithRoot` in
 // internal/trailop/perseidpod.go and ../../perseid-exec/README.md.
 //
-// ⛔ ***DECLARING NOTHING NO LONGER REACHES THE `unavailable` ARM - IT FAILS AT
+// ⚠ ***DECLARING NOTHING NO LONGER REACHES THE `unavailable` ARM - IT FAILS AT
 // INSTANTIATION*** (engi, 2026-09-08, and this file said otherwise for a day).
 // trail's `step_linker` withholds `periapsis:host/exec` from the linker unless
 // the allowlist is non-empty, so a Perseid importing exec with no `spec.execWith`
@@ -81,7 +81,7 @@ export interface CheckRequest {
 /**
  * What comes back.
  *
- * ⛔ ***THREE-VALUED, LIKE A READ, AND FOR THE SAME REASON.*** `unavailable` is
+ * ⚠ ***THREE-VALUED, LIKE A READ, AND FOR THE SAME REASON.*** `unavailable` is
  * not a failing check - it is the absence of one. The SDK's `exec` THROWS on
  * `not-allowed`, and a step that let that throw would turn "nobody wired a
  * checker" into a crashed pass; a step that caught it and reported `unready`
@@ -92,7 +92,7 @@ export interface CheckRequest {
 export type CheckOutcome =
   | { readonly t: 'verdict'; readonly exitCode: number; readonly stdout: string }
   /**
-   * ⛔ ***`kind` IS DECIDED WHERE THE ERROR OBJECT IS, NOT RE-DERIVED FROM
+   * ⚠ ***`kind` IS DECIDED WHERE THE ERROR OBJECT IS, NOT RE-DERIVED FROM
    * `reason`.*** This branched on `reason.includes('not-allowed')` - a substring
    * match against a host message - so a rephrasing in the linker or the SDK
    * wrapper would silently reclassify a MISCONFIGURED SPEC as a broken artifact
@@ -138,7 +138,7 @@ interface Deployment {
   }
 }
 
-// ⛔ ***`asDeployment`, NOT A BARE `JSON.parse` CAST.*** `reader`'s `get` calls
+// ⚠ ***`asDeployment`, NOT A BARE `JSON.parse` CAST.*** `reader`'s `get` calls
 // the decoder WITHOUT a try/catch, so a body that does not parse threw straight
 // out of the step - crashing the pass instead of degrading to `unknown`, which
 // is the one thing the three-valued read exists to prevent. The SDK decoder
@@ -193,7 +193,7 @@ function parkOn(rv: string | undefined) {
 const step = defineStep(function* () {
   const seen = yield* read.get(SUBJECT)
 
-  // ⛔ ***`unknown` IS NOT `absent`, AND REPORTING `unready` HERE WOULD BE THE
+  // ⚠ ***`unknown` IS NOT `absent`, AND REPORTING `unready` HERE WOULD BE THE
   // MOST REPEATED DEFECT IN THIS CODEBASE.*** The read failed; the subject may be
   // in perfect health. `unsure` is what this pass actually established.
   if (seen.t === 'unknown') {
@@ -211,7 +211,7 @@ const step = defineStep(function* () {
   const park = parkOn(seen.v.metadata?.resourceVersion)
   const input = project(seen.v)
 
-  // ⛔ ***BYTES, NOT `String.length`, AND THE OLD MESSAGE SAID "bytes" WHILE
+  // ⚠ ***BYTES, NOT `String.length`, AND THE OLD MESSAGE SAID "bytes" WHILE
   // COUNTING UTF-16 CODE UNITS.*** A JS string's length is code units, so any
   // multi-byte character makes the check UNDERCOUNT: a projection of 4096
   // two-byte characters passes a 4096 "byte" bound and writes 8192 bytes -
@@ -235,7 +235,7 @@ const step = defineStep(function* () {
 
   // Nothing about the subject was established, so nothing about it is claimed.
   //
-  // ⛔ ***`not-allowed` AND `spawn-failed` ARE DIFFERENT PLACES TO LOOK, AND THIS
+  // ⚠ ***`not-allowed` AND `spawn-failed` ARE DIFFERENT PLACES TO LOOK, AND THIS
   // REPORTED BOTH AS `NoChecker` UNTIL IT WAS MEASURED.*** Both are three-valued
   // `unsure` and that half was right; the REASON is what an operator navigates
   // by, and `NoChecker` says "your spec.execWith is wrong".

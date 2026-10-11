@@ -34,7 +34,7 @@ test('a selector renders as the host parses it', () => {
   )
 })
 
-// ⛔ THE OPERATOR THAT DOES NOT EXIST. `[?k!=v]` PARSED until 2026-09-06, as a
+// ⚠ THE OPERATOR THAT DOES NOT EXIST. `[?k!=v]` PARSED until 2026-09-06, as a
 // field called `k!`, and answered Absent about a field nothing has. The host
 // refuses it now; refusing here makes it a BUILD error instead.
 test('select refuses an operator the aperture does not have', () => {
@@ -53,7 +53,7 @@ test('select refuses a value it cannot express', () => {
   expect(() => select('k', 'a]b')).toThrow(/runs to the first/)
 })
 
-// ⛔ A SUBSCRIPT CANNOT OPEN A PATH - the host refuses it, so the builder must
+// ⚠ A SUBSCRIPT CANNOT OPEN A PATH - the host refuses it, so the builder must
 // too rather than emitting something that reads Unknown at evaluation.
 test('a subscripted key cannot be the first segment', () => {
   expect(() => field('a.b')).toThrow(/FIRST segment/)

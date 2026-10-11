@@ -13,7 +13,7 @@ wit_bindgen::generate!({
     path: "wit",
     world: "perseid-wake-rs",
     generate_all,
-    // ⛔ ***WIT-BINDGEN TAKES ASYNC-NESS FROM HERE, NOT FROM THE WIT.*** With no
+    // ⚠ ***WIT-BINDGEN TAKES ASYNC-NESS FROM HERE, NOT FROM THE WIT.*** With no
     // option at all it generates `fn run() -> String` - SYNC - for a `run: async
     // func()` in the contract, and a sync `run` cannot await, so it cannot race
     // anything and the whole mechanism is unreachable. With `async: true` it

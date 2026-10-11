@@ -19,7 +19,7 @@
 // and the workloads still on it. This is that loop as a level-triggered program
 // that survives its own restart.
 //
-// ⛔ # WHAT THIS DELIBERATELY IS NOT, AND WHY IT CANNOT BE
+// ⚠ # WHAT THIS DELIBERATELY IS NOT, AND WHY IT CANNOT BE
 //
 // ***IT DOES NOT EVICT ARBITRARY PODS. THE REASON IS THE WRITE BOUNDARY, NOT
 // THE READ SURFACE - AND THIS FILE SAID THE OPPOSITE FOR SIX HOURS.***
@@ -181,7 +181,7 @@ const WORKLOADS = [{ at: path.ns(NS).deployments('drain-demo'), scale: 2 }] as c
  * merge patch is also how a taint gets lost. An annotation is a scalar at a
  * stable key, which is what this vocabulary can express correctly.
  */
-// ⛔ ***THE BRACKET FORM, AND THE BACKSLASH FORM THAT WAS HERE UNTIL 2026-09-05
+// ⚠ ***THE BRACKET FORM, AND THE BACKSLASH FORM THAT WAS HERE UNTIL 2026-09-05
 // IS SILENTLY WRONG.*** `fieldSegments` splits on `.` and has NO escape - a
 // backslash is an ordinary character - so `drain\.apsis/requested` walks to the
 // segments `drain\` and `apsis/requested` and reads ABSENT. A literal key with
@@ -207,7 +207,7 @@ const DRAIN_KEY = field('metadata', 'annotations', 'drain.apsis/requested')
  * would have to wake, read the whole Node, and walk the list in the guest, which
  * is a pass per poll instead of a wake per change.
  *
- * ⛔ ***AND THE INDEX FORM IS NOT AN ALTERNATIVE.*** `status.conditions[0]` is
+ * ⚠ ***AND THE INDEX FORM IS NOT AN ALTERNATIVE.*** `status.conditions[0]` is
  * not a stable address - condition order is not API, so a program written that
  * way reads a DIFFERENT condition on a different day and is wrong silently.
  * `field()`/`select()` refuse to build one.
@@ -218,7 +218,7 @@ const DRAIN_KEY = field('metadata', 'annotations', 'drain.apsis/requested')
  */
 const READY_COND = field('status', 'conditions', select('type', 'Ready'), 'status')
 
-// ⛔ There was a `const RECHECK_MS = 60_000` here and it was DEAD once the
+// ⚠ There was a `const RECHECK_MS = 60_000` here and it was DEAD once the
 // `deadline(Date.now() + RECHECK_MS)` operands became `backstop()`. The bound
 // this program actually runs under is the one it DECLARES - see its
 // `-backstop.ts` - and the host takes the MINIMUM of that and its own flag
@@ -295,7 +295,7 @@ const untilDrainRequested = () =>
 /**
  * Park until the drain request is WITHDRAWN, or until a named blocker is gone.
  *
- * ⛔ ***`fieldNoLonger` AND NOT A BARE INEQUALITY, BECAUSE WITHDRAWAL IS A
+ * ⚠ ***`fieldNoLonger` AND NOT A BARE INEQUALITY, BECAUSE WITHDRAWAL IS A
  * DELETION.*** An operator clears this with `kubectl annotate node X key-`, which
  * REMOVES the field. An absent operand propagates as unknown, so
  * `Get(...) != "true"` would be UNKNOWN rather than true and the park would not
@@ -303,7 +303,7 @@ const untilDrainRequested = () =>
  * until its backstop. `fieldNoLonger` emits `!exists || !=`, which covers both
  * the deletion and a change to some other value.
  *
- * ⛔ ***`blockers` IS THE OTHER HALF, AND OMITTING IT MADE THE PROGRAM IGNORE THE
+ * ⚠ ***`blockers` IS THE OTHER HALF, AND OMITTING IT MADE THE PROGRAM IGNORE THE
  * REMEDY IT HAD JUST ASKED FOR.*** The blocked branches publish a condition
  * naming pods an operator must clear, and used to park on the annotation alone -
  * so doing exactly what the condition said produced no wake until the backstop
@@ -356,7 +356,7 @@ export const nodeOf = (raw: string): Node | null => {
     // fourth case. Only `"True"` is ready; `null` covers the rest, because
     // "not ready" and "cannot tell" must not collapse - a drain that treats
     // unknown as NotReady would report a machine down on a read failure.
-    // ⛔ ***EXPLICIT ON ALL THREE STRINGS, NOT `=== 'True'`.*** The first version
+    // ⚠ ***EXPLICIT ON ALL THREE STRINGS, NOT `=== 'True'`.*** The first version
     // of this line read `status === 'True'`, which is two-valued: `"Unknown"`
     // fell through to `false` and collapsed "cannot tell" into "not ready" -
     // the precise thing the comment above forbids, in the code the comment is
@@ -429,7 +429,7 @@ export type Residue = {
  * to run without `--ignore-daemonsets` rather than hanging. Terminal pods are the
  * milder case: `Succeeded`/`Failed` hold no capacity and are only awaiting GC.
  *
- * ⛔ ***AN ITEM THIS CANNOT READ COUNTS AS RESIDUE, WHICH IS THE UNSAFE-LOOKING
+ * ⚠ ***AN ITEM THIS CANNOT READ COUNTS AS RESIDUE, WHICH IS THE UNSAFE-LOOKING
  * DIRECTION AND THE CORRECT ONE.*** The two errors are not symmetric: counting a
  * phantom pod delays a drain and someone investigates; dropping a real one
  * reports an occupied machine as empty, and an operator powers it off. So a
@@ -442,7 +442,7 @@ export type Residue = {
 /**
  * The name given to a residual pod whose own name could not be read.
  *
- * ⛔ ***A CONST BECAUSE TWO SITES MUST AGREE, NOT FOR TIDINESS.*** It is written
+ * ⚠ ***A CONST BECAUSE TWO SITES MUST AGREE, NOT FOR TIDINESS.*** It is written
  * here and FILTERED OUT in `untilDrainWithdrawn` - `pods/<unreadable>` is a path
  * naming nothing, so parking on it is a condition that can never hold. If the two
  * spellings ever diverged the park would grow a dead arm and nothing would fail:
@@ -499,7 +499,7 @@ export const residueOn = (raw: string, nodeName: string): Residue | null => {
  * The names of the ReplicaSets a declared workload controls.
  *
  * ═══════════════════════════════════════════════════════════════════════════
- * ⛔ ***THIS EXISTS BECAUSE `ResidueRemains` WAS SAYING SOMETHING FALSE.***
+ * ⚠ ***THIS EXISTS BECAUSE `ResidueRemains` WAS SAYING SOMETHING FALSE.***
  *
  * The drain path reaches the residue check once every declared workload reports
  * `status.readyReplicas == 0`. Readiness drops at the START of termination, not
@@ -574,7 +574,7 @@ const step = defineStep(function* () {
   // exact node; a program cannot reach a second machine by constructing a path.
   const seen = yield* observeCluster(NODE)
   if (seen.t === 'unknown') {
-    // ⛔ ***A SILENT `yieldStep` HERE WAS A DEFECT, AND IT COST AN HOUR OF
+    // ⚠ ***A SILENT `yieldStep` HERE WAS A DEFECT, AND IT COST AN HOUR OF
     // DIAGNOSIS ON THE FIRST LIVE DEPLOY.*** Every other branch reports; this
     // one returned without a word, so a drainer whose cluster read was not
     // being served was INDISTINGUISHABLE from a drainer with nothing to do -
@@ -745,7 +745,7 @@ const step = defineStep(function* () {
   // ═══════════════════════════════════════════════════════════════════════
   const pods = yield* enumerate(PODS)
   if (pods.t !== 'known') {
-    // ⛔ ***AN UNVERIFIABLE NODE IS NOT A DRAINED ONE.*** Falling through to
+    // ⚠ ***AN UNVERIFIABLE NODE IS NOT A DRAINED ONE.*** Falling through to
     // `Ready=True` here would restore the exact defect this block removes, and
     // do it in the branch nobody tests. The two causes are separated because
     // they need different fixes: `absent` is this program's grant (no
@@ -842,7 +842,7 @@ const step = defineStep(function* () {
         `${declaredRS === null ? ` (${REPLICASETS} was unreadable, so none could be attributed to a declared workload)` : ''}`,
     })
 
-    // ⛔ ***THE BRANCH THIS MATTERS MOST IN.*** The message directly above says
+    // ⚠ ***THE BRANCH THIS MATTERS MOST IN.*** The message directly above says
     // an operator must clear these pods; parking on the annotation alone told
     // that operator to act and then slept through them acting. `mine` is
     // included because this branch is also reached with declared pods still
@@ -859,7 +859,7 @@ const step = defineStep(function* () {
   yield* report({
     type: 'Ready',
     status: 'True',
-    // ⛔ ***THE REASON IS WHAT TRAVELS.*** This read `Drained`, and the message
+    // ⚠ ***THE REASON IS WHAT TRAVELS.*** This read `Drained`, and the message
     // below correctly says "in ${NS}" and "Namespaces other than ${NS} are not
     // visible to this program" - but automation watches `reason`, and a node
     // teardown keyed on `Drained` would evacuate a machine still running

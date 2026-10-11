@@ -48,7 +48,7 @@ export function runtimeGuards(): void {
     `an absent target did not terminate: ${gone.outcome.o}`)
   assert(gone.writes.length === 0, 'an absent target was written to')
 
-  // ⛔ A FAILED READ IS NOT AN ABSENT OBJECT. It only makes us late.
+  // ⚠ A FAILED READ IS NOT AN ABSENT OBJECT. It only makes us late.
   const blind = drive(unknown)
   assert(blind.outcome.o === 'yield',
     `an unreadable target did not yield: ${blind.outcome.o}`)
@@ -84,7 +84,7 @@ export function runtimeGuards(): void {
   assert(calm.outcome.o === 'quiesce', `a converged pass did not park: ${calm.outcome.o}`)
   assert(calm.writes.length === 0, 'a converged target was written to')
 
-  // ⛔ ***THE STATUS DESCRIBES THE WORLD, NOT THE WAKE.*** Every converged pass
+  // ⚠ ***THE STATUS DESCRIBES THE WORLD, NOT THE WAKE.*** Every converged pass
   // reports Converged, whatever woke it. The cause is CONTEXT in the message,
   // never the verdict.
   assert(calm.reason === 'Converged', `a converged pass reported ${String(calm.reason)}`)
@@ -116,7 +116,7 @@ export function runtimeGuards(): void {
       `held=[${held}] was not reported as condition: ${woke.message}`)
   }
 
-  // ⛔ AND THE TWO CAUSES MUST DIFFER, or the report says the same thing always
+  // ⚠ AND THE TWO CAUSES MUST DIFFER, or the report says the same thing always
   // and this file is asserting a constant.
   assert(!calm.message.includes('woke on condition'),
     `an empty wake reported condition: ${calm.message}`)

@@ -168,7 +168,7 @@ export function runtimeGuards(): void {
   // be worse than doing nothing.
   // ═════════════════════════════════════════════════════════════════════════
 
-  // ⛔ AN UNREADABLE NODE MUST NOT DRAIN AND MUST NOT REPORT SUCCESS. `absent`
+  // ⚠ AN UNREADABLE NODE MUST NOT DRAIN AND MUST NOT REPORT SUCCESS. `absent`
   // is also what an out-of-grant read looks like, so this is the arm that fires
   // when `spec.reads` does not name the node.
   for (const [what, n] of [
@@ -219,7 +219,7 @@ export function runtimeGuards(): void {
     'a NotReady node was not read as not-ready',
   )
 
-  // ⛔ ***`Unknown` AND ABSENT BOTH BECOME null, NOT false.*** Collapsing either
+  // ⚠ ***`Unknown` AND ABSENT BOTH BECOME null, NOT false.*** Collapsing either
   // into NotReady would have this program announce a machine is down because a
   // read failed or a status was half-written. "Not ready" and "cannot tell" are
   // different answers and only one of them is about the node.
@@ -291,7 +291,7 @@ export function runtimeGuards(): void {
     )
   }
 
-  // ⛔ ***THE PARK MUST NAME THE BLOCKER, OR THE OPERATOR'S OWN FIX GOES
+  // ⚠ ***THE PARK MUST NAME THE BLOCKER, OR THE OPERATOR'S OWN FIX GOES
   // UNNOTICED.*** `ResidueRemains` tells an operator to clear the pod, and the
   // park used to watch only the drain ANNOTATION - so doing exactly what the
   // condition asked produced no wake until the 45s backstop. The blocking pod is
@@ -313,7 +313,7 @@ export function runtimeGuards(): void {
     )
   }
 
-  // ⛔ ***THE REASON CARRIES THE BOUND, NOT ONLY THE MESSAGE.*** Automation
+  // ⚠ ***THE REASON CARRIES THE BOUND, NOT ONLY THE MESSAGE.*** Automation
   // watches `reason`; a teardown keyed on a bare `Drained` would evacuate a
   // machine still running workloads in namespaces this program cannot see.
   {
@@ -352,7 +352,7 @@ export function runtimeGuards(): void {
     )
   }
 
-  // ⛔ THE TWO SKIPS, WHICH ARE WHAT KEEP `Drained` REACHABLE AT ALL. Every node
+  // ⚠ THE TWO SKIPS, WHICH ARE WHAT KEEP `Drained` REACHABLE AT ALL. Every node
   // runs DaemonSet pods for as long as it exists, so counting them would make
   // this state absorbing - `Draining` forever on a correctly drained machine.
   for (const [what, p] of [
@@ -368,7 +368,7 @@ export function runtimeGuards(): void {
     )
   }
 
-  // ⛔ AN UNVERIFIABLE COLLECTION IS NOT AN EMPTY ONE. This is the branch that
+  // ⚠ AN UNVERIFIABLE COLLECTION IS NOT AN EMPTY ONE. This is the branch that
   // would silently restore the old defect - reporting success because nothing
   // contradicted it - and the two causes stay distinct because they need
   // different fixes.
@@ -426,7 +426,7 @@ export function runtimeGuards(): void {
   // ═══════════════════════════════════════════════════════════════════════
   // WHOSE POD IS IT? The two-hop traversal, Deployment -> ReplicaSet -> Pod.
   //
-  // ⛔ These exist because `ResidueRemains` said something FALSE. The drain
+  // ⚠ These exist because `ResidueRemains` said something FALSE. The drain
   // path reaches the residue check once `status.readyReplicas == 0`, and
   // readiness drops at the START of termination - so a pod of a DECLARED
   // workload is routinely still on the node, and every one was being reported
@@ -464,7 +464,7 @@ export function runtimeGuards(): void {
     )
   }
 
-  // ⛔ A POD OWNED BY AN *UNDECLARED* DEPLOYMENT'S ReplicaSet IS FOREIGN. This is
+  // ⚠ A POD OWNED BY AN *UNDECLARED* DEPLOYMENT'S ReplicaSet IS FOREIGN. This is
   // the arm that fails if the traversal matches any ReplicaSet rather than only
   // those descending from a declared workload.
   {
@@ -480,7 +480,7 @@ export function runtimeGuards(): void {
     )
   }
 
-  // ⛔ AN UNREADABLE MIDDLE HOP MUST NOT SILENTLY ABSORB ANYTHING. If the
+  // ⚠ AN UNREADABLE MIDDLE HOP MUST NOT SILENTLY ABSORB ANYTHING. If the
   // ReplicaSets cannot be read the question cannot be asked, and the safe answer
   // is "not attributable" - reported as such rather than as "all mine".
   {
@@ -489,7 +489,7 @@ export function runtimeGuards(): void {
       acts.some((a) => a.includes('ResidueRemains')),
       `an unreadable ReplicaSet list was treated as proof the pods are ours: ${acts.join(', ')}`,
     )
-    // ⛔ ***THE REASON ALONE DOES NOT CATCH THIS, AND THAT IS MEASURED.*** A
+    // ⚠ ***THE REASON ALONE DOES NOT CATCH THIS, AND THAT IS MEASURED.*** A
     // mutation making an unreadable middle hop mean "all ours" keeps
     // `ResidueRemains` and changes only the COUNTS in the message - it passed a
     // version of this arm that checked the reason. What must hold is that the
@@ -520,7 +520,7 @@ export function runtimeGuards(): void {
   // regressing into a park that LOOKS subscribed.
   // ═══════════════════════════════════════════════════════════════════════
 
-  // ⛔ ***THE ANNOTATION KEY IS SUBSCRIPTED, NOT BACKSLASH-ESCAPED, AND THIS IS
+  // ⚠ ***THE ANNOTATION KEY IS SUBSCRIPTED, NOT BACKSLASH-ESCAPED, AND THIS IS
   // THE HIGHEST-VALUE ASSERTION IN THIS FILE.*** `fieldSegments` splits on `.`
   // and has NO escape, so `drain\.apsis/requested` walks to `drain\` then
   // `apsis/requested` and reads ABSENT - forever, silently. The park would never

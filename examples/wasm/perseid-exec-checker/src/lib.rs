@@ -63,7 +63,7 @@ fn decide(input: &[u8]) -> Verdict {
     // ordinary single-replica Deployment satisfied at zero ready pods.
     let want = v["spec"]["replicas"].as_i64().unwrap_or(1);
 
-    // ⛔ ***AND HERE ABSENT MEANS ZERO, WHICH IS THE OPPOSITE DEFAULT ONE FIELD
+    // ⚠ ***AND HERE ABSENT MEANS ZERO, WHICH IS THE OPPOSITE DEFAULT ONE FIELD
     // AWAY.*** Kubernetes OMITS `status.readyReplicas` entirely when no pod is
     // ready - it does not write 0 - so the failure this checker exists to catch
     // arrives as an ABSENT field rather than as a small number. A reader that

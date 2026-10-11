@@ -55,7 +55,7 @@ export const step = defineStep(function* () {
   // because the right answer is a property of your program and not of the SDK.
   const dep = yield* read.need(TARGET)
 
-  // ⛔ ***LEVEL-TRIGGERED, AND THIS BLOCK IS WHY THE PROGRAM IS CORRECT.*** The
+  // ⚠ ***LEVEL-TRIGGERED, AND THIS BLOCK IS WHY THE PROGRAM IS CORRECT.*** The
   // repair is re-derived from the world on EVERY pass, whatever woke us. ADR-0107
   // permits "do the work for the condition that holds" - a missed wake only makes
   // you LATE - and forbids the opposite, "skip work because nothing was listed",
@@ -77,7 +77,7 @@ export const step = defineStep(function* () {
   // ---------------------------------------------------------------------------
   // Converged. Park - and learn WHY we woke.
   //
-  // ⛔ ***A WAKE SAYS WHY WE RAN, NOT WHAT IS TRUE NOW - AND THIS FILE SHIPPED
+  // ⚠ ***A WAKE SAYS WHY WE RAN, NOT WHAT IS TRUE NOW - AND THIS FILE SHIPPED
   // IT BACKWARDS.*** It used to dispatch `report(unready('Drifted', …))` from an
   // arm. But dispatch happens at the END of the pass, after the block above has
   // already established the target IS at `WANT`, so the arm announced "Drifted"

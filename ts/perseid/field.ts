@@ -57,7 +57,7 @@ export type Seg = string | { readonly selKey: string; readonly selVal: string }
  * the first to settle. Same rule as the paragraph above, applied twice.
  */
 export const select = (key: string, value: string): Seg => {
-  // ⛔ THE HOST REFUSES A SELECTOR FIELD THAT IS NOT A PLAIN NAME, because
+  // ⚠ THE HOST REFUSES A SELECTOR FIELD THAT IS NOT A PLAIN NAME, because
   // `[?k!=v]` used to parse as a field called `k!`. Refusing here too turns that
   // into a build error instead of a program that reads Absent forever.
   if (!/^[A-Za-z0-9._/-]+$/.test(key)) {
@@ -112,7 +112,7 @@ export const field = (...segs: readonly Seg[]): string => {
       out += out === '' ? s : `.${s}`
       continue
     }
-    // ⛔ A SUBSCRIPT CANNOT OPEN A PATH - the host refuses `["k"].b`, because a
+    // ⚠ A SUBSCRIPT CANNOT OPEN A PATH - the host refuses `["k"].b`, because a
     // bracketed key must follow the map it indexes.
     if (out === '') {
       throw new Error(

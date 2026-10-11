@@ -353,7 +353,7 @@ export const length = (p: Expr<'pods'> | Expr<'list'>): Expr<'int'> => mk('lengt
  *	any element != n   min != n || max != n
  *	all elements == n  min == n && max == n
  *
- * ⛔ NUMERIC FIELDS ONLY. A ConfigMap's `data` values are strings by API type, so
+ * ⚠ NUMERIC FIELDS ONLY. A ConfigMap's `data` values are strings by API type, so
  * these refuse them - use `fields(...) != fields(...)` for that. `min` of an
  * EMPTY set is an error rather than 0: the extreme of nothing is not a number,
  * and a park would compare against whatever came back.
@@ -362,7 +362,7 @@ export const minOf = (p: Expr<'list'>): Expr<'int'> => mk('min', [p], `${p}.min`
 export const maxOf = (p: Expr<'list'>): Expr<'int'> => mk('max', [p], `${p}.max`)
 
 // ---------------------------------------------------------------------------
-// ⛔ EIGHT PER-KIND CONSTRUCTORS WERE HERE AND ARE DELETED, 2026-08-30.
+// ⚠ EIGHT PER-KIND CONSTRUCTORS WERE HERE AND ARE DELETED, 2026-08-30.
 //
 // `getPod`, `replicas`, `getDeployment`, `getStatefulSet`, `getDaemonSet`,
 // `getReplicaSet`, `getConfigMap`, `getSecret` - and the `desired`, `ready` and
@@ -555,7 +555,7 @@ export const and = (...bs: Expr<'bool'>[]): Expr<'bool'> => mk('and', bs, bs.map
  * so no existing scaler silently gains it), the grant's namespace, and the KIND:
  * configmaps, secrets, deployments, statefulsets, daemonsets, replicasets.
  *
- * ⛔ ***NOT pods, AND THAT ONE EXCLUSION IS A SECURITY ARGUMENT RATHER THAN A
+ * ⚠ ***NOT pods, AND THAT ONE EXCLUSION IS A SECURITY ARGUMENT RATHER THAN A
  * SCOPE DECISION.*** An obligation is applied with RADIANT'S credential, and the
  * seam-binding admission policy exempts exactly that identity - on pods. A
  * program that could write a pod could stamp the binding annotations through the
@@ -607,7 +607,7 @@ export const ensure = (path: PathLike, field: string, value: EnsureValue): Expr<
   mk('Ensure', [path, field, value], `Ensure(${pathText(path)}, ${lit(field)}, ${valueText(value)})`)
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ⛔ ***THERE IS NO `ensureCluster`, AND THAT IS A DECISION RATHER THAN A GAP***
+// ⚠ ***THERE IS NO `ensureCluster`, AND THAT IS A DECISION RATHER THAN A GAP***
 // (engi, 2026-09-05). `ensure` above writes a CLUSTER-SCOPED object too - a Node,
 // a PersistentVolume - and the PATH is what says which:
 //
@@ -770,7 +770,7 @@ const pathText = (p: ReadPathLike): string => (isPathExpr(p) ? String(p) : lit(S
 // LITERAL and must be quoted. Both are strings at runtime, so the discriminator
 // has to be the shape.
 //
-// ⛔ ***THIS WAS `p.startsWith('At(')` AND IT WENT STALE THE MOMENT A SECOND
+// ⚠ ***THIS WAS `p.startsWith('At(')` AND IT WENT STALE THE MOMENT A SECOND
 // PATH-PRODUCING SYMBOL EXISTED.*** `ownedBy` and `nodeOf` emit `OwnedBy(` and
 // `NodeOf(`, so an edge was QUOTED as a literal:
 //

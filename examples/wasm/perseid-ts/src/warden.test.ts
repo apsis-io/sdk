@@ -151,7 +151,7 @@ export function runtimeGuards(): void {
     'a Ready node did not read as ready')
   assert(readyOfNode(JSON.stringify({ status: { conditions: [{ type: 'Ready', status: 'False' }] } })) === false,
     'a NotReady node did not read as not-ready')
-  // ⛔ A node with no Ready condition is `null`, never `false`. Collapsing them
+  // ⚠ A node with no Ready condition is `null`, never `false`. Collapsing them
   // makes the warden refuse to act on a machine that is merely young.
   assert(readyOfNode(JSON.stringify({ status: { conditions: [] } })) === null,
     'a node with no Ready condition read as a definite answer')
@@ -176,7 +176,7 @@ export function runtimeGuards(): void {
     'a reserved SDK key disturbed the program\'s own value')
 
   // ═══════════════════════════════════════════════════════════════════════
-  // ⛔ THE BRANCH THIS FILE EXISTS FOR: A FAILED READ IS NOT AN UNHEALTHY NODE.
+  // ⚠ THE BRANCH THIS FILE EXISTS FOR: A FAILED READ IS NOT AN UNHEALTHY NODE.
   //
   // `unknown` must produce NO writes whatsoever. Not a scale, not a stamp, not
   // even the ConfigMap - the program has no idea what the world looks like.
@@ -186,7 +186,7 @@ export function runtimeGuards(): void {
     `an unreadable node produced writes: ${blind.writes.join(' | ')}`)
   assert(blind.outcome.o === 'quiesce', 'an unreadable node did not park')
 
-  // ⛔ ***AND IT MUST SAY SO. THIS BRANCH REPORTED NOTHING AT ALL.*** It returned
+  // ⚠ ***AND IT MUST SAY SO. THIS BRANCH REPORTED NOTHING AT ALL.*** It returned
   // early with no condition, so a warden that could not read its node left the
   // PREVIOUS condition standing - `Ready=True` from the pass before, for as long
   // as the blindness lasted. An operator reading the object saw a healthy warden.
@@ -201,7 +201,7 @@ export function runtimeGuards(): void {
   assert(blind.condition.status === 'Unknown',
     `an unreadable node reported status ${String(blind.condition.status)}, not Unknown`)
 
-  // ⛔⛔ ***AND IT MUST NOT ERASE THE STREAK, WHICH IT DID.*** The host reads
+  // ⚠⚠ ***AND IT MUST NOT ERASE THE STREAK, WHICH IT DID.*** The host reads
   // `carry` as a POINTER: ABSENT keeps the previous value, `""` CLEARS it. This
   // path used to `forget(...)`, i.e. send `""`, on a pass that measured nothing
   // about the tier.

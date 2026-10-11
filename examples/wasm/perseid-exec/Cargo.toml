@@ -6,7 +6,7 @@ publish = false
 
 # A Perseid that delegates its VERDICT to an allowlisted child component.
 #
-# ⛔ ***THE RUST ARM. IT IS NOT THE ONLY ONE, AND THIS COMMENT CLAIMED IT WAS.***
+# ⚠ ***THE RUST ARM. IT IS NOT THE ONLY ONE, AND THIS COMMENT CLAIMED IT WAS.***
 # It read: "the TS SDK has no binding for the exec seam, so a TS Perseid cannot
 # call it without SDK work". ***THAT WAS FALSE WHEN WRITTEN.***
 # `sdk/ts/periapsis/exec.ts` has been an ergonomic wrapper over

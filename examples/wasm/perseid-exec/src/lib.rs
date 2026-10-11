@@ -15,7 +15,7 @@
 //!       execWith:
 //!         check: /var/lib/apsis/wasm-exec/perseid-exec-checker.wasm
 //!
-//! ⛔ ***THAT FIELD DID NOT EXIST UNTIL 2026-09-08, AND THIS PROGRAM WAS WRITTEN
+//! ⚠ ***THAT FIELD DID NOT EXIST UNTIL 2026-09-08, AND THIS PROGRAM WAS WRITTEN
 //! AGAINST ITS ABSENCE.*** `--exec-with` comes from the `trail.apsis/exec-with`
 //! pod annotation and radiant builds a Perseid's pod itself, so there was no
 //! route for an allowlist to reach a Perseid at all: `periapsis:host/exec` was
@@ -26,7 +26,7 @@
 //! launch otherwise, because a Perseid author may not hold pod-create - see
 //! `ExecWithRoot` in `internal/trailop/perseidpod.go` for the whole argument.
 //!
-//! ⛔ ***DECLARING NOTHING DOES NOT REACH THE `NoChecker` ARM ON THIS PATH - IT
+//! ⚠ ***DECLARING NOTHING DOES NOT REACH THE `NoChecker` ARM ON THIS PATH - IT
 //! FAILS AT INSTANTIATION*** (engi, 2026-09-08). trail's `step_linker` withholds
 //! `periapsis:host/exec` from a Perseid's linker unless the allowlist is
 //! non-empty, so an ungranted program importing exec is refused with *"a matching
@@ -52,7 +52,7 @@ wit_bindgen::generate!({
     path: "wit",
     world: "perseid-exec",
     generate_all,
-    // ⛔ ***NO `async` OPTION, DELIBERATELY - `async: true` BREAKS THIS BUILD.***
+    // ⚠ ***NO `async` OPTION, DELIBERATELY - `async: true` BREAKS THIS BUILD.***
     // A blanket forces every function, including the plain non-async `spawn` and
     // `stdout`, into the async canonical ABI, and `wasm-tools validate` rejects
     // that for a plain function type ("the `async` canonical option requires an
@@ -174,7 +174,7 @@ async fn pass() -> String {
                 // Nothing to check and nothing to wait on but its arrival.
                 return quiesce(&subject_exists());
             }
-            // ⛔ ***`Unknown` IS NOT `Absent`, AND REPORTING `False` HERE WOULD BE
+            // ⚠ ***`Unknown` IS NOT `Absent`, AND REPORTING `False` HERE WOULD BE
             // THE MOST REPEATED DEFECT IN THIS CODEBASE.*** The read failed; the
             // subject may be in perfect health. `unsure` is what this pass
             // actually established.

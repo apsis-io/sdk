@@ -289,7 +289,7 @@ export function when(...args: unknown[]): (value: unknown) => unknown {
 /**
  * The error surfaced when `matchValue` is handed an arm that yields.
  *
- * ⛔ ***THIS WAS `never` AND THAT MADE THE CHECK VACUOUS.*** `never` is assignable
+ * ⚠ ***THIS WAS `never` AND THAT MADE THE CHECK VACUOUS.*** `never` is assignable
  * to EVERY type, so the "error" satisfied `const label: string = matchValue(…)`
  * and nothing was reported - the refusal existed in the signature and could not
  * fire. Caught only because the `@ts-expect-error` asserting the refusal was

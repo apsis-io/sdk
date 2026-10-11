@@ -94,7 +94,7 @@ if (!decl) {
   // small number, and `declareBackstop(DEFAULT_BACKSTOP_MS)` is a decision in a
   // way that silence is not.
   console.error(
-    `\n  ⛔ NO BACKSTOP DECLARED - this program does not build.\n\n` +
+    `\n  ⚠ NO BACKSTOP DECLARED - this program does not build.\n\n` +
       '    A Perseid that parks is asleep until its condition fires. If that condition is\n' +
       '    too narrow, or a watch is dropped, the backstop is the ONLY thing that wakes it\n' +
       `    again - and undeclared that is ${DEFAULT_BACKSTOP_MS}ms (${DEFAULT_BACKSTOP_MS / 1000}s), ` +

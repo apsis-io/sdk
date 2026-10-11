@@ -19,7 +19,7 @@
  * wake stays missed. Every Perseid on the fleet had the field owned by radiant
  * rather than by a human, most of them sitting on the default.
  *
- * ⛔ ***AND IT COULD NOT GO IN THE PARK EXPRESSION***, which was tried first. A
+ * ⚠ ***AND IT COULD NOT GO IN THE PARK EXPRESSION***, which was tried first. A
  * resume is assembled at RUNTIME, so admission never sees one: a bound written
  * there is invisible until the first park, and the whole point is to refuse a
  * bad one before a pod exists. A custom section is the only carrier that is both

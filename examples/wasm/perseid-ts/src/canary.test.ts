@@ -215,7 +215,7 @@ export function runtimeGuards(): void {
     )
   }
 
-  // ⛔ A DEAD PROBE MUST NOT READ AS HEALTHY. The carry is durable, so the last
+  // ⚠ A DEAD PROBE MUST NOT READ AS HEALTHY. The carry is durable, so the last
   // thing a probe published stays on its object forever - this is the arm that
   // makes the gate close when the MEASURING half breaks rather than when the
   // workload does.
@@ -265,7 +265,7 @@ export function runtimeGuards(): void {
     }
   }
 
-  // ⛔ THE DRAIN EDGE IS GATED TOO, AND IT IS THE IRREVERSIBLE ONE. Once stable
+  // ⚠ THE DRAIN EDGE IS GATED TOO, AND IT IS THE IRREVERSIBLE ONE. Once stable
   // is at zero the fallback is gone. A gate that ran only at the earlier edge
   // was evaluated minutes before this moment, at a different candidate scale.
   {

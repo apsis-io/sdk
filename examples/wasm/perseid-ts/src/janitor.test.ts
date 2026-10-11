@@ -121,7 +121,7 @@ export function runtimeGuards(): void {
   // deadline over a cleanup that had already happened.
   eq(driveFinalize(absent).outcome, { tag: 'done' }, 'an absent target is nothing to clean up')
 
-  // ⛔ ***UNKNOWN -> retry, NOT done.*** THE ONE BRANCH WHERE THE SAFE-LOOKING
+  // ⚠ ***UNKNOWN -> retry, NOT done.*** THE ONE BRANCH WHERE THE SAFE-LOOKING
   // CHOICE IS WRONG. `unknown` means the host could not answer; concluding
   // "nothing to clean up" would release the object on the strength of a FAILED
   // READ. A delayed delete is recoverable and a skipped drain is not.

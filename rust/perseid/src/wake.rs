@@ -32,7 +32,7 @@
 //! program: keeping the write end out of a module-level `static mut`, and
 //! answering `Running` rather than `Terminating` when a program was never armed.
 //!
-//! ⛔ **ARM IT INSIDE `run`, NOT AT MODULE INITIALISATION.** The read must
+//! ⚠ **ARM IT INSIDE `run`, NOT AT MODULE INITIALISATION.** The read must
 //! register in the waitable set of the task that will be suspended, and in a
 //! componentized guest there is no task context at module scope at all.
 //!
@@ -151,7 +151,11 @@ mod tests {
         wake.arm(Spy(Arc::clone(&seen)));
 
         assert_eq!(wake.signal(7, |_| State::Terminating), State::Terminating);
-        assert_eq!(seen.load(Ordering::SeqCst), 7, "the code is passed through, not invented");
+        assert_eq!(
+            seen.load(Ordering::SeqCst),
+            7,
+            "the code is passed through, not invented"
+        );
     }
 
     /// A program that never raced cannot wind up, and must say so rather than
@@ -161,7 +165,9 @@ mod tests {
         let mut wake: Wake<Spy> = Wake::new();
 
         assert_eq!(
-            wake.signal(1, |_| panic!("the verdict must not be consulted when nothing is armed")),
+            wake.signal(1, |_| panic!(
+                "the verdict must not be consulted when nothing is armed"
+            )),
             State::Running
         );
     }
@@ -176,6 +182,10 @@ mod tests {
 
         assert_eq!(wake.signal(1, |_| State::Terminating), State::Terminating);
         assert_eq!(wake.signal(2, |_| State::Terminating), State::Running);
-        assert_eq!(seen.load(Ordering::SeqCst), 1, "the second signal must not overwrite the first");
+        assert_eq!(
+            seen.load(Ordering::SeqCst),
+            1,
+            "the second signal must not overwrite the first"
+        );
     }
 }

@@ -30,21 +30,21 @@ export function runtimeGuards(): void {
   // The three defaults, and each one's WRONG value.
   // ═══════════════════════════════════════════════════════════════════════
 
-  // ⛔ ABSENT `spec.replicas` IS 1. Zero would make a fully-down single-replica
+  // ⚠ ABSENT `spec.replicas` IS 1. Zero would make a fully-down single-replica
   // Deployment look satisfied - the verdict inverts.
   assert(wantedReplicas({}) === 1, `absent spec.replicas must default to 1, got ${wantedReplicas({})}`)
   assert(wantedReplicas({ spec: {} }) === 1, 'an empty spec must still default to 1')
   assert(wantedReplicas({ spec: { replicas: 0 } }) === 0,
     'an EXPLICIT 0 must survive - scaled-to-zero is a real declaration, not a missing field')
 
-  // ⛔ ABSENT `status.readyReplicas` IS 0, and this is the exact shape the
+  // ⚠ ABSENT `status.readyReplicas` IS 0, and this is the exact shape the
   // apiserver emits for a workload with nothing ready.
   const down: Deployment = { spec: { replicas: 2 }, status: { replicas: 2 } }
   assert(readyReplicas(down) === 0, `absent readyReplicas must be 0, got ${readyReplicas(down)}`)
   assert(readyReplicas(down) !== wantedReplicas(down),
     'a fully-down Deployment read as satisfied - the two defaults collapsed into one')
 
-  // ⛔ ABSENT `spec.unschedulable` IS false: Kubernetes omits it on a
+  // ⚠ ABSENT `spec.unschedulable` IS false: Kubernetes omits it on a
   // schedulable node rather than writing false.
   assert(unschedulable({}) === false, 'an absent unschedulable must read schedulable')
   assert(unschedulable({ spec: { unschedulable: true } }) === true, 'a cordoned node must read cordoned')
@@ -68,7 +68,7 @@ export function runtimeGuards(): void {
   assert(conditionStatus(conds, 'Absent') === undefined, 'a missing condition must be undefined')
   assert(conditionStatus(undefined, 'Ready') === undefined, 'no conditions at all must be undefined')
 
-  // ⛔ `Unknown` IS NOT `false`. Collapsing it reports a machine down because a
+  // ⚠ `Unknown` IS NOT `false`. Collapsing it reports a machine down because a
   // controller has not decided yet.
   assert(isReady([{ type: 'Ready', status: 'True' }]) === true, 'Ready=True must be true')
   assert(isReady([{ type: 'Ready', status: 'False' }]) === false, 'Ready=False must be false')

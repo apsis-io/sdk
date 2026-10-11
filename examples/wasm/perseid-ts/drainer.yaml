@@ -18,7 +18,7 @@
 # the node from `writes` and the cordon is refused with "is not named in this
 # program's cluster-scoped writes" - which is the whole boundary, working.
 #
-# ⛔ ***IT DOES NOT EVICT PODS AND CANNOT - BECAUSE OF `writes` BELOW, NOT
+# ⚠ ***IT DOES NOT EVICT PODS AND CANNOT - BECAUSE OF `writes` BELOW, NOT
 # BECAUSE IT CANNOT SEE THEM.*** This comment said the opposite until 03450311c
 # landed a collection read; the step now enumerates the pods on the node and
 # NAMES the ones blocking a drain in its Ready condition.

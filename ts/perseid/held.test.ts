@@ -100,7 +100,7 @@ test('every held condition is named, not the first', () => {
   expect(drive([A.render(), B.render()]).named).toEqual(['a', 'b'])
 })
 
-// ⛔ THE FALLBACK'S PRECONDITION. Empty is what a backstop tick, a first pass and
+// ⚠ THE FALLBACK'S PRECONDITION. Empty is what a backstop tick, a first pass and
 // a host without `woke` all produce, and it must name nothing rather than
 // guessing.
 test('nothing held names nothing', () => {
@@ -145,7 +145,7 @@ function driveWide(texts: string[]): string[] {
   return named
 }
 
-// ⛔ ***THE LIVE DEFECT, PINNED.*** `fieldNoLonger` renders `(!exists) || (!= v)`,
+// ⚠ ***THE LIVE DEFECT, PINNED.*** `fieldNoLonger` renders `(!exists) || (!= v)`,
 // so two conditions are FOUR operands to the host. Under indices, a wake on the
 // second condition's operands landed inside the first's range and published a
 // healthy verdict about a Deployment with no pods. By text there is no range to
@@ -207,7 +207,7 @@ test('distinct conditions are told apart', () => {
   expect(driveEach([A.render(), leafOf(condOf(SUBJECTS[1]), 0)]).hit).toEqual(['node', 'y'])
 })
 
-// ⛔ ***AND THE NEGATIVE ARM: A DIFFERENT CONDITION MUST NOT MATCH.*** Structural
+// ⚠ ***AND THE NEGATIVE ARM: A DIFFERENT CONDITION MUST NOT MATCH.*** Structural
 // comparison is only useful if it still discriminates - a `has` that returned
 // true for everything would satisfy every test above.
 test('a condition that did NOT hold does not match', () => {
@@ -308,7 +308,7 @@ test('a park of nothing but backstops is the backstop-only park', () => {
   expect(anyOf(backstop(), backstop())).toEqual(untilBackstop)
 })
 
-// ⛔ ***`allOf` MUST NOT FOLD.*** `X || false` is `X`; `X && false` is `false`,
+// ⚠ ***`allOf` MUST NOT FOLD.*** `X || false` is `X`; `X && false` is `false`,
 // so eliding there would silently turn a park into one that can never hold.
 test('allOf does NOT fold a backstop', () => {
   expect(allOf(A, backstop())).not.toEqual(A)
@@ -382,7 +382,7 @@ test('heldTexts is the host answer verbatim', () => {
   expect(out.which).toEqual([])
 })
 
-// ⛔ THE NEGATIVE ARM, and the documentation of a decision: a condition that is
+// ⚠ THE NEGATIVE ARM, and the documentation of a decision: a condition that is
 // SEMANTICALLY identical but RENDERED differently is a different operand to the
 // host - extra parentheses change the emitted text, and an `and` of one operand
 // is a node where the host sliced a leaf. Text identity is the contract; these

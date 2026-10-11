@@ -83,7 +83,7 @@ test('the reported state is the program’s choice', () => {
   expect(wake.handler(() => 'terminated').signal(9)).toBe('terminated')
 })
 
-// ⛔ `wake-carrier` is never called by anything, which is exactly why it is easy
+// ⚠ `wake-carrier` is never called by anything, which is exactly why it is easy
 // to drop - and dropping it fails at INSTANTIATION, not at a call, so every pass
 // of the program dies with a missing-export error rather than one read failing.
 test('the handler supplies the never-called wake-carrier export', () => {

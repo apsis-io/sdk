@@ -106,7 +106,7 @@ const STAGES = [
 // conditions with no time bound has nothing to fall back on if the wake index
 // misses - and "asleep on a condition nobody will satisfy" is the failure
 // ADR-0075 is named for.
-// ⛔ There was a `const RECHECK_MS = 60_000` here. Its number did not go away -
+// ⚠ There was a `const RECHECK_MS = 60_000` here. Its number did not go away -
 // it moved into `dag-backstop.ts`, where a bound belongs: readable off the
 // artifact, refusable at admission, and adjustable without touching the step.
 // The park operand it fed is gone and the effective bound is unchanged.

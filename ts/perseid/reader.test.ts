@@ -63,7 +63,7 @@ test('need unwraps and decodes a known read', () => {
   expect(outcome.o).toBe('quiesce')
 })
 
-// ⛔ THE POINT OF `need`: the lines AFTER it must not run. A helper that merely
+// ⚠ THE POINT OF `need`: the lines AFTER it must not run. A helper that merely
 // returned `null` would let the step carry on with a hole in it.
 test('need SHORT-CIRCUITS: nothing after it runs', () => {
   let reachedTheEnd = false

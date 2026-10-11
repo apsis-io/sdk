@@ -262,7 +262,7 @@ bun tools/attach-backstop.ts "$PODMAKER_OUT" src/podmaker-backstop.ts
 # ═══════════════════════════════════════════════════════════════════════════
 # 5b. GOVERNANCE - THE ONE THAT IS ACTUALLY RUNNING, AND WAS NOT BUILT HERE.
 #
-# ⛔ ***`gazer-governance` IS LIVE (Running, not Parked) AND THIS SCRIPT DID NOT
+# ⚠ ***`gazer-governance` IS LIVE (Running, not Parked) AND THIS SCRIPT DID NOT
 # BUILD IT.*** Its source, its world and its manifest were all in the tree; the
 # build step was not, so every change to the contract reached five components and
 # skipped the one serving traffic. Found 2026-09-04 while planning the async
@@ -315,7 +315,7 @@ bun tools/attach-backstop.ts "$GOVERNANCE_OUT" src/governance-backstop.ts
 # rather than quietly shrinking what is examined.
 ALL_COMPONENTS=("$OUT" "$DAG_OUT" "$CANARY_OUT" "$PROBE_OUT" "$DRAINER_OUT" "$EXECCHECK_OUT" "$JANITOR_OUT" "$PODMAKER_OUT" "$GOVERNANCE_OUT" "$SENTINEL_OUT")
 
-# ⛔ ***THE PARAGRAPH ABOVE CLAIMED ADDING A COMPONENT WITHOUT LISTING IT HERE
+# ⚠ ***THE PARAGRAPH ABOVE CLAIMED ADDING A COMPONENT WITHOUT LISTING IT HERE
 # "BREAKS THE COUNT ASSERTION". IT DID NOT, AND `sentinel` PROVED IT.*** The
 # sentinel was built by this script, left out of the list, and every gate below
 # passed while examining eight of nine artifacts. The only count assertion was

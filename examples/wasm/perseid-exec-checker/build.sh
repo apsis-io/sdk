@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# ⛔ NOT /tmp - tmpfs, and a cold cargo target SIGBUSes the linker there.
+# ⚠ NOT /tmp - tmpfs, and a cold cargo target SIGBUSes the linker there.
 export CARGO_TARGET_DIR="${PERSEID_EXEC_CHECKER_TARGET:-/mnt/nvme_data/perseid-exec-checker-target}"
 
 # The pure half is testable on the host, where a component cannot run. Native

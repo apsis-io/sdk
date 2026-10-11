@@ -110,7 +110,7 @@ const indexMoved = (seen: string) => fieldNoLonger(INDEX, 'data.subjects', seen)
 /**
  * One named subject is off its expected count.
  *
- * ⛔ `fieldNoLonger`, NOT `fieldNe` - Kubernetes OMITS `status.readyReplicas` at
+ * ⚠ `fieldNoLonger`, NOT `fieldNe` - Kubernetes OMITS `status.readyReplicas` at
  * zero, and zero is the failure a follower exists to notice. An absent operand
  * propagates as UNKNOWN rather than true, so a `!=` park would not fire on the
  * very case it was written for. `fieldNoLonger` emits `!exists || !=`.

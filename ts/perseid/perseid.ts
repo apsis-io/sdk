@@ -550,7 +550,7 @@ export function unsafeApiPath(candidate: string): ApiPath {
  * complete there, only an empty string to refuse; here there is, so the worse
  * error message is the right trade.
  *
- * ⛔ ***NOTHING REFERENCES THIS ANY MORE, AND THAT IS NOT A REASON TO DELETE
+ * ⚠ ***NOTHING REFERENCES THIS ANY MORE, AND THAT IS NOT A REASON TO DELETE
  * IT.*** The paragraph below records why the guard stopped being needed — the
  * `Get(path, field)` inversion made a bare name the unresolvable thing — so this
  * is a documented vestige rather than an oversight. An audit that greps for
@@ -617,7 +617,7 @@ export type RefusesAPath<N extends string> = N extends `/${string}`
 // a pod being rescheduled changes `spec.nodeName` ON THE POD - and degrades to
 // the backstop poll when it lives on the target.
 //
-// ⛔ ***AND `nodeOf` HAS A SECOND CONSTRAINT THAT `ownedBy` DOES NOT: ITS TARGET
+// ⚠ ***AND `nodeOf` HAS A SECOND CONSTRAINT THAT `ownedBy` DOES NOT: ITS TARGET
 // MUST ALREADY BE IN `spec.reads`.*** A Node is cluster-scoped, and cluster reads
 // are granted per OBJECT by name - so a program can only traverse to a node it
 // declared in advance, which the common case ("whichever machine my pod landed
@@ -662,7 +662,7 @@ export const objectGone = (path: E.ReadPathLike): Resume =>
  * ENTERING or LEAVING the selector are covered without the program knowing their
  * names. That is the half a per-object park cannot do at all.
  *
- * ⛔ NUMERIC FIELDS ONLY, and an EMPTY match is an ERROR rather than "nothing is
+ * ⚠ NUMERIC FIELDS ONLY, and an EMPTY match is an ERROR rather than "nothing is
  * wrong". A selector matching nothing usually means the selector is wrong, and
  * answering `false` there would report a healthy fleet for a typo.
  */
@@ -713,7 +713,7 @@ export const countNe = (selector: LabelSelector, n: number): Resume =>
  * subject carrying the selector literal, so this costs one watch however many
  * objects match.)
  *
- * ⛔ COUNT FORMS ONLY. "Every matching pod has field == X" / "some does not"
+ * ⚠ COUNT FORMS ONLY. "Every matching pod has field == X" / "some does not"
  * over a STRING field needs a quantifier aperture does not have - `min`/`max`
  * are numeric (see `anyFieldNe` for what they do cover). Existence, absence
  * and count comparisons are the expressible whole; do not reach for more
@@ -803,7 +803,7 @@ export const countNeField = (
  * numeric comparator; the scalar arms go through `neScalar`, exactly as
  * `fieldNoLonger` dispatches.
  *
- * ⛔ ***THE ABSENT TRAP NOW APPLIES TO THE SCALAR ARMS.*** A bare inequality
+ * ⚠ ***THE ABSENT TRAP NOW APPLIES TO THE SCALAR ARMS.*** A bare inequality
  * reads UNKNOWN when the field is ABSENT, and a park holding UNKNOWN never
  * fires - correct for a field that is always present (`spec.replicas`), and
  * a SILENT park for a field that can be withdrawn (`data` keys on a
@@ -841,7 +841,7 @@ export const fieldIs = (path: E.ReadPathLike, field: string, value: string | boo
 /**
  * Wake when a field STOPS being `value` - including by being DELETED.
  *
- * ⛔ ***THE `|| !exists` HALF IS THE WHOLE POINT AND A BARE `!=` IS A BUG
+ * ⚠ ***THE `|| !exists` HALF IS THE WHOLE POINT AND A BARE `!=` IS A BUG
  * HERE.*** Removing an annotation makes the field ABSENT, and `absent != "true"`
  * evaluates to UNKNOWN, not true - so a park written as a plain inequality never
  * fires on the withdrawal it was written to catch, and the program waits out its
@@ -919,7 +919,7 @@ export interface Hop {
  * traverses a pointer, and the host grows no symbol (LANGUAGE_VERSION is
  * unchanged; nothing here needs fingerprint coordination).
  *
- * ⛔ ***THE GUARDS ARE `fieldNoLonger`, NOT `fieldIs`, AND THE DIFFERENCE IS
+ * ⚠ ***THE GUARDS ARE `fieldNoLonger`, NOT `fieldIs`, AND THE DIFFERENCE IS
  * LIVENESS.*** A bare `==` on an edge reads ABSENT when the edge's object is
  * deleted, absent propagates as UNKNOWN, and a conjunction holding an UNKNOWN
  * operand never fires - so the park sleeps through the very edit that
@@ -1536,7 +1536,7 @@ export function carriedBy(rawPerseid: string): string | null {
  * satisfy, indistinguishable from a program correctly asleep."*
  */
 export function quiesce(resume: Resume): Outcome {
-  // ⛔ ***THE RUNTIME CHECK STAYS, AND I TRIED TO DELETE IT.*** The reasoning
+  // ⚠ ***THE RUNTIME CHECK STAYS, AND I TRIED TO DELETE IT.*** The reasoning
   // was that `Resume` is a NODE now, so there is no empty string to pass and the
   // conditional parameter type was guarding a value the type can no longer hold.
   // The first half is true and the conclusion is wrong: `perseid.test.ts` forces
@@ -2079,7 +2079,7 @@ export type EnsureValue = string | number | boolean
 // `typeof` - and the lowering in each `*-main.ts` is exactly where the two
 // representations are supposed to meet.
 //
-// ⛔ ***WHY `Computed` IS NOT HERE, WHICH IS THE ONE REAL ASYMMETRY.*** In
+// ⚠ ***WHY `Computed` IS NOT HERE, WHICH IS THE ONE REAL ASYMMETRY.*** In
 // `expr.ts` a string is genuinely ambiguous: an `Expr` is a plain string at
 // runtime, so nothing can tell `'fast'` (a ConfigMap value to store) from
 // `Get(...) + 1` (expression text to emit bare) by inspection - hence
@@ -2333,7 +2333,7 @@ export const reconcile = {
    * obligation's bytes, so a body whose order varied between passes would make
    * an unchanged Create look new every time — applied forever, retired never.
    *
-   * ⛔ ***NO ARRAYS: A ConfigMap OR A Secret YES, A Deployment NO.*** The
+   * ⚠ ***NO ARRAYS: A ConfigMap OR A Secret YES, A Deployment NO.*** The
    * grammar's `[` is postfix indexing, not an array literal. Measured; the
    * remedy is the grammar, as it was for booleans.
    */
@@ -2375,7 +2375,7 @@ export const reconcile = {
    * `perseid:reconcile/observe-perseids@0.1.0` — and keeping the two apart is
    * what lets a grant say "may see peers" without saying "may see this one".
    *
-   * ⛔ ***THE OP IS `'carry'` AND THE WIT FUNCTION IS `get`. THAT DIVERGENCE IS
+   * ⚠ ***THE OP IS `'carry'` AND THE WIT FUNCTION IS `get`. THAT DIVERGENCE IS
    * DELIBERATE AND IS THE ONE IN THIS TABLE.*** `Handler<E>` is keyed on the OP
    * ALONE — `readonly [K in Exclude<E['op'], StructuralOp>]` — so the interface
    * id is not part of the key, and `observe.get` and `observeCluster.get`
@@ -2530,7 +2530,7 @@ export type Handler<E extends AnyEffect> = {
   readonly [K in Exclude<E['op'], StructuralOp>]: (args: Extract<E, { op: K }>['args']) => unknown
 }
 
-// ⛔ ***`Handler<NoInfer<E>>` TYPES EVERY HANDLER ARGUMENT AS `never`, AND IT
+// ⚠ ***`Handler<NoInfer<E>>` TYPES EVERY HANDLER ARGUMENT AS `never`, AND IT
 // COMPILES CLEAN — 2026-08-29, reported by engi as "it types handlers as
 // never".***
 //
@@ -2960,7 +2960,7 @@ export function* where<T extends Record<string, Step<any, any>>>(
 //
 // # WHY SOME KINDS HAVE NO `with(...)`
 //
-// ⛔ A pod cannot be CREATED. It is in the host's `unwritableKinds`, and Create
+// ⚠ A pod cannot be CREATED. It is in the host's `unwritableKinds`, and Create
 // is the worse half of that exclusion: an obligation is applied with RADIANT'S
 // credential, which the seam-binding policy exempts ON PODS, so a program that
 // could create one could bring it into existence with `radiant.apsis/link`
@@ -3152,7 +3152,7 @@ export const objects = {
   },
 }
 
-// ⛔ ***A 55-LINE DOC FOR `on` SAT HERE, ATTACHED TO NOTHING, AND WAS DELETED
+// ⚠ ***A 55-LINE DOC FOR `on` SAT HERE, ATTACHED TO NOTHING, AND WAS DELETED
 // 2026-09-07.*** It documented the removed `on({[expr]: handler})` object form
 // and opened with "***THE EXPRESSION IS THE KEY*** - `Resume` is a branded
 // string and object keys are strings", both false since the builder landed and
@@ -3289,7 +3289,7 @@ export interface Held {
  * recorded the answer as `WakeReport.Fired` since long before; `woke.cause`
  * (2026-09-08) is the channel that carries it, and the three are now separate.
  *
- * ⛔ `unknown` IS NOT A KIND OF `backstop`. `driver.go` refuses that merge at the
+ * ⚠ `unknown` IS NOT A KIND OF `backstop`. `driver.go` refuses that merge at the
  * constants this mirrors: *"I re-checked on a timer" and "I could not tell why I
  * woke" are different facts, and merging them would report a broken instrument
  * as a healthy timeout.*
@@ -3360,7 +3360,7 @@ export function* held(): Generator<Effect<typeof WIT_WOKE, 'held', void>, Held, 
   const texts = ((yield* woke()) as string[] | undefined) ?? []
   const named = new Set(texts)
 
-  // ⛔⛔ ***THE HOST REPORTS FLATTENED OPERANDS, AND A CONDITION IS NOT ONE OF
+  // ⚠⚠ ***THE HOST REPORTS FLATTENED OPERANDS, AND A CONDITION IS NOT ONE OF
   // THEM THE MOMENT IT CONTAINS ITS OWN `||`.***
   //
   // The host flattens `||` RECURSIVELY - it must, because it wraps the author's
@@ -3509,7 +3509,7 @@ export interface FetchResult {
  * ***THAT HAZARD IS GONE*** - an operand names itself now - so this is a
  * convenience rather than the safe alternative to `on()`.
  *
- * ⛔ ***IT IS A HINT. ADR-0107 PERMITS "do the work for the condition that
+ * ⚠ ***IT IS A HINT. ADR-0107 PERMITS "do the work for the condition that
  * holds" AND FORBIDS "skip work because nothing was listed".*** A missed wake
  * makes a level-triggered program LATE; branching the repair on this makes it
  * edge-triggered in disguise, and the failure is invisible because the program
@@ -3524,7 +3524,7 @@ export interface FetchResult {
  * ═══════════════════════════════════════════════════════════════════════════
  */
 export function* wakeCause(): Generator<Effect<typeof WIT_WOKE, 'cause', void>, Cause, unknown> {
-  // ⛔ ***IT ASKS NOW. IT USED TO GUESS.***
+  // ⚠ ***IT ASKS NOW. IT USED TO GUESS.***
   //
   // This was `held().size > 0 ? 'resume' : 'backstop'` - the coarse answer
   // inferred from the fine one. The inference is unsound in the direction that

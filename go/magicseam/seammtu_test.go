@@ -5,7 +5,7 @@ package magicseam
 
 import "testing"
 
-// ⛔ THE GUARD FOR A HANDSHAKE THAT COULD NOT LEAVE THE HOST.
+// ⚠ THE GUARD FOR A HANDSHAKE THAT COULD NOT LEAVE THE HOST.
 //
 // quic-go defaults InitialPacketSize to 1280 and sets DF. On the aphelion0
 // tailnet (mtu 1280) that is 1308 bytes on the wire, so the kernel refused every

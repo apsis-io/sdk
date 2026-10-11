@@ -34,7 +34,7 @@
 // operand names itself since 2026-09-07, so a set that changed between passes
 // simply fails to match - late, never wrong.
 //
-// ⛔ IT WRITES NOTHING. `spec.writes` is empty and the world imports no write
+// ⚠ IT WRITES NOTHING. `spec.writes` is empty and the world imports no write
 // interface at all - a sentinel that could act is a different program with a
 // different blast radius, and the empty write set is what makes that
 // enforceable rather than a convention (the same argument probe.ts's world
@@ -79,7 +79,7 @@ const NODE = path.nodes(NODE_NAME)
  */
 const READY_COND = field('status', 'conditions', select('type', 'Ready'), 'status')
 
-// ⛔ There was a `const RECHECK_MS = 60_000` here and it was DEAD - declared,
+// ⚠ There was a `const RECHECK_MS = 60_000` here and it was DEAD - declared,
 // re-exported, and read by nothing. It existed for `deadline(Date.now() + …)`;
 // `backstop()` replaced that and the host bounds every park regardless. warden
 // carried the identical corpse. A knob that looks adjustable and adjusts nothing
@@ -124,7 +124,7 @@ const NODE_DOWN = fieldNoLonger(NODE, READY_COND, 'True')
 /**
  * One subject is off its declared count.
  *
- * ⛔ `fieldNoLonger`, NOT `fieldNe` - Kubernetes OMITS `status.readyReplicas` at
+ * ⚠ `fieldNoLonger`, NOT `fieldNe` - Kubernetes OMITS `status.readyReplicas` at
  * zero, and zero is the failure a watchdog exists for. This shipped as `fieldNe`
  * and was measured blind on the live cluster: scaling a watched Deployment to 0
  * left the field ABSENT, an absent operand propagates as UNKNOWN rather than
@@ -177,7 +177,7 @@ const step = defineStep(function* () {
   // A handler that reported directly would race its siblings - two arms can
   // hold at the same wake, and the last `set` would win silently.
   const found: string[] = []
-  // ⛔ ***THE FALLBACK ASKS "DID THE HOST TELL ME ANYTHING", NEVER "DID I FIND
+  // ⚠ ***THE FALLBACK ASKS "DID THE HOST TELL ME ANYTHING", NEVER "DID I FIND
   // ANYTHING WRONG".*** The first version keyed it on `found.length` and was
   // wrong in the COMMON case: a dispatched subject that turns out HEALTHY
   // appends nothing, so an empty `found` is indistinguishable from "nothing
@@ -214,7 +214,7 @@ const step = defineStep(function* () {
     else if (ready !== d.want) found.push(`${d.name}: ${ready}/${d.want} ready`)
   }
 
-  // ⛔ ***THE LIST IS BUILT FROM MODULE CONSTANTS AND ITS ORDER IS FIXED.*** An
+  // ⚠ ***THE LIST IS BUILT FROM MODULE CONSTANTS AND ITS ORDER IS FIXED.*** An
   // index is an arm's POSITION in the sequence the program PARKED on, so a list
   // that reorders between passes lets the host name arms that have moved. The
   // conditions below are derived from `NODE`, `READY_COND` and `DEPLOYMENTS` -
@@ -230,7 +230,7 @@ const step = defineStep(function* () {
   // remembering to add a fourth arm; now the arms ARE the subject list, so they
   // cannot disagree with it.
   //
-  // ⛔ ***`fieldNoLonger` AND NOT `fieldNe`, BECAUSE KUBERNETES OMITS
+  // ⚠ ***`fieldNoLonger` AND NOT `fieldNe`, BECAUSE KUBERNETES OMITS
   // `readyReplicas` AT ZERO - AND ZERO IS THE FAILURE A WATCHDOG EXISTS FOR.***
   // This shipped as `fieldNe` and was MEASURED BLIND on the live cluster:
   // scaling a watched Deployment to 0 left `status` carrying only `conditions`,

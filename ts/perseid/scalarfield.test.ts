@@ -63,7 +63,7 @@ test('fieldIs is the scalar sibling of fieldNe, which is untouched', () => {
   )
 })
 
-// ⛔ ***THE `!exists` HALF IS THE WHOLE REASON `fieldNoLonger` IS NOT A BARE
+// ⚠ ***THE `!exists` HALF IS THE WHOLE REASON `fieldNoLonger` IS NOT A BARE
 // `!=`.*** Deleting an annotation makes the field ABSENT, and an absent operand
 // propagates as unknown - so `absent != "true"` is UNKNOWN, not true, and a park
 // written as a plain inequality never fires on the withdrawal it exists to

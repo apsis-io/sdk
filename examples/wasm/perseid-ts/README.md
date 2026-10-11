@@ -207,7 +207,7 @@ and the shape of the failure is the lesson even though the remedy changed:
 whether the write landed sees an unqualified success. The cause was that a resume
 is evaluated with the program's own read capabilities, and podmaker declares none.
 
-⛔ **The remedy was NOT to grant `observe`.** That was tried and reverted
+⚠ **The remedy was NOT to grant `observe`.** That was tried and reverted
 (`eb9ac1a95` → `9dcbbcfe3`): it works, and it teaches every author to over-grant a
 capability the aperture should have inferred — a workaround that *occupies* the
 defect, and each program it fixes is one nobody looks at again. `DerivedRules`

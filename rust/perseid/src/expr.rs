@@ -418,7 +418,7 @@ macro_rules! list_extreme {
         /// error it returns - never a value a park would then compare against
         /// and believe (see the host's `listExtreme`).
         ///
-        /// ⛔ ***NUMBERS ONLY, AND AN EMPTY LIST HAS NEITHER.*** The host ERRORS
+        /// ⚠ ***NUMBERS ONLY, AND AN EMPTY LIST HAS NEITHER.*** The host ERRORS
         /// rather than answering: `min` of nothing is not `0`, and a
         /// lexicographic order over strings would answer a question nobody asked.
         /// A `fields(..)` whose selected field is not numeric on every object
@@ -751,7 +751,7 @@ pub fn ensure(path: impl PathArg, field: &str, value: impl EnsureValue) -> Expr<
     ))
 }
 
-// ⛔ ***THERE IS NO `ensure_cluster`, AND THAT IS A DECISION RATHER THAN A GAP***
+// ⚠ ***THERE IS NO `ensure_cluster`, AND THAT IS A DECISION RATHER THAN A GAP***
 // (engi, 2026-09-05). `ensure` above writes a CLUSTER-SCOPED object too - a Node,
 // a PersistentVolume - and the PATH is what says which. It existed briefly as a
 // second SPELLING emitting the same `Ensure` symbol, so a call site could
@@ -762,7 +762,6 @@ pub fn ensure(path: impl PathArg, field: &str, value: impl EnsureValue) -> Expr<
 // than the verb. The AUTHORITY is unchanged - `spec.writes` names the object,
 // and for a cluster object that declaration is the ONLY bound, since there is no
 // namespace to compare against.
-
 
 /// `Fetch(url) -> effect`. The NETWORK READ - the first symbol outside the
 /// reconcile package (`perseid:network`), and the only one whose fulfilment is
@@ -784,7 +783,6 @@ pub fn ensure(path: impl PathArg, field: &str, value: impl EnsureValue) -> Expr<
 pub fn fetch(url: &str) -> Expr<Effect> {
     Expr::new(format!("Fetch({})", lit(url)))
 }
-
 
 /// `OwnedBy(path) -> path`. The CONTROLLER owner of an object.
 ///
@@ -1334,23 +1332,17 @@ mod tests {
     #[test]
     fn ensure_quotes_a_literal_and_emits_an_expression_bare() {
         let cfg = crate::path::ns("default").resource("", "v1", "configmaps", "cfg");
-        assert!(
-            ensure(&cfg, "data.mode", "fast")
-                .as_str()
-                .ends_with(r#", "fast")"#)
-        );
+        assert!(ensure(&cfg, "data.mode", "fast")
+            .as_str()
+            .ends_with(r#", "fast")"#));
         // A string that LOOKS like an expression is still a literal.
-        assert!(
-            ensure(&cfg, "data.mode", "Now()")
-                .as_str()
-                .ends_with(r#", "Now()")"#)
-        );
+        assert!(ensure(&cfg, "data.mode", "Now()")
+            .as_str()
+            .ends_with(r#", "Now()")"#));
         // ...and an actual expression is not quoted.
-        assert!(
-            ensure(&cfg, "data.mode", &now())
-                .as_str()
-                .ends_with(", Now())")
-        );
+        assert!(ensure(&cfg, "data.mode", &now())
+            .as_str()
+            .ends_with(", Now())"));
         assert!(ensure(&cfg, "data.on", true).as_str().ends_with(", true)"));
     }
 

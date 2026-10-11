@@ -28,7 +28,7 @@ world perseid-exec {
 
   export perseid:reconcile/step@0.1.0;
 
-  // ⛔ ***WITHOUT THIS TRAIL REFUSES TO SERVE THE PROGRAM, AND THE REFUSAL IS
+  // ⚠ ***WITHOUT THIS TRAIL REFUSES TO SERVE THE PROGRAM, AND THE REFUSAL IS
   // CORRECT.*** Measured live 2026-09-08: *"this program imports 2 and exports no
   // perseid:reconcile/signal@0.1.0. A program that reads can WEDGE - every read
   // is a round trip to radiant, and one that is never answered leaves the step

@@ -30,7 +30,7 @@ const hostHandler: Handler<Effs> = {
     return o.tag === 'known' ? known(o.val) : o.tag === 'absent' ? absent : unknown
   },
 
-  // ⛔ ***THE CATCH IS THE CONTRACT, NOT DEFENSIVE PROGRAMMING.*** The SDK's
+  // ⚠ ***THE CATCH IS THE CONTRACT, NOT DEFENSIVE PROGRAMMING.*** The SDK's
   // `exec` THROWS on a name that is not in the pod's allowlist - its `.payload`
   // is `{ tag: "not-allowed" }` - and on this fleet that is the ONLY outcome,
   // because nothing puts `trail.apsis/exec-with` on the pod radiant builds. An

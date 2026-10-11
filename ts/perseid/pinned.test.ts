@@ -34,7 +34,7 @@ test('the pinned trace renders every hop as a fieldNoLonger guard over a literal
   )
 })
 
-// ⛔ ***THE LIVENESS PROOF.*** A bare `==` edge guard reads ABSENT when the
+// ⚠ ***THE LIVENESS PROOF.*** A bare `==` edge guard reads ABSENT when the
 // hop's object is deleted, absent propagates UNKNOWN, and the conjunction
 // never fires - the park sleeps through the edit that invalidates the trace.
 // Every hop arm here must carry the `!exists ||` half so deletion WAKES.

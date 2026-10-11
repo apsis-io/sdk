@@ -49,7 +49,7 @@ test('quiesce accepts a traversal park, so a step can actually return one', () =
 })
 
 test('nodeOf renders, and its CLUSTER path is the constraint worth remembering', () => {
-  // ⛔ This is expressible and usually NOT usable: a Node is cluster-scoped, so
+  // ⚠ This is expressible and usually NOT usable: a Node is cluster-scoped, so
   // reading it needs `observe-cluster` AND the node named in `spec.reads`. A
   // program can only traverse to a machine it declared in advance - which
   // "whichever node my pod landed on" cannot do. `ownedBy` has no such limit,

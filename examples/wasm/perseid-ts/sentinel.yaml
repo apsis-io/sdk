@@ -12,7 +12,7 @@
 # operands the host says held, so a wake caused by one subject reads ONE object
 # instead of four.
 #
-# ⛔ IT WRITES NOTHING. There is no `spec.writes` and the artifact imports no
+# ⚠ IT WRITES NOTHING. There is no `spec.writes` and the artifact imports no
 # write interface at all, so this program cannot act on what it sees even if a
 # later edit tried to - the closure below is the enforcement, not the intention.
 # ═══════════════════════════════════════════════════════════════════════════
@@ -22,7 +22,7 @@ metadata:
   name: sentinel-demo
   namespace: default
 spec:
-  # ⛔ ***v5 AND v6+ ARE NOT INTERCHANGEABLE - THIS IS A HARD CUTOVER, AND IT IS
+  # ⚠ ***v5 AND v6+ ARE NOT INTERCHANGEABLE - THIS IS A HARD CUTOVER, AND IT IS
   # THE ONLY ONE ON THE FLEET.*** `held` changed from `func() -> list<u32>` (the
   # operand's POSITION) to `func() -> list<string>` (the operand's own source
   # TEXT). A component links against a signature, so v5 CANNOT run on a

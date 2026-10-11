@@ -143,7 +143,7 @@ test('race returns the arm that settled first, with its index', async () => {
 })
 
 test('the SYNC runner refuses race rather than picking an arm', () => {
-  // ⛔ ***FAIL CLOSED.*** Under sequential execution "whichever finishes first"
+  // ⚠ ***FAIL CLOSED.*** Under sequential execution "whichever finishes first"
   // has no meaning, so any answer would be a silent semantic difference between
   // the two runners - which is the one thing the colorless property forbids. A
   // throw is the only honest result, and it must name the remedy.

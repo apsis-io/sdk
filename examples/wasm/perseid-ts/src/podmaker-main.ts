@@ -45,7 +45,7 @@ const lower = (value: EnsureValue): HostValue =>
 // requires authority to read that pod. Two questions that look identical from
 // inside the guest, with different answers.
 //
-// ⛔ THIS COMMENT HAS HELD THREE ANSWERS IN ONE DAY (2026-09-01), so trust the
+// ⚠ THIS COMMENT HAS HELD THREE ANSWERS IN ONE DAY (2026-09-01), so trust the
 // date rather than the confidence:
 //
 //	1. "resumeCaps confers pod reads on every parked program"    TRUE, then not

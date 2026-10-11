@@ -280,7 +280,7 @@ world perseid-ts-podmaker {
 /// dispatched; a world that made `woke` look load-bearing would be describing a
 /// different program.
 ///
-/// ⛔ ***IT WRITES NOTHING - NO `ensure`, NO `create`, NO `delete`.*** A sentinel
+/// ⚠ ***IT WRITES NOTHING - NO `ensure`, NO `create`, NO `delete`.*** A sentinel
 /// that could act is a different program with a different blast radius, and an
 /// empty write set is what makes that enforceable rather than a convention. Same
 /// argument `perseid-ts-probe` makes one world up.

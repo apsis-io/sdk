@@ -15,7 +15,7 @@
 // the linker's rather than a runtime branch further down.
 
 import { get, count, now } from 'perseid:reconcile/observe@0.1.0'
-// ⛔ ***MIGRATED OFF `workloads.scale` 2026-09-05, AND NOT BECAUSE IT IS
+// ⚠ ***MIGRATED OFF `workloads.scale` 2026-09-05, AND NOT BECAUSE IT IS
 // DEPRECATED.*** Its GRANT was removed (internal/aperture/effects.go, engi
 // 2026-09-01: "remove. will migrate later"): `IfaceWorkloads` confers nothing
 // now, and `scale(path, n)` renders `Ensure(path, "spec.replicas", n)`, whose

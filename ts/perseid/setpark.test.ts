@@ -31,7 +31,7 @@ test('allFieldsAre is the convergence half', () => {
   expect(r).toContain('&&')
 })
 
-// ⛔ ***THEY ARE NOT NEGATIONS OF EACH OTHER AND MUST NOT BE WRITTEN AS ONE.***
+// ⚠ ***THEY ARE NOT NEGATIONS OF EACH OTHER AND MUST NOT BE WRITTEN AS ONE.***
 // `any != n` is `min!=n || max!=n`; `all == n` is `min==n && max==n`. On a
 // non-empty set those are complements, but the EMPTY set makes both an error
 // rather than making one true - so a program cannot get the other by negating.
@@ -64,7 +64,7 @@ test('a set park root-guards the workload that supplied the selector', () => {
   )
 })
 
-// ⛔ THE LITERAL-BY-CONSTRUCTION GUARANTEE, PINNED AT THE TYPE LEVEL. The
+// ⚠ THE LITERAL-BY-CONSTRUCTION GUARANTEE, PINNED AT THE TYPE LEVEL. The
 // goldens pin the text; this pins the REFUSAL. A selector that arrives as a
 // mere `string` - computed, passed through, read off an object - cannot reach
 // ListPods, because a selector the static walk cannot see is a park that polls

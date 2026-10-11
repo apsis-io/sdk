@@ -58,14 +58,14 @@ interface observe {
   ///
   /// TWO COSTS, BOTH REAL, BOTH ARGUING FOR THE WHOLE-OBJECT READ IN SOME CASES:
   ///
-  /// ⛔ IT COLLAPSES `absent`-OBJECT WITH `absent`-FIELD. A missing field and a
+  /// ⚠ IT COLLAPSES `absent`-OBJECT WITH `absent`-FIELD. A missing field and a
   /// missing object both arrive as `absent`, and nothing distinguishes them. A
   /// program that must tell "no such object" from "no such key" MUST read the
   /// whole object and pick the field itself - there it sees the object was
   /// `known` and only the key was missing. Reported by overhead-bench, whose
   /// guest-side parse is strictly better than `#field` on this axis.
   ///
-  /// ⛔⛔ SO: ***ANYONE WHO TERMINATES ON `absent` HAS A BUG THE MOMENT THEY
+  /// ⚠⚠ SO: ***ANYONE WHO TERMINATES ON `absent` HAS A BUG THE MOMENT THEY
   /// ADOPT `#field`, AND IT IS A PROPERTY OF THE FORM RATHER THAN OF THEIR
   /// PROGRAM.*** "The object exists and this key is not written YET" is the
   /// ORDINARY pre-first-write state - an object created empty and filled in
@@ -103,7 +103,7 @@ interface observe {
   ///     spec.reads: <path>#spec.foo   ONLY that field - the bare path is
   ///                                   refused, and so is any sibling field
   ///
-  /// ⛔ BACKWARD COMPATIBLE BY CONSTRUCTION: every grant written before this is a
+  /// ⚠ BACKWARD COMPATIBLE BY CONSTRUCTION: every grant written before this is a
   /// bare path, and a bare grant still admits every field, so nothing deployed
   /// changes. The narrowing is opted into by writing the suffix.
   ///
@@ -271,7 +271,7 @@ interface observe {
 ///
 /// # WHAT WAS LOST WITH IT, AND IT IS NOT NOTHING
 ///
-/// ⛔ `IfaceWorkloads` had SCOPED `Ensure` TO `spec.replicas` via
+/// ⚠ `IfaceWorkloads` had SCOPED `Ensure` TO `spec.replicas` via
 /// `scopedEffectFields`; `ensure` writes any field `spec.writes` declares. So a
 /// scale-only program was once strictly better bounded holding this than holding
 /// the general verb, and the narrowing went with the grant on 2026-09-01 —
@@ -721,7 +721,7 @@ interface ensure {
 // per-object for every write, so a second write interface confines NOTHING that
 // the declaration does not already confine.
 //
-// ⛔ ***THE ARGUMENT LIST IS UNTOUCHED ON PURPOSE, AND THIS IS THE PART THAT
+// ⚠ ***THE ARGUMENT LIST IS UNTOUCHED ON PURPOSE, AND THIS IS THE PART THAT
 // WOULD HAVE BEEN EXPENSIVE TO GET WRONG.*** wasmtime matches a lowering to the
 // WIT PER FUNCTION, so adding a parameter to `ensure` is a fleet-wide HARD
 // CUTOVER - no host serves both shapes, and every deployed component stops
@@ -780,7 +780,7 @@ interface ensure {
 /// in insertion order would make an unchanged Create look new on every pass:
 /// applied forever, retired never.
 ///
-/// ⛔ ***NO ARRAYS, MEASURED.*** `Create(p, {"spec": {"containers": [{...}]}})`
+/// ⚠ ***NO ARRAYS, MEASURED.*** `Create(p, {"spec": {"containers": [{...}]}})`
 /// DOES NOT PARSE - the grammar's `[` is postfix indexing (`labels["x"]`), not
 /// an array literal, and there is no `null` either. So a ConfigMap, a Secret and
 /// a simple CR are expressible and a Deployment is NOT. That is a real limit and
@@ -871,7 +871,7 @@ interface carry {
 /// index here addresses an OPERAND of that disjunction and the guest maps it
 /// back to the arm containing it.
 ///
-/// ⛔ ***AN INDEX IS NOT AN ARM'S POSITION, AND THIS FILE SAID IT WAS.*** It read
+/// ⚠ ***AN INDEX IS NOT AN ARM'S POSITION, AND THIS FILE SAID IT WAS.*** It read
 /// "an index here is a key's POSITION in that map, so the guest maps it straight
 /// back to a handler" - true only while every arm is ONE operand wide, and the
 /// builders worth using are not: `fieldNoLonger` emits `(!exists) || (!= v)`, two
@@ -895,7 +895,7 @@ interface carry {
 /// thing this system refuses elsewhere. `select` already returns an index on
 /// exactly that reasoning.
 ///
-/// ⛔ ***EVERY ARM THAT HOLDS IS LISTED, NOT THE FIRST.*** Two conditions can be
+/// ⚠ ***EVERY ARM THAT HOLDS IS LISTED, NOT THE FIRST.*** Two conditions can be
 /// true at once and the program declared a handler for each; a first-match rule
 /// would silently drop one, and would pick a different one on a different day.
 ///
@@ -924,7 +924,7 @@ interface woke {
   /// re-check. The host has always known the answer; it simply had no way to say
   /// it.
   ///
-  /// ⛔ `unknown` IS NOT FOLDED INTO `backstop`, and `driver.go` says why at the
+  /// ⚠ `unknown` IS NOT FOLDED INTO `backstop`, and `driver.go` says why at the
   /// constants this mirrors: *"I re-checked on a timer" and "I could not tell
   /// why I woke" are different facts, and merging them would report a broken
   /// instrument as a healthy timeout.*
@@ -1016,7 +1016,7 @@ interface finalize {
     retry(string),
   }
 
-  /// ⛔ ***ASYNC SINCE 2026-09-04, AND IT HAD TO BE: A FINALIZER READS.*** It was
+  /// ⚠ ***ASYNC SINCE 2026-09-04, AND IT HAD TO BE: A FINALIZER READS.*** It was
   /// `func`, and a sync export cannot await - so with every read in this world
   /// being `async func`, a finalizer that read one trapped with *"no active task
   /// state"*, there being no task to suspend.
@@ -1060,13 +1060,13 @@ interface finalize {
 /// `running` forever, correctly, and the host cannot do better.
 /// ═══════════════════════════════════════════════════════════════════════════
 interface signal {
-  /// ⛔ ***DECLARED SO THE GUEST CAN CONSTRUCT ONE.*** A guest toolchain assigns
+  /// ⚠ ***DECLARED SO THE GUEST CAN CONSTRUCT ONE.*** A guest toolchain assigns
   /// future type indices from the component's own world, so `future<u32>` has to
   /// appear SOMEWHERE in it or there is no `u32` future for a program to make.
   /// Measured: with none declared, dwarf offers only five WASI-derived
   /// `result<_, error-code>` futures and no `u32` at all.
   ///
-  /// ⛔ ***NEVER CALLED. THE HOST DOES NOT INVOKE THIS AND NOTHING READS ITS
+  /// ⚠ ***NEVER CALLED. THE HOST DOES NOT INVOKE THIS AND NOTHING READS ITS
   /// RESULT.*** Nothing passes a wake token across the boundary; this signature
   /// exists so that `future<u32>` APPEARS IN A FUNCTION, which is the only form
   /// that works. Both shorter spellings were tried and both fail:

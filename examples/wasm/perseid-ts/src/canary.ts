@@ -107,7 +107,7 @@ const METRIC_PROBE = path.ns('default').perseids('probe-demo')
 
 const PROBE: number = 1
 const TOTAL: number = 3
-// ⛔ There was a `const RECHECK_MS = 60_000` here and it was DEAD once the
+// ⚠ There was a `const RECHECK_MS = 60_000` here and it was DEAD once the
 // `deadline(Date.now() + RECHECK_MS)` operands became `backstop()`. The bound
 // this program actually runs under is the one it DECLARES - see its
 // `-backstop.ts` - and the host takes the MINIMUM of that and its own flag
@@ -119,7 +119,7 @@ const TOTAL: number = 3
 /**
  * How stale a measurement may be and still gate a promotion.
  *
- * ⛔ ***WITHOUT THIS, A DEAD PROBE IS A PERMANENT `healthy`.*** The last thing a
+ * ⚠ ***WITHOUT THIS, A DEAD PROBE IS A PERMANENT `healthy`.*** The last thing a
  * probe ever published stays on its object forever - the carry is durable, which
  * is the whole point of it - so a probe that was deleted, wedged or refused
  * leaves behind a measurement that reads exactly like a current one. A gate with
@@ -211,7 +211,7 @@ export const metricOf = (rawPerseid: string): Metric | null => {
 /** Why a promotion is blocked, or `null` when the metric permits it. */
 export const metricBlocks = (m: Metric | null, nowMs: number): string | null => {
   if (m === null) return 'no usable measurement has been published'
-  // ⛔ FRESHNESS BEFORE VERDICT. A carry is durable, so a probe that died leaves
+  // ⚠ FRESHNESS BEFORE VERDICT. A carry is durable, so a probe that died leaves
   // its last `healthy` on the object forever - and a gate that checked the
   // verdict first would read it and promote. This is the arm that makes the gate
   // fail CLOSED when the measuring half breaks.
@@ -358,7 +358,7 @@ const step = defineStep(function* () {
     // minutes. THAT is the promotion this gate stops.
     // ═══════════════════════════════════════════════════════════════════════
     const metricSeen = yield* observe(METRIC_PROBE)
-    // ⛔ ABSENT AND UNKNOWN BOTH BLOCK, and neither is an error. `absent` is a
+    // ⚠ ABSENT AND UNKNOWN BOTH BLOCK, and neither is an error. `absent` is a
     // probe that does not exist or that this program may not read - the grant is
     // separate, so a missing `observe-perseids` capability arrives here and not
     // as a refusal - and `unknown` is a host that could not answer this pass.

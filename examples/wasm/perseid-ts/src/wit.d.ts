@@ -1,7 +1,7 @@
 /// <reference path="../../../../sdk/ts/periapsis/types/wit.d.ts" />
 /// <reference path="../../../../sdk/ts/periapsis/types/periapsis.d.ts" />
 
-// ⛔ ***THOSE TWO REFERENCES ARE LOAD-BEARING AND THE GATE DID NOT CATCH THEIR
+// ⚠ ***THOSE TWO REFERENCES ARE LOAD-BEARING AND THE GATE DID NOT CATCH THEIR
 // ABSENCE UNTIL SOMETHING IMPORTED `exec.ts`.*** The SDK declares the `wit`
 // global and `periapsis:host/exec@0.1.0` in its own `types/`, but this project's
 // tsconfig `include` covers only `src/**` and `tools/**`, so nothing pulled them
@@ -35,7 +35,7 @@
 // goes stale silently. The mitigation is that a drifted shape fails at
 // `dwarf componentize` rather than in a pod, because dwarf reads the real WIT.
 
-// ⛔ ***THE READS ARE `async func` AND THEREFORE RETURN PROMISES. THE EFFECTS ARE
+// ⚠ ***THE READS ARE `async func` AND THEREFORE RETURN PROMISES. THE EFFECTS ARE
 // NOT.*** This file is hand-maintained, so it drifted the moment the contract
 // moved: `observe.get/count/now` and `observe-cluster.get` became `async func` in
 // 174167826 and these declarations still said `Obs`. A program written against

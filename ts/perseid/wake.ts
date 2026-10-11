@@ -66,7 +66,7 @@ export interface Wakeable {
    * Await this alongside the reads a pass makes. Resolves to {@link WOKEN} when
    * the host signals.
    *
-   * ⛔ ***CALL IT INSIDE `run`, NOT AT MODULE SCOPE.*** Top-level code runs
+   * ⚠ ***CALL IT INSIDE `run`, NOT AT MODULE SCOPE.*** Top-level code runs
    * during the componentizer's snapshot, where there is no task context, and the
    * BUILD fails with a bare `wasm trap: unreachable` naming nothing. Calling it
    * here is also correct on the merits: the read has to register in the waitable
@@ -123,7 +123,7 @@ export function wakeable(): Wakeable {
           return state(code)
         },
 
-        // ⛔ NEVER CALLED. `wake-carrier` exists so `future<u32>` appears in a
+        // ⚠ NEVER CALLED. `wake-carrier` exists so `future<u32>` appears in a
         // function, which is the only form that registers the type - but the
         // world EXPORTS it, so a guest that omits it fails at instantiation
         // rather than at a call. See `interface signal` in reconcile.wit.

@@ -190,7 +190,7 @@ const STATE = objects.ns(NS).configMap('warden-state')
 /** Somebody deleted this program's own stamp. */
 const STAMP_GONE = objectGone(STATE.path)
 
-// ⛔ There was a `const RECHECK_MS = 60_000` here, and it was DEAD. It existed
+// ⚠ There was a `const RECHECK_MS = 60_000` here, and it was DEAD. It existed
 // for `deadline(Date.now() + RECHECK_MS)`; `backstop()` replaced that, and the
 // host bounds every park regardless. It survived as an export and a comment -
 // a knob that looked adjustable and adjusted nothing.
@@ -289,7 +289,7 @@ const step = defineStep(function* () {
     // Could not tell. Do nothing, come back next tick - a warden that scales on
     // a failed read is worse than one that is briefly late.
     //
-    // ⛔ ***BUT IT MUST SAY SO, AND THIS BRANCH SAID NOTHING AT ALL.*** It
+    // ⚠ ***BUT IT MUST SAY SO, AND THIS BRANCH SAID NOTHING AT ALL.*** It
     // returned `false` and reported no condition, so a warden that could not
     // read its node left the LAST condition standing - `Ready=True` from the
     // pass before, indefinitely. An operator reading the object sees a healthy
@@ -326,7 +326,7 @@ const step = defineStep(function* () {
   // until the machine is back, and waking for tier drift we refuse to act on
   // would burn passes.
   //
-  // ⛔ ***NO `forget` HERE, AND IT USED TO BE ONE.*** `forget` sets `carry: ''`,
+  // ⚠ ***NO `forget` HERE, AND IT USED TO BE ONE.*** `forget` sets `carry: ''`,
   // which the host reads as CLEAR; omitting the call entirely leaves carry
   // ABSENT, which the host reads as KEEP (carry.go treats it as a pointer). This
   // path is reached when the node is unhealthy or UNREADABLE - a pass that
@@ -488,7 +488,7 @@ const step = defineStep(function* () {
   if (woke.has(TIER_DRIFTED)) {
     yield* report(unready('TierDrifted', `a member of ${TIER} left ${WANT}: rechecking`))
   }
-  // ⛔ NOT A REPORT - A WRITE. This program recreates its own stamp, which is why
+  // ⚠ NOT A REPORT - A WRITE. This program recreates its own stamp, which is why
   // it is not a "name the cause" program however much the two branches above
   // look like one.
   if (woke.has(STAMP_GONE)) {
@@ -531,7 +531,7 @@ const finalize = defineFinalize(function* () {
   // attempt; the applier treats NotFound as success.
   yield* del(STATE.path)
 
-  // ⛔ IT DOES NOT SCALE THE TIER DOWN. Deleting a warden means "stop warding",
+  // ⚠ IT DOES NOT SCALE THE TIER DOWN. Deleting a warden means "stop warding",
   // not "destroy the workloads" - a finalizer that tears down what it merely
   // supervised turns an operator's `kubectl delete perseid` into an outage.
   return retry('waiting for the state ConfigMap to disappear')

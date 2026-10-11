@@ -51,7 +51,7 @@ const stepEntry = {
   // blocked in a read cannot be stopped from outside; racing the wake future is
   // the only thing that frees it (ADR-0106).
   //
-  // ⛔ ***A WOKEN PASS YIELDS AND SAYS NOTHING ABOUT THE CARRY, WHICH MATTERS
+  // ⚠ ***A WOKEN PASS YIELDS AND SAYS NOTHING ABOUT THE CARRY, WHICH MATTERS
   // MORE HERE THAN ANYWHERE ELSE.*** `{o:'yield'}` carries no `carry` key, and
   // an absent key KEEPS the previous value - so a probe freed mid-pass loses one
   // sample and nothing else. Returning an outcome with an empty carry instead

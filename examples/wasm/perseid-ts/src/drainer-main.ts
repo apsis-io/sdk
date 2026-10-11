@@ -34,7 +34,7 @@ const lower = (value: EnsureValue): HostValue =>
       : { tag: 'text', val: value }
 
 /**
- * ⛔ ***THE DISPATCH THIS PROGRAM NEEDS AND THE OTHER EXAMPLES DO NOT.***
+ * ⚠ ***THE DISPATCH THIS PROGRAM NEEDS AND THE OTHER EXAMPLES DO NOT.***
  *
  * `Handler` is keyed on the OP alone, and `observe.get` and `observeCluster.get`
  * share it. Every other Perseid here reads only one scope, so its single `get`

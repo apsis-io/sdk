@@ -12,7 +12,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../../.." && pwd)"
 
-# ⛔ NOT /tmp. It is tmpfs on this host and a cold cargo target SIGBUSes the
+# ⚠ NOT /tmp. It is tmpfs on this host and a cold cargo target SIGBUSes the
 # linker there; the symptom is a non-zero exit with no useful output.
 scratch="${PERSEID_EXEC_SCRATCH:-/mnt/nvme_data/perseid-exec-build}"
 stage="$scratch/src"
@@ -30,7 +30,7 @@ mkdir -p "$stage/wit/deps"
 
 # The wasi packages reconcile.wit refers to, then HEAD's own copies on top.
 cp -r "$repo/examples/wasm/perseid-ts/wit/deps/." "$stage/wit/deps/"
-# ⛔ BOTH removed before HEAD's copies go in, and periapsis-host is the one that
+# ⚠ BOTH removed before HEAD's copies go in, and periapsis-host is the one that
 # bit: perseid-ts vendors it too (since the TS arm landed), so copying that tree
 # AND HEAD's gives `package periapsis:host@0.1.0 is defined in two different
 # locations` - a WIT-resolution error that presents as thirty "cannot find module

@@ -99,7 +99,7 @@ export function runtimeGuards(): void {
   const two = drive([leafOf(drifted('a'), 1), leafOf(drifted('c'), 1)], 'a,b,c')
   assert(two.read.length === 3, `two held subjects read ${two.read.length} objects, want 3 (index + 2)`)
 
-  // ⛔ THE FALLBACK. Nothing named - a backstop tick, the first pass, or a host
+  // ⚠ THE FALLBACK. Nothing named - a backstop tick, the first pass, or a host
   // without `woke` - reads everything.
   const none = drive([], 'a,b,c')
   assert(none.read.length === 4, `an undispatched pass read ${none.read.length}, want 4 (index + 3)`)
@@ -120,7 +120,7 @@ export function runtimeGuards(): void {
     `an operand for a dropped subject dispatched something: read ${dropped.read.join(', ')}`)
 
   // ═══════════════════════════════════════════════════════════════════════
-  // ⛔ THE VERDICT MUST NOT DEPEND ON THE HINT. Same world, dispatched and not.
+  // ⚠ THE VERDICT MUST NOT DEPEND ON THE HINT. Same world, dispatched and not.
   // If these ever disagree, dispatch has stopped being an optimisation.
   // ═══════════════════════════════════════════════════════════════════════
   const sick = (n: string) => (n === 'b' ? 0 : WANT)

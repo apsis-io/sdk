@@ -70,7 +70,7 @@ test('malformed ownerReferences are skipped, not guessed at', () => {
   expect(ownersOf(pod({}))).toEqual([])
 })
 
-// ⛔ THE CONTROLLER IS NOT INDEX ZERO. Taking the first reference follows a
+// ⚠ THE CONTROLLER IS NOT INDEX ZERO. Taking the first reference follows a
 // different edge with the same shape, and both are named `ownerReferences`.
 test('controllerOf picks the controlling reference and not the first', () => {
   const o = pod({

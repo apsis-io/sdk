@@ -260,7 +260,7 @@ export const reportFinding = (f: Finding) =>
 // confinement each surface carries is different, so the types are too.
 
 export const gazerPolicy: GovernedPolicy = {
-  // ⛔ RENAMED 2026-09-03. The policy was `perigeos-gazer-identity` until it
+  // ⚠ RENAMED 2026-09-03. The policy was `perigeos-gazer-identity` until it
   // became `apsis-gazer-owns-itself`; this constant kept the old name and the
   // monitor reported `PolicyNotEnforced — "any node could claim any Gazer
   // identity"` for four days. TRUE about the name, FALSE about the danger: the

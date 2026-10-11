@@ -332,7 +332,7 @@ export const _kindsDoNotMix = () => {
   create({ path: o.deployment('api').path, body: o.configMap('cfg').data({ a: 'b' }).body })
 }
 
-// ⛔ ***A POD HAS NO BODY BUILDER, AND THE TYPE IS WHERE THAT SHOWS UP.*** The
+// ⚠ ***A POD HAS NO BODY BUILDER, AND THE TYPE IS WHERE THAT SHOWS UP.*** The
 // host refuses to CREATE a pod - radiant's credential is VAP-exempt on pods, so
 // a program that could create one could set radiant.apsis/link on it. The
 // absence of `with` says so at the point of writing rather than the point of

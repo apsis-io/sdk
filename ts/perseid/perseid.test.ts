@@ -735,7 +735,7 @@ export const _anEmptyRetryReasonIsRefused = () => {
 // notice: the file genuinely did enforce something, just not this.
 test('runtime guards', runtimeGuards)
 
-// ⛔ THE SHAPE engifire REFUSED (cm-alpha, field-minready-gamma): a ConfigMap
+// ⚠ THE SHAPE engifire REFUSED (cm-alpha, field-minready-gamma): a ConfigMap
 // address and a string-field predicate. The builder is new - the four-word
 // core call was the only spelling - and the scalar arm of `fieldNe` goes
 // through the same `neScalar` dispatch `fieldNoLonger` uses.
@@ -752,7 +752,7 @@ test('a configmap address and a string-field predicate, the shape the live refus
   )
 })
 
-// ⛔ THE FETCH GATE + THE IDEMPOTENCY VERBS, PINNED. The kernel confers
+// ⚠ THE FETCH GATE + THE IDEMPOTENCY VERBS, PINNED. The kernel confers
 // perseid:network/http@0.1.0 only on programs whose derived capabilities name
 // it, and the derivation reads the yield type - so the builder's yields must
 // carry the marker and the args the cache keys on, verbs included. These

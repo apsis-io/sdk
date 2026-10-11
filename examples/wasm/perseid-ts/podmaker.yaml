@@ -78,7 +78,7 @@ spec:
     - perseid:reconcile/create@0.1.0
     - perseid:reconcile/status@0.1.0
     - perseid:reconcile/ensure@0.1.0
-    # ⛔ ***NO `observe`, AND THERE WAS ONE HERE FOR ABOUT AN HOUR ON 2026-09-01.***
+    # ⚠ ***NO `observe`, AND THERE WAS ONE HERE FOR ABOUT AN HOUR ON 2026-09-01.***
     # This program parks on `objectGone(POD)` - the pod it declares in spec.writes
     # below - and its STEP never reads, so a `get` handler in podmaker-main.ts is a
     # compile error. When resumeCapsFor narrowed a resume to the program's own read

@@ -35,7 +35,7 @@
 //     runs. What bounds that is `spec.writes` plus the namespace's own
 //     PodSecurity admission.
 //   - A BARE POD HAS NO CONTROLLER. Nothing reschedules it if its node goes
-//     away. ⛔ ***AND THIS SAID "what brings it back is this program re-declaring
+//     away. ⚠ ***AND THIS SAID "what brings it back is this program re-declaring
 //     it next pass" - MEASURED FALSE 2026-09-01.*** The program re-declares it
 //     every pass and the pod stayed absent for ~33 minutes and ~150 passes, with
 //     `Ready=True PodDeclared` asserted throughout; a radiant restart brought it
@@ -65,7 +65,7 @@ const POD = path.ns('perseid-demo').pods('podmaker-proof')
 // Re-check cadence. The step is total, so it re-declares the pod every pass and
 // the applier treats AlreadyExists as success - this only bounds how long the
 // program sleeps between confirmations.
-// ⛔ There was a `const RECHECK_MS = 30_000` here. Its number did not go away -
+// ⚠ There was a `const RECHECK_MS = 30_000` here. Its number did not go away -
 // it moved into `podmaker-backstop.ts`, where a bound belongs: readable off the
 // artifact, refusable at admission, and adjustable without touching the step.
 // The park operand it fed is gone and the effective bound is unchanged.
@@ -105,7 +105,7 @@ const step = defineStep(function* () {
 
   // Park until the pod goes away, or the deadline - whichever first.
   //
-  // ⛔ ***THIS COMMENT SAID "if somebody deletes it, this wakes and re-creates
+  // ⚠ ***THIS COMMENT SAID "if somebody deletes it, this wakes and re-creates
   // it, which is the whole point of a total step". MEASURED 2026-09-01: IT DOES
   // NOT.***
   //

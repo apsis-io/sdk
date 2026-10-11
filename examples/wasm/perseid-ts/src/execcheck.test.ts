@@ -91,7 +91,7 @@ export function runtimeGuards(): void {
   assert(unwired.message.includes('not-allowed'),
     `the unwired message does not name the cause: ${unwired.message}`)
 
-  // ⛔ ***`spawn-failed` IS A DIFFERENT PLACE TO LOOK THAN `not-allowed`, AND
+  // ⚠ ***`spawn-failed` IS A DIFFERENT PLACE TO LOOK THAN `not-allowed`, AND
   // THIS HAD NO TEST UNTIL A LIVE RUN PRODUCED IT.*** Both are `unsure`, and that
   // is not the distinction: `not-allowed` means the spec is wrong,
   // `spawn-failed` means the spec is RIGHT and the artifact on the node did not
@@ -108,7 +108,7 @@ export function runtimeGuards(): void {
       'whether to fix the spec or the node')
   assert(broken.message.includes('node'), `the message does not point at the node: ${broken.message}`)
 
-  // ⛔ The whole point: a check that did not RUN must not read as a check that
+  // ⚠ The whole point: a check that did not RUN must not read as a check that
   // FAILED. A program that reported `unready` here would page an operator about a
   // healthy workload on the strength of its own missing configuration.
   const failing = drive(dep({ readyReplicas: 0 }), { t: 'verdict', exitCode: 1, stdout: 'checker: exec-demo 0/2 ready' })
@@ -145,7 +145,7 @@ export function runtimeGuards(): void {
   assert('readyReplicas' in (sent.status as object),
     'the projection dropped readyReplicas, which is the field the checker exists to read')
 
-  // ⛔ ***ABSENT MUST SURVIVE AS null, NOT BECOME 0.*** Kubernetes OMITS
+  // ⚠ ***ABSENT MUST SURVIVE AS null, NOT BECOME 0.*** Kubernetes OMITS
   // `readyReplicas` when nothing is ready - the failure a checker exists for
   // arrives as a MISSING field. A projection that manufactured a 0 here would be
   // inventing an observation the apiserver never made.
@@ -166,7 +166,7 @@ export function runtimeGuards(): void {
   assert(project({ status: { conditions: Array.from({ length: 400 }, (_, i) => ({ type: `c${i}` })) } }).length > MAX_STDIN,
     'the over-size fixture is not actually over MAX_STDIN - the guard above proves nothing')
 
-  // ⛔ ***BYTES, NOT CHARACTERS - AND THE CHARACTER COUNT PASSES.*** A JS string's
+  // ⚠ ***BYTES, NOT CHARACTERS - AND THE CHARACTER COUNT PASSES.*** A JS string's
   // `.length` is UTF-16 code units, so a projection of multi-byte characters can
   // sit under a 4096 "character" bound and write well over 4096 BYTES into a pipe
   // whose capacity is 8192. That is a deadlock, not an error, and it is reachable
