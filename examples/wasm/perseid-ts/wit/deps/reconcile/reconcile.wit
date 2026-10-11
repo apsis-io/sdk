@@ -614,35 +614,56 @@ interface ensure {
     applied: bool,
   }
 
-  /// Declare that `path`'s `field` should equal `value`.
+  /// Declare that `path`'s fields should hold the given values - as ONE
+  /// apiserver write, so a reader can never observe the new value of one field
+  /// beside the old value of another. ONE FIELD OR MANY: the count is not the
+  /// contract, the WRITE is (engi's merge, kernel-side 2026-10-06 and
+  /// wasm-side 2026-10-11: "ensure-all is merged into ensure" - a
+  /// single-field write is a one-element list, and the SDK's scalar shape is
+  /// guest-side sugar that lowers to exactly that).
+  ///
+  /// ***WHY ONE WRITE IS THE POINT (overhead-bench, 2026-09-01).*** A step
+  /// writing `data.v` and a `data.t` stamp as two separate obligations
+  /// produced a durable torn pair - 3 of 6 convergences observed with new `v`
+  /// beside old `t`. Level-triggered re-derivation does not save it: the torn
+  /// state stands until the next pass. Both fields in ONE declaration are one
+  /// PATCH, which is the shape the controller-runtime arm never tore on.
+  ///
+  /// The body is lowered exactly as `create`'s is - dotted paths to a nested
+  /// struct, keys SORTED - so two orderings of one write render identically.
+  /// The expression is the obligation's identity; unsorted, dedup would see a
+  /// new obligation every pass.
+  ///
+  /// ⚠ ***`spec.replicas` ON AN apps KIND IS REFUSED BY THE HOST, WITH THE
+  /// REASON.*** That field is written through the `/scale` subresource for
+  /// least privilege, and the apiserver has no write that is atomic across a
+  /// subresource boundary - the refusal names a real limit.
   ///
   /// ***THE RESULT IS THE PASS'S OWN DEDUP VERDICT, NOT THE WRITE'S.*** The
   /// obligation is still DECLARED here and performed by radiant after the
   /// pass - nothing about the apply model changed (engi, 2026-10-11: "well
-  /// yeah, add result"). What the guest gets back is `applied`, and its
-  /// meaning is the KERNEL path's exactly (the SDK pinned the retry story
-  /// there): `true` = this declaration is NEW for this pass and is queued for
-  /// application; `false` = an identical obligation was already declared this
-  /// pass, and this repeat is a no-op that will not be applied again. The
-  /// expression is the obligation's identity and trail dedups on it at
-  /// DECLARE time, so the verdict is consistent with what radiant will do BY
-  /// CONSTRUCTION - a `false` was never pushed.
+  /// yeah, add result"). `applied` means the KERNEL path's exactly (the SDK
+  /// pinned the retry story there): `true` = this declaration is NEW for this
+  /// pass and is queued for application; `false` = an identical obligation
+  /// was already declared this pass, and this repeat is a no-op that will not
+  /// be applied again. The expression is the obligation's identity and trail
+  /// dedups on it at DECLARE time, so the verdict is consistent with what
+  /// radiant will do BY CONSTRUCTION - a `false` was never pushed.
   ///
   /// ⚠ ***`TRUE` MEANS QUEUED, NOT "THE OBJECT CHANGED".*** The write lands
   /// after the pass, and the guest cannot observe the object until its next
   /// pass anyway - by which time the apply has happened or failed visibly (the
   /// outcome carries every obligation, or the pass fails as a transport error).
-  /// A guest concluding "the write happened" from `true` is premature only by
-  /// the pass boundary it cannot see across.
   ///
   /// ***HISTORY: this said "Returns nothing, like every other effect ... no
-  /// result a guest could branch on"*** - the contract the buffered-apply
-  /// redesign wrote, when the only honest immediate verdict was the empty one.
-  /// The per-pass dedup verdict is honest AND useful, because the RETRY story
-  /// is the branch a program actually writes (the kernel path's SDK pins it:
-  /// first `applied=true`, retry `applied=false`). Branching on write SUCCESS
-  /// remains impossible by construction: the apply has not happened yet.
-  ensure: func(path: string, field: string, %value: value) -> outcome;
+  /// result a guest could branch on", and until the merge it had a
+  /// single-field spelling beside an `ensure-all` for several.*** The old
+  /// sentence was honest about the apply while missing that the RETRY story is
+  /// the branch a program actually writes; the two functions were honest about
+  /// the count while making one logical write two obligations - the torn pair
+  /// above. Both fixed by the same shape: one write, one identity, one
+  /// verdict.
+  ensure: func(path: string, fields: list<field>) -> outcome;
 
   /// One field of the body: a DOTTED path and a typed value.
   ///
@@ -683,35 +704,6 @@ interface ensure {
     %value: value,
   }
 
-  /// Declare that SEVERAL of `path`'s fields should hold the given values - as
-  /// ONE apiserver write, so a reader can never observe the new value of one
-  /// field beside the old value of another.
-  ///
-  /// ***`ensure` IS ONE FIELD PER OBLIGATION, AND OBLIGATIONS APPLY ONE AT A
-  /// TIME.*** A step writing `data.v` and a `data.t` stamp as two `ensure`s
-  /// produced a durable torn pair - 3 of 6 convergences observed with new `v`
-  /// beside old `t` (overhead-bench, 2026-09-01, building an operator on this).
-  /// Level-triggered re-derivation does not save it: the torn state stands until
-  /// the next pass. The controller-runtime arm it was measured against had no
-  /// such problem, because both fields were one PATCH.
-  ///
-  /// The body is lowered exactly as `create`'s is - dotted paths to a nested
-  /// struct, keys SORTED - so two orderings of one write render identically. The
-  /// expression is the obligation's identity; unsorted, dedup would see a new
-  /// obligation every pass.
-  ///
-  /// ⚠ ***`spec.replicas` ON AN apps KIND IS REFUSED BY THE HOST, WITH THE
-  /// REASON.*** That field is written through the `/scale` subresource for least
-  /// privilege, and the apiserver has no write that is atomic across a
-  /// subresource boundary - the refusal names a real limit. `ensure` for the
-  /// count, `ensure-all` for the rest.
-  ///
-  /// The result is `ensure`'s - the per-pass dedup verdict on the LOWERED
-  /// expression (dotted paths to a nested struct, keys SORTED), so two
-  /// orderings of one body dedup as one. `applied:false` from a LOWER failure
-  /// comes with the pass fault - an effect that cannot be rendered cannot be
-  /// applied, and the fault is the loud half.
-  ensure-all: func(path: string, fields: list<field>) -> outcome;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
