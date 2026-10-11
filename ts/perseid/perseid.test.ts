@@ -937,9 +937,15 @@ test('ensure resolves with the applied outcome the kernel reports', () => {
   })
 
   let writes = 0
+  const outcomes: string[] = []
   const outcome = runStep(step, {
-    ensure: () => ({ applied: ++writes === 1 }),
+    ensure: () => {
+      const applied = ++writes === 1
+      outcomes.push(applied ? 'applied' : 'skipped')
+      return { applied, outcome: applied ? 'applied' : 'skipped' }
+    },
   })
   expect(seen).toEqual([true, false])
+  expect(outcomes).toEqual(['applied', 'skipped'])
   expect(outcome.o).toBe('terminate')
 })

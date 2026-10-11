@@ -2138,6 +2138,13 @@ export type EnsureBodyArgs = {
  */
 export interface EnsureApplied {
   readonly applied: boolean
+  /**
+   * The named verdict, for programs that branch on which skip it was.
+   * `'applied'` = new for this pass and queued for application; `'skipped'` =
+   * an identical obligation was already declared this pass. Asserts to agree
+   * with `applied` by construction - the engine derives one from the other.
+   */
+  readonly outcome: 'applied' | 'skipped'
 }
 
 export const reconcile = {
