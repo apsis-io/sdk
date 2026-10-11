@@ -2122,15 +2122,19 @@ export type EnsureBodyArgs = {
 }
 
 /**
- * What `ensure` resolves to: whether the kernel WROTE the obligation or
- * no-op'd it. `false` = skipped by the idempotency key (a retried pass whose
- * write already landed) or by a same-value check - visible, post-hoc, the
- * exact mirror of `FetchResult.fromCache`: the idempotency is no longer
- * something that happens to the program, it is something the program can see.
+ * What `ensure` resolves to: THE PASS'S OWN DEDUP VERDICT. `true` = new for
+ * this pass and queued for application; `false` = an identical obligation was
+ * already declared this pass and will not be applied again. Per-pass, like
+ * the kernel's idempotency key (which folds the target's resource version - a
+ * retry after the world moved computes a new key and reports true). Visible,
+ * post-hoc, the exact mirror of `FetchResult.fromCache`: the idempotency is
+ * no longer something that happens to the program, it is something the
+ * program can see.
  *
- * ⚠ KERNEL-PATH ONLY. The wasm path's WIT `ensure: func(...)` has no result -
- * surfacing it there is a breaking contract change, deliberately NOT done
- * silently (flagged to kinetics-main, 2026-10-11).
+ * ⚠ PATH SEMANTICS, STATED: this typing serves the kernel path's pinned
+ * retry story. The wasm path's WIT contract now ALSO carries the verdict
+ * (outcome {applied}, a8e9ee8fb) with the per-pass shape - both paths report
+ * it; neither hides it.
  */
 export interface EnsureApplied {
   readonly applied: boolean
