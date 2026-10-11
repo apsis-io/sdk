@@ -2121,6 +2121,21 @@ export type EnsureBodyArgs = {
   readonly body: { readonly [field: string]: EnsureValue }
 }
 
+/**
+ * What `ensure` resolves to: whether the kernel WROTE the obligation or
+ * no-op'd it. `false` = skipped by the idempotency key (a retried pass whose
+ * write already landed) or by a same-value check - visible, post-hoc, the
+ * exact mirror of `FetchResult.fromCache`: the idempotency is no longer
+ * something that happens to the program, it is something the program can see.
+ *
+ * ⚠ KERNEL-PATH ONLY. The wasm path's WIT `ensure: func(...)` has no result -
+ * surfacing it there is a breaking contract change, deliberately NOT done
+ * silently (flagged to kinetics-main, 2026-10-11).
+ */
+export interface EnsureApplied {
+  readonly applied: boolean
+}
+
 export const reconcile = {
   /** `observe.get(path) -> obs`. The path is an apiserver path, not a field name. */
   observe: <T = string>() => defineEffect<ApiPath, Obs<T>>()(WIT_OBSERVE, 'get'),
@@ -2218,7 +2233,19 @@ export const reconcile = {
    * ConfigMap value that happens to read like an expression would be evaluated
    * instead of stored.
    */
-  ensure: () => defineEffect<EnsureArgs | EnsureBodyArgs, void>()(WIT_ENSURE, 'ensure'),
+  /**
+   * `ensure(...)` resolves to an `EnsureApplied`: whether the kernel WROTE the
+   * obligation or no-op'd it. `false` = skipped by the idempotency key (a
+   * retried pass whose write already landed) or by a same-value check -
+   * visible, post-hoc, the exact mirror of `FetchResult.fromCache`: the
+   * idempotency is no longer something that happens to the program, it is
+   * something the program can see.
+   *
+   * ⚠ KERNEL-PATH ONLY. The wasm path's WIT `ensure: func(...)` has no
+   * result - surfacing it there is a breaking contract change, deliberately
+   * NOT done silently (flagged to kinetics-main, 2026-10-11).
+   */
+  ensure: () => defineEffect<EnsureArgs | EnsureBodyArgs, EnsureApplied>()(WIT_ENSURE, 'ensure'),
 
   /**
    * Remove an object.

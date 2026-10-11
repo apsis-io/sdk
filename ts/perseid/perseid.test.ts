@@ -922,3 +922,24 @@ void _x1
 void _x2
 void _x3
 void _x4
+
+// ⭐ THE IDEMPOTENCY OUTCOME, VISIBLE. The kernel resumes ensure with
+// {applied: bool} - true = written, false = skipped (idempotency key or
+// same-value) - the exact mirror of FetchResult.fromCache: a retried pass can
+// finally tell a write that landed from one that was already there.
+test('ensure resolves with the applied outcome the kernel reports', () => {
+  const seen: boolean[] = []
+  const step = defineStep(function* () {
+    const first = yield* reconcile.ensure()({ path: _deps, field: 'spec.replicas', value: 2 })
+    const second = yield* reconcile.ensure()({ path: _deps, field: 'spec.replicas', value: 2 })
+    seen.push(first.applied, second.applied)
+    return terminate
+  })
+
+  let writes = 0
+  const outcome = runStep(step, {
+    ensure: () => ({ applied: ++writes === 1 }),
+  })
+  expect(seen).toEqual([true, false])
+  expect(outcome.o).toBe('terminate')
+})
