@@ -2150,9 +2150,12 @@ export type EnsureBodyArgs = {
 /**
  * What `ensure` resolves to: THE PASS'S OWN DEDUP VERDICT. `true` = new for
  * this pass and queued for application; `false` = an identical obligation was
- * already declared this pass and will not be applied again. Per-pass, like
- * the kernel's idempotency key (which folds the target's resource version - a
- * retry after the world moved computes a new key and reports true). Visible,
+ * already declared this pass and will not be applied again. Per-pass, because
+ * the kernel's idempotency key folds THE PASS ANCHOR - the pass identity, not
+ * a fresh read of the target. Every attempt of one pass computes the same
+ * key, so a retry is skipped; a different pass computes a different key and
+ * re-applies, which is level-triggered on purpose (the world may have moved
+ * while the pass was away; kinetics-main's pass-anchor fix, 2026-10-12). Visible,
  * post-hoc, the exact mirror of `FetchResult.fromCache`: the idempotency is
  * no longer something that happens to the program, it is something the
  * program can see.
@@ -2293,14 +2296,13 @@ export const reconcile = {
   /**
    * `ensure(...)` resolves to an `EnsureApplied`: whether the kernel WROTE the
    * obligation or no-op'd it. `false` = skipped by the idempotency key (a
-   * retried pass whose write already landed) or by a same-value check -
-   * visible, post-hoc, the exact mirror of `FetchResult.fromCache`: the
-   * idempotency is no longer something that happens to the program, it is
-   * something the program can see.
+   * retry within the same pass, whose key the pass anchor already carries) or
+   * by a same-value check - visible, post-hoc, the exact mirror of
+   * `FetchResult.fromCache`: the idempotency is no longer something that
+   * happens to the program, it is something the program can see.
    *
-   * ⚠ KERNEL-PATH ONLY. The wasm path's WIT `ensure: func(...)` has no
-   * result - surfacing it there is a breaking contract change, deliberately
-   * NOT done silently (flagged to kinetics-main, 2026-10-11).
+   * ⚠ BOTH PATHS REPORT IT. The wasm path's WIT contract carries the same
+   * verdict (`outcome {applied}`, a8e9ee8fb) - neither path hides the skip.
    */
   ensure: () => defineEffect<EnsureArgs | EnsureBodyArgs, EnsureApplied>()(WIT_ENSURE, 'ensure'),
 
