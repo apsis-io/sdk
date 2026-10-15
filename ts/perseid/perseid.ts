@@ -407,6 +407,17 @@ export const path = {
         `/apis/perseid.apsis/v1/namespaces/${NS}/pures/${N}`
       >,
 
+    /**
+     * `/apis/perseid.apsis/v1/namespaces/NS/statefuls/NAME` — A STATEFUL
+     * PERSEID (ADR-0113/0114: `statefuls.perseid.apsis`, pod-hosted kinetics or
+     * trail). Demanded capability is the same `perseid:reconcile/observe-perseids@0.1.0`.
+     */
+    statefuls: <N extends string>(name: N) =>
+      `/apis/perseid.apsis/v1/namespaces/${namespace}/statefuls/${name}` as Canonical<
+        'apiserver-path',
+        `/apis/perseid.apsis/v1/namespaces/${NS}/statefuls/${N}`
+      >,
+
     /** Any grouped resource: `/apis/GROUP/VERSION/namespaces/NS/KIND/NAME`. */
     resource: <G extends string, V extends string, K extends string, N extends string>(
       group: G,
