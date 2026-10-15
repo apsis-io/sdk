@@ -115,8 +115,8 @@ test('the bound is in BYTES, not characters', () => {
 
 test('carriedBy pulls a published value out of an observed Perseid', () => {
   const obj = JSON.stringify({
-    apiVersion: 'radiant.apsis/v1',
-    kind: 'Perseid',
+    apiVersion: 'perseid.apsis/v1',
+    kind: 'Stateful',
     metadata: { name: 'probe' },
     status: { phase: 'Running', passes: 12, carry: '{"availability":0.99}' },
   })

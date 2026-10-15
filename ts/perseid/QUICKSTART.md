@@ -95,7 +95,7 @@ console.log(toYaml(perseid({
 ```yaml
 # what comes out:
 apiVersion: perseid.apsis/v1
-kind: Perseid
+kind: Pure
 metadata:
   name: scaler
   namespace: default
@@ -136,7 +136,7 @@ already at want - which is what a level-triggered program should do.
 
 ```yaml
 apiVersion: perseid.apsis/v1
-kind: Perseid
+kind: Pure
 metadata:
   name: smoke
   namespace: apsis

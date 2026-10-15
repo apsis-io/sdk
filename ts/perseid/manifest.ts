@@ -21,12 +21,11 @@
  * shape B: the kernel kind is PURE - the discipline is the kind, Pure is the
  * default, Stateful joins as its own slice): PerseidTS is gone, Perseid was
  * the interim, Pure is the destination this module speaks. The refusal words
- * are the CRD's own CEL messages, where the two could be one voice. The wasm-era kind keeps its old world:
- * `path.perseids()` addresses `/apis/radiant.apsis/.../perseids/...`
- * (radiant.apsis Perseids, off `deploy/perseid-wasm-crd.yaml`), while the
- * kernel kind's paths are `/apis/perseid.apsis/v1/namespaces/NS/perseids/NAME`
- * - same plural, different group, no builder for it yet (reading a sibling's
- * `status.carry` needs one, and the WIT capability story is still host-side).
+ * are the CRD's own CEL messages, where the two could be one voice. Both kinds
+ * live under `perseid.apsis/v1`: `path.ns(ns).pures(name)` addresses
+ * `/apis/perseid.apsis/v1/namespaces/NS/pures/NAME` (`deploy/pure-crd.yaml`),
+ * and `path.ns(ns).statefuls(name)` addresses
+ * `/apis/perseid.apsis/v1/namespaces/NS/statefuls/NAME` (`deploy/stateful-crd.yaml`).
  *
  * The apply flow is plain `kubectl apply -f`, so `toYaml` is the primary
  * output. The built object is JSON-ready as-is:

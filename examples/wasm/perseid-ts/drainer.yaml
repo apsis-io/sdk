@@ -72,7 +72,6 @@ spec:
   # the artifact.
   imports:
     - perseid:reconcile/ensure@0.1.0
-    - perseid:reconcile/observe-cluster@0.1.0
     - perseid:reconcile/observe@0.1.0
     - perseid:reconcile/status@0.1.0
     - perseid:reconcile/types@0.1.0
@@ -117,7 +116,6 @@ spec:
     - wasi:sockets/types@0.3.0
   capabilities:
     - perseid:reconcile/ensure@0.1.0
-    - perseid:reconcile/observe-cluster@0.1.0
     - perseid:reconcile/observe@0.1.0
     - perseid:reconcile/status@0.1.0
     - perseid:reconcile/types@0.1.0

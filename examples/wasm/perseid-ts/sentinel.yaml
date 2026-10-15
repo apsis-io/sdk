@@ -54,7 +54,6 @@ spec:
   # DERIVED FROM THE BUILT COMPONENT by `trail --inspect`, not hand-written.
   # `perseid:reconcile/woke@0.1.0` is the one no other Perseid here carries.
   imports:
-    - perseid:reconcile/observe-cluster@0.1.0
     - perseid:reconcile/observe@0.1.0
     - perseid:reconcile/status@0.1.0
     - perseid:reconcile/types@0.1.0
@@ -102,7 +101,6 @@ spec:
   # compares this list against the closure above, and a demanded interface that
   # is not conferred refuses the program.
   capabilities:
-    - perseid:reconcile/observe-cluster@0.1.0
     - perseid:reconcile/observe@0.1.0
     - perseid:reconcile/status@0.1.0
     - perseid:reconcile/types@0.1.0

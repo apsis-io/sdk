@@ -375,31 +375,10 @@ export const path = {
       >,
 
     /**
-     * `/apis/radiant.apsis/v1/namespaces/NS/perseids/NAME` — the RETIRED wasm
-     * kind (radiant.apsis Perseid, kept with its own world). ***NOT THE
-     * KERNEL'S KIND***: addressing a kernel program through this spelling
-     * loses at the host's kind gate - the kernel kind's address is
-     * `pures()` below.
-     *
-     * Kept because the wasm path's own examples and manifests still speak it.
-     */
-    perseids: <N extends string>(name: N) =>
-      `/apis/radiant.apsis/v1/namespaces/${namespace}/perseids/${name}` as Canonical<
-        'apiserver-path',
-        `/apis/radiant.apsis/v1/namespaces/${NS}/perseids/${N}`
-      >,
-
-    /**
      * `/apis/perseid.apsis/v1/namespaces/NS/pures/NAME` — A KERNEL PROGRAM
      * (the Pure kind, ADR-0113 shape B). ***THE ADDRESS OF A CONCLUSION***
      * rather than of a workload: what a reader wants off this object is
      * `status.carry` — what that program decided.
-     *
-     * Reading it needs `perseid:reconcile/observe-perseids@0.1.0` — the same
-     * SEPARATE-GRANT rule the retired spelling carried: "may see another
-     * program's conclusions" and "may see a Deployment's replica count" are
-     * different sentences. Yield `observePerseids()(this path)` to declare
-     * the capability; the derivation reads the marker.
      */
     pures: <N extends string>(name: N) =>
       `/apis/perseid.apsis/v1/namespaces/${namespace}/pures/${name}` as Canonical<
@@ -410,7 +389,7 @@ export const path = {
     /**
      * `/apis/perseid.apsis/v1/namespaces/NS/statefuls/NAME` — A STATEFUL
      * PERSEID (ADR-0113/0114: `statefuls.perseid.apsis`, pod-hosted kinetics or
-     * trail). Demanded capability is the same `perseid:reconcile/observe-perseids@0.1.0`.
+     * trail).
      */
     statefuls: <N extends string>(name: N) =>
       `/apis/perseid.apsis/v1/namespaces/${namespace}/statefuls/${name}` as Canonical<

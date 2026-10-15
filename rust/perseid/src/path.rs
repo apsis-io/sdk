@@ -109,11 +109,22 @@ impl Namespaced<'_> {
 
     /// `/apis/perseid.apsis/v1/namespaces/NS/pures/NAME` - A KERNEL PROGRAM
     /// (the Pure kind, ADR-0113 shape B): the address of a CONCLUSION rather
-    /// than of a workload. Reading it needs the observe-perseids capability.
+    /// than of a workload.
     #[must_use]
     pub fn pures(self, name: &str) -> ApiPath {
         ApiPath(format!(
             "/apis/perseid.apsis/v1/namespaces/{}/pures/{}",
+            self.namespace, name
+        ))
+    }
+
+    /// `/apis/perseid.apsis/v1/namespaces/NS/statefuls/NAME` - A STATEFUL
+    /// PERSEID (ADR-0113/0114: `statefuls.perseid.apsis`, pod-hosted kinetics
+    /// or trail).
+    #[must_use]
+    pub fn statefuls(self, name: &str) -> ApiPath {
+        ApiPath(format!(
+            "/apis/perseid.apsis/v1/namespaces/{}/statefuls/{}",
             self.namespace, name
         ))
     }
@@ -207,6 +218,10 @@ mod tests {
         assert_eq!(
             ns("default").pures("scaler").as_str(),
             "/apis/perseid.apsis/v1/namespaces/default/pures/scaler"
+        );
+        assert_eq!(
+            ns("default").statefuls("probe-demo").as_str(),
+            "/apis/perseid.apsis/v1/namespaces/default/statefuls/probe-demo"
         );
     }
 

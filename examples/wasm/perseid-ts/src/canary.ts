@@ -99,11 +99,8 @@ const CANARY = path.ns('default').deployments('canary-candidate')
  * because "who measured" and "who acted" should be separately answerable, and
  * because a step that both measures and acts has no way to be audited by the
  * thing it is measuring.
- *
- * Reading it needs `perseid:reconcile/observe-perseids@0.1.0`, which is a
- * different grant from `observe` - see the path builder.
  */
-const METRIC_PROBE = path.ns('default').perseids('probe-demo')
+const METRIC_PROBE = path.ns('default').statefuls('probe-demo')
 
 const PROBE: number = 1
 const TOTAL: number = 3
