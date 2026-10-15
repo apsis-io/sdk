@@ -16,8 +16,8 @@
 # write interface at all, so this program cannot act on what it sees even if a
 # later edit tried to - the closure below is the enforcement, not the intention.
 # ═══════════════════════════════════════════════════════════════════════════
-apiVersion: radiant.apsis/v1
-kind: Perseid
+apiVersion: perseid.apsis/v1
+kind: Stateful
 metadata:
   name: sentinel-demo
   namespace: default

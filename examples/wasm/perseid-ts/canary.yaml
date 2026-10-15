@@ -20,8 +20,8 @@
 # intentionally does not implement one" until 2026-09-05. It was an accurate
 # scope note while it was true and a false description of the program the moment
 # the gate landed.
-apiVersion: radiant.apsis/v1
-kind: Perseid
+apiVersion: perseid.apsis/v1
+kind: Stateful
 metadata:
   name: canary-demo
   namespace: default

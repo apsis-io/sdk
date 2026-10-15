@@ -52,8 +52,8 @@
 # would not have fired at all and this program would have sat cordoned until its
 # backstop. See `fieldNoLonger` in src/drainer.ts.
 # ═══════════════════════════════════════════════════════════════════════════
-apiVersion: radiant.apsis/v1
-kind: Perseid
+apiVersion: perseid.apsis/v1
+kind: Stateful
 metadata:
   name: drainer-demo
   namespace: default

@@ -13,8 +13,8 @@
 # as radiant" — that path no longer exists. Setting it would opt OUT of
 # derivation and hand the account to the operator to grant.
 # ═══════════════════════════════════════════════════════════════════════════
-apiVersion: radiant.apsis/v1
-kind: Perseid
+apiVersion: perseid.apsis/v1
+kind: Stateful
 metadata:
   name: podmaker
   namespace: perseid-demo

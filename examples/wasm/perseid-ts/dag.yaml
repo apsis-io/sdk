@@ -28,8 +28,8 @@
 # ⇒ The content below is the LIVE SPEC, not the last-applied annotation: the two
 # had diverged, and the live object is what is actually running.
 # ═══════════════════════════════════════════════════════════════════════════
-apiVersion: radiant.apsis/v1
-kind: Perseid
+apiVersion: perseid.apsis/v1
+kind: Stateful
 metadata:
   name: dag-demo
   namespace: default

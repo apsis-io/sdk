@@ -28,8 +28,8 @@
 # import" - which is what `ci/wit-skew.sh` checks before you ingest, and what
 # build.sh step 6 runs against this host's own binary.
 # ═══════════════════════════════════════════════════════════════════════════
-apiVersion: radiant.apsis/v1
-kind: Perseid
+apiVersion: perseid.apsis/v1
+kind: Stateful
 metadata:
   name: probe-demo
   namespace: default
