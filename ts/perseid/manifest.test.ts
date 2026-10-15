@@ -197,6 +197,42 @@ test('the built object is JSON-ready as-is', () => {
   })
 })
 
+test('manifest renders imports, exports, and continuation and validates WIT interface syntax', () => {
+  const m = perseid({
+    metadata: { name: 'calc', namespace: 'prod' },
+    spec: {
+      step: 'export const handlers = {}\n',
+      continuation: true,
+      imports: [{ interface: 'acme:math/bonus@1.0.0', selector: 'tier=gold' }],
+      exports: [{ interface: 'acme:math/calc@1.0.0', trust: 200 }],
+    },
+  })
+  roundTrips(m)
+  expect(toYaml(m)).toContain('continuation: true')
+  expect(toYaml(m)).toContain('imports:\n    - interface: acme:math/bonus@1.0.0\n      selector: tier=gold')
+  expect(toYaml(m)).toContain('exports:\n    - interface: acme:math/calc@1.0.0\n      trust: 200')
+
+  const meta = { name: 'calc', namespace: 'prod' }
+  expect(() =>
+    perseid({
+      metadata: meta,
+      spec: { step: 'x', imports: [{ interface: 'not-a-wit-iface' }] },
+    }),
+  ).toThrow('spec.imports[0].interface must match namespace:package/name@semver.')
+  expect(() =>
+    perseid({
+      metadata: meta,
+      spec: {
+        step: 'x',
+        exports: [
+          { interface: 'acme:math/calc@1.0.0' },
+          { interface: 'acme:math/calc@1.0.0' },
+        ],
+      },
+    }),
+  ).toThrow('spec.exports exports acme:math/calc@1.0.0 twice.')
+})
+
 const _typeLevelOnly = () =>
   perseid({
     metadata: { name: 'canary', namespace: 'prod' },
@@ -205,3 +241,4 @@ const _typeLevelOnly = () =>
     spec: { step: 'x', stepRef: { image: 'y' } },
   })
 void _typeLevelOnly
+

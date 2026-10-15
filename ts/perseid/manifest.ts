@@ -34,6 +34,18 @@
  * because a second name for `JSON.stringify` is a second thing to keep honest.
  */
 
+/** A declared seam import (`spec.imports[]`, ADR-0111). */
+export interface PerseidImport {
+  readonly interface: string
+  readonly selector?: string
+}
+
+/** A declared seam export (`spec.exports[]`, ADR-0111 §2). */
+export interface PerseidExport {
+  readonly interface: string
+  readonly trust?: number
+}
+
 /** The spec fields every program form carries. */
 export interface PerseidObjectSpec {
   /**
@@ -48,7 +60,14 @@ export interface PerseidObjectSpec {
   readonly backstopMs?: number
   /** The operator stops driving passes while this is true. */
   readonly suspend?: boolean
+  /** Opt in to the continuation transform (ADR-0113). */
+  readonly continuation?: boolean
+  /** Declared seam imports outside the host vocabulary (ADR-0111). */
+  readonly imports?: readonly PerseidImport[]
+  /** Declared seam exports served through exported handlers (ADR-0111 §2). */
+  readonly exports?: readonly PerseidExport[]
 }
+
 
 /**
  * The program: inline source, or a reference to the pushed OCI artifact.
@@ -197,6 +216,51 @@ export const perseid = (input: PerseidManifestInput): PerseidManifest => {
   if (spec.suspend !== undefined && typeof spec.suspend !== 'boolean') {
     throw new Error('perseid: spec.suspend must be a boolean.')
   }
+  if (spec.continuation !== undefined && typeof spec.continuation !== 'boolean') {
+    throw new Error('perseid: spec.continuation must be a boolean.')
+  }
+  const witIfacePattern =
+    /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*:[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*@[0-9]+\.[0-9]+\.[0-9]+$/
+  if (spec.imports !== undefined) {
+    if (!Array.isArray(spec.imports)) {
+      throw new Error('perseid: spec.imports must be an array.')
+    }
+    for (let i = 0; i < spec.imports.length; i++) {
+      const imp = spec.imports[i]
+      if (typeof imp !== 'object' || imp === null || typeof imp.interface !== 'string' || !witIfacePattern.test(imp.interface)) {
+        throw new Error(
+          `perseid: spec.imports[${i}].interface must match namespace:package/name@semver.`,
+        )
+      }
+      if (imp.selector !== undefined && typeof imp.selector !== 'string') {
+        throw new Error(`perseid: spec.imports[${i}].selector must be a string.`)
+      }
+    }
+  }
+  if (spec.exports !== undefined) {
+    if (!Array.isArray(spec.exports)) {
+      throw new Error('perseid: spec.exports must be an array.')
+    }
+    const seen = new Set<string>()
+    for (let i = 0; i < spec.exports.length; i++) {
+      const exp = spec.exports[i]
+      if (typeof exp !== 'object' || exp === null || typeof exp.interface !== 'string' || !witIfacePattern.test(exp.interface)) {
+        throw new Error(
+          `perseid: spec.exports[${i}].interface must match namespace:package/name@semver.`,
+        )
+      }
+      if (seen.has(exp.interface)) {
+        throw new Error(`perseid: spec.exports exports ${exp.interface} twice.`)
+      }
+      seen.add(exp.interface)
+      if (
+        exp.trust !== undefined &&
+        !(Number.isInteger(exp.trust) && exp.trust >= 0 && exp.trust <= 255)
+      ) {
+        throw new Error(`perseid: spec.exports[${i}].trust must be an integer in 0..255.`)
+      }
+    }
+  }
 
   return {
     apiVersion: 'perseid.apsis/v1',
@@ -274,7 +338,27 @@ export const toYaml = (m: PerseidManifest): string => {
   }
   if (m.spec.engine !== undefined) lines.push(`  engine: ${scalar(m.spec.engine)}`)
   if (m.spec.backstopMs !== undefined) lines.push(`  backstopMs: ${m.spec.backstopMs}`)
+  if (m.spec.continuation !== undefined) lines.push(`  continuation: ${m.spec.continuation}`)
   if (m.spec.suspend !== undefined) lines.push(`  suspend: ${m.spec.suspend}`)
+  if (m.spec.imports !== undefined && m.spec.imports.length > 0) {
+    lines.push('  imports:')
+    for (const imp of m.spec.imports) {
+      lines.push(`    - interface: ${scalar(imp.interface)}`)
+      if (imp.selector !== undefined) {
+        lines.push(`      selector: ${scalar(imp.selector)}`)
+      }
+    }
+  }
+  if (m.spec.exports !== undefined && m.spec.exports.length > 0) {
+    lines.push('  exports:')
+    for (const exp of m.spec.exports) {
+      lines.push(`    - interface: ${scalar(exp.interface)}`)
+      if (exp.trust !== undefined) {
+        lines.push(`      trust: ${exp.trust}`)
+      }
+    }
+  }
 
   return lines.join('\n') + '\n'
 }
+

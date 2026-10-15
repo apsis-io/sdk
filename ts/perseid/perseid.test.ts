@@ -63,6 +63,9 @@ import {
   cleanupDone,
   retry,
   defineEffect,
+  defineCall,
+  call,
+  defineHandlers,
   defineStep,
   network,
   path,
@@ -949,3 +952,39 @@ test('ensure resolves with the applied outcome the kernel reports', () => {
   expect(outcomes).toEqual(['applied', 'skipped'])
   expect(outcome.o).toBe('terminate')
 })
+
+test('defineCall, call, and defineHandlers carry WIT capabilities and execute cleanly', () => {
+  const add = defineCall<{ a: number; b: number }, number>()('acme:math/calc@1.0.0', 'add')
+  const step = defineStep(function* () {
+    const first = yield* add({ a: 20, b: 22 })
+    const second = yield* call<'acme:math/calc@1.0.0', 'mul', { x: number; y: number }, number>(
+      'acme:math/calc@1.0.0',
+      'mul',
+      { x: first, y: 2 },
+    )
+    expect(second).toBe(84)
+    return terminate
+  })
+  const _derivesCalc: DerivesCapability<typeof step, 'acme:math/calc@1.0.0'> = true
+  void _derivesCalc
+
+  const handlers = defineHandlers({
+    'acme:math/calc@1.0.0': {
+      add: (args: { a: number; b: number }) => args.a + args.b,
+    },
+  })
+  expect(handlers['acme:math/calc@1.0.0'].add({ a: 20, b: 22 })).toBe(42)
+
+  const outcome = runStep(step, {
+    call: ({ iface, op, args }) => {
+      if (iface === 'acme:math/calc@1.0.0' && op === 'add') {
+        const a = args as { a: number; b: number }
+        return a.a + a.b
+      }
+      const m = args as { x: number; y: number }
+      return m.x * m.y
+    },
+  })
+  expect(outcome.o).toBe('terminate')
+})
+

@@ -2020,6 +2020,48 @@ export function defineEffect<A, R>() {
     }
 }
 
+export type CallArgs<Iface extends Wit = Wit, Op extends string = string, A = unknown> = {
+  readonly iface: Iface
+  readonly op: Op
+  readonly args: A
+}
+
+export type CallEffect<Iface extends Wit = Wit, Op extends string = string, A = unknown> = Effect<
+  Iface,
+  'call',
+  CallArgs<Iface, Op, A>
+>
+
+/**
+ * Define a typed WIT function call effect wrapper across a seam import (`TS ↔ TS` or `TS ↔ WASM`).
+ *
+ *     const add = defineCall<{ a: number; b: number }, { sum: number }>()('acme:math/calc@0.1.0', 'add')
+ *     const res = yield* add({ a: 2, b: 3 })
+ *
+ * Like `defineEffect`, the yielded effect carries `wit?: Iface` at the type level so the
+ * kinetics capability compiler (`derive.go`) extracts `Iface` into the component's
+ * derived imports, and at runtime yields `{ op: 'call', args: { iface, op, args } }`.
+ */
+export function defineCall<A = Record<string, never>, R = unknown>() {
+  return <const Iface extends Wit, const Op extends string>(iface: Iface, op: Op) =>
+    function* (args: A): Step<CallEffect<Iface, Op, A>, R> {
+      return (yield { op: 'call', args: { iface, op, args } }) as R
+    }
+}
+
+/**
+ * Invoke an exported WIT function `op` on `iface` directly across a seam import.
+ *
+ *     const res = yield* call('acme:math/calc@0.1.0', 'add', { a: 2, b: 3 })
+ */
+export function* call<const Iface extends Wit, const Op extends string, A = Record<string, never>, R = any>(
+  iface: Iface,
+  op: Op,
+  args?: A,
+): Step<CallEffect<Iface, Op, A>, R> {
+  return (yield { op: 'call', args: { iface, op, args: (args ?? {}) as A } }) as R
+}
+
 // ---------------------------------------------------------------------------
 // SUGAR FOR EFFECTS (engi, 2026-08-29: "add sugar for effects").
 //
@@ -2511,6 +2553,46 @@ export function defineFinalize<E extends AnyEffect>(
 ): () => Step<E, FinalizeOutcome> {
   return body
 }
+
+/**
+ * A WIT export handler function implemented by a Pure (TS) component.
+ *
+ * A handler may be a synchronous pure function `(args) => result` or an
+ * effectful generator `function* (args): Step<E, result>` that yields host
+ * effects or further cross-component `call(...)` effects.
+ */
+export type HandlerFn<E extends AnyEffect = any, A = any, R = any> =
+  | ((args: A) => R)
+  | ((args: A) => Step<E, R>)
+
+export type InterfaceHandlers = Readonly<Record<string, HandlerFn<any, any, any>>>
+
+export type HandlersMap = Readonly<Partial<Record<Wit, InterfaceHandlers>>>
+
+export type HandlerEffectsOf<M> = {
+  [Iface in keyof M]: {
+    [Op in keyof M[Iface]]: M[Iface][Op] extends (...args: any[]) => Generator<infer E, any, any> ? E : never
+  }[keyof M[Iface]]
+}[keyof M]
+
+export type DefinedHandlers<M extends HandlersMap> = M & {
+  readonly __exports?: Extract<keyof M, string>
+  readonly __effects?: HandlerEffectsOf<M>
+}
+
+/**
+ * Declare the exported WIT interface handlers served by this component.
+ *
+ *     export const handlers = defineHandlers({
+ *       'acme:math/calc@0.1.0': {
+ *         add: ({ a, b }: { a: number; b: number }) => ({ sum: a + b }),
+ *       },
+ *     })
+ */
+export function defineHandlers<const M extends HandlersMap>(handlers: M): DefinedHandlers<M> {
+  return handlers
+}
+
 
 /**
  * The effect union of a step — its capability set, as the compiler tracks it.
