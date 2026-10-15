@@ -40,7 +40,7 @@ package periapsis:perseidts;
 world governance {
   include wasi:cli/command@0.3.0;
 
-  import perseid:reconcile/observe-cluster@0.1.0;
+  import perseid:reconcile/observe@0.1.0;
   import perseid:reconcile/status@0.1.0;
 
   export perseid:reconcile/step@0.1.0;

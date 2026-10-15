@@ -110,7 +110,6 @@ import {
 import { field, select } from '@apsis-io/perseid/field.js'
 
 const observe = reconcile.observe<string>()
-const observeCluster = reconcile.observeCluster<string>()
 const enumerate = reconcile.enumerate<string>()
 const ensure = reconcile.ensure()
 const report = reconcile.status()
@@ -572,7 +571,7 @@ const step = defineStep(function* () {
   // ***THE CLUSTER READ, WHICH IS A DIFFERENT GRANT FROM THE WORKLOAD READS
   // BELOW.*** `observe-cluster` confers the verb and `spec.reads` names this
   // exact node; a program cannot reach a second machine by constructing a path.
-  const seen = yield* observeCluster(NODE)
+  const seen = yield* observe(NODE)
   if (seen.t === 'unknown') {
     // ⚠ ***A SILENT `yieldStep` HERE WAS A DEFECT, AND IT COST AN HOUR OF
     // DIAGNOSIS ON THE FIRST LIVE DEPLOY.*** Every other branch reports; this

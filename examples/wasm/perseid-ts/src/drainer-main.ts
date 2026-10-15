@@ -16,7 +16,6 @@ import { type Effs, drainerStep, NODE } from './drainer.js'
 import { wakeable } from '@apsis-io/perseid/wake.js'
 
 import { get as hostGet } from 'perseid:reconcile/observe@0.1.0'
-import { get as hostGetCluster } from 'perseid:reconcile/observe-cluster@0.1.0'
 import { ensure as hostEnsure, type Value as HostValue } from 'perseid:reconcile/ensure@0.1.0'
 import { status as hostSet, type ConditionStatus as HostCondStatus } from 'perseid:reconcile/status@0.1.0'
 
@@ -57,7 +56,7 @@ const hostHandler: Handler<Effs> = {
   // the program would observe nothing and yield forever, looking healthy.
   get: async (p) => {
     const raw = String(p)
-    const o = isNamespaced(raw) ? await hostGet(raw) : await hostGetCluster(raw)
+    const o = await hostGet(raw)
 
     return o.tag === 'known' ? known(o.val) : o.tag === 'absent' ? absent : unknown
   },

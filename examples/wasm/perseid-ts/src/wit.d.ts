@@ -153,16 +153,6 @@ declare module 'perseid:reconcile/woke@0.1.0' {
   export function cause(): 'condition' | 'backstop' | 'unknown' | 'first-pass'
 }
 
-declare module 'perseid:reconcile/observe-cluster@0.1.0' {
-  export type Obs =
-    | { readonly tag: 'known'; readonly val: string }
-    | { readonly tag: 'absent' }
-    | { readonly tag: 'unknown' }
-
-  /** Read one cluster-scoped object by full apiserver path. Never throws. */
-  export function get(path: string): Promise<Obs>
-}
-
 // A program's OWN memory, read back (the carry's input half, added 2026-09-05).
 //
 // ***SYNC, UNLIKE EVERY OTHER READ HERE, AND THAT IS THE CONTRACT RATHER THAN AN

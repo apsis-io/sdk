@@ -62,7 +62,6 @@ import {
 import { field, select } from '@apsis-io/perseid/field.js'
 
 const observe = reconcile.observe<string>()
-const observeCluster = reconcile.observeCluster<string>()
 const report = reconcile.status()
 
 const NS = 'default'
@@ -190,7 +189,7 @@ const step = defineStep(function* () {
 
   /** Read the node and judge it. Called on dispatch, or by the fallback. */
   function* checkNode() {
-    const seen = yield* observeCluster(NODE)
+    const seen = yield* observe(NODE)
     if (seen.t !== 'known') {
       found.push(`${NODE_NAME}: unreadable`)
 

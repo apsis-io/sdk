@@ -386,137 +386,6 @@ interface status {
   status: func(c: condition);
 }
 
-/// Reading an object that lives OUTSIDE any namespace.
-///
-/// ═══════════════════════════════════════════════════════════════════════════
-/// ***ITS OWN INTERFACE, BECAUSE THE NAMESPACE GRANT CANNOT CONFINE IT.*** engi
-/// decided the authority model 2026-08-29: this interface confers the VERB at
-/// link time, and `spec.reads` names WHICH objects. Both halves are required.
-///
-/// That is the split `workloads` already uses and this file already argues for:
-/// importing an interface IS the authority to perform what it declares, and the
-/// per-object list is what stops one import becoming a grant over everything.
-/// A single wide interface — "may read any cluster-scoped object" — was
-/// considered and rejected for exactly that reason.
-///
-/// ***WHY NOT JUST WIDEN `observe.get`.*** A namespaced read is confined by
-/// comparing the path's namespace to the grant's. A cluster-scoped object has no
-/// namespace, so that comparison cannot confine it — `reconcilehost.Host.Get`
-/// would fall through to a check that is structurally incapable of refusing.
-/// Keeping them apart means a program that never imports this interface cannot
-/// reach a cluster-scoped object even if it constructs the path: the function
-/// does not exist in its world.
-///
-/// ***IT RETURNS `obs`, SO IT IS THREE-VALUED FOR THE USUAL REASON.*** `absent`
-/// is "the object is not there"; `unknown` is "we could not tell". A monitor
-/// that collapses them reports a missing policy when the apiserver blipped,
-/// which is a false alarm about the fleet's authorisation — and the opposite
-/// collapse hides a real one.
-/// ═══════════════════════════════════════════════════════════════════════════
-interface observe-cluster {
-  use types.{obs};
-
-  /// Read one cluster-scoped object by its full apiserver path.
-  ///
-  /// A PATH, not a name: unlike `Replicas`, there is no grant namespace to
-  /// resolve a bare name against, so the path is the whole address. It is
-  /// checked against `spec.reads` by EXACT match — never by prefix or kind,
-  /// which would collapse the per-object grant back into the interface import.
-  ///
-  /// Never throws: an unreadable object, and one this program was not granted,
-  /// are both observations rather than errors. A path outside the grant reports
-  /// `absent` — "not in your world" is correctly indistinguishable from "not
-  /// there", and `unknown` would invite a retry for a question that will never
-  /// be answerable.
-  get: async func(path: string) -> obs;
-}
-
-/// ═══════════════════════════════════════════════════════════════════════════
-/// READING A SECRET, AND IT IS ITS OWN INTERFACE FOR THE REASON
-/// `observe-cluster` IS.
-///
-/// ***A SECRET IS NOT A WORKLOAD WITH DIFFERENT FIELDS - IT IS THE ONE KIND
-/// WHOSE VALUE IS THE POINT.*** `observe` confers pods and the workload kinds,
-/// where a program reads shape and counts. Folding secrets into it would widen
-/// every program that ever wanted a replica count into one that can read every
-/// credential in its namespace, and nothing in the manifest would show the
-/// difference.
-///
-/// ***UNTIL 2026-09-01 THERE WAS NO WAY TO GRANT THIS AT ALL.*** `CapSecretsRead`
-/// existed in the host and no interface conferred it, so the aperture's per-kind
-/// gate refused every secret read and `Host.Get` had no arm to serve one - while
-/// two doc comments claimed a program "may read a Secret in its step". This is
-/// that claim becoming true.
-///
-/// ⚠ ***PARKING ON A SECRET LEAKS THROUGH TWO CHANNELS AND ONLY ONE IS
-/// CLOSED.*** A resume naming a secret is rendered into `status.waitingFor`,
-/// which anyone with `get perseid` can read - that predicate is redacted. The
-/// WAKE TIME is not hidden and cannot be: a program that wakes when a value
-/// changes necessarily reveals that it changed. What bounds it is that only a
-/// program already granted this interface can build such a predicate, and that
-/// program could read the secret outright.
-/// ═══════════════════════════════════════════════════════════════════════════
-interface observe-secrets {
-  /// ***DELIBERATELY EMPTY: THIS INTERFACE IS A CAPABILITY, NOT A CALL.***
-  ///
-  /// It had a `get(name)` for one day. The host read collapsed eight `Get*`
-  /// symbols into a single `Get` long before that (see internal/aperture/get.go),
-  /// and a second name-only route reintroduced exactly what that collapse
-  /// deleted - two ways to read one object, and a step that addressed a Secret
-  /// differently from the resume beside it.
-  ///
-  /// A Secret is read like anything else: `observe.get` with the object's path,
-  /// which the host gates per KIND against this capability. Naming the interface
-  /// in `spec.capabilities` is what confers it; there is nothing to import.
-}
-
-/// Reading a ConfigMap, and its own interface for the reason `observe-secrets`
-/// is one.
-///
-/// ***DATA-BEARING, EVEN THOUGH IT IS NOT SECRET.*** A ConfigMap's VALUE is the
-/// point of reading one, so it does not belong in `observe` beside replica
-/// counts - the same argument, one notch less severe. Splitting it also means a
-/// program's manifest says which of the two it needs, which is what lets radiant
-/// decide whether to run the informer at all.
-/// The capability to read ANOTHER PERSEID.
-///
-/// ═══════════════════════════════════════════════════════════════════════════
-/// ***THIS IS HOW ONE PROGRAM OBSERVES WHAT ANOTHER CONCLUDED*** (engi,
-/// 2026-09-05: "one perseid do metrics and writes them as data on itself,
-/// another reads them"). A step's only self-targeted write is its own status, so
-/// a program that measures something publishes it there - on `status.carry` -
-/// and this interface is what lets a DIFFERENT program read it.
-///
-/// ⚠ ***IT IS A CONTROL-PLANE READ, WHICH IS WHY IT IS ITS OWN INTERFACE.*** A
-/// Perseid's status carries what a program CONCLUDED, not what the cluster is.
-/// "You may see another program's conclusions" is a different sentence from "you
-/// may see a Deployment's replica count", and a grant should be able to say one
-/// without the other.
-///
-/// DELIBERATELY EMPTY, exactly like `observe-configmaps` below: the read is
-/// `observe.get(path)` and this interface is the AUTHORITY for it. A second
-/// name-only route would reintroduce the two-ways-to-read-one-object the host's
-/// `Get` collapse deleted.
-///
-/// The path is `/apis/radiant.apsis/v1/namespaces/<ns>/perseids/<name>`, and
-/// `#status.carry` narrows it to the published value.
-/// ═══════════════════════════════════════════════════════════════════════════
-interface observe-perseids {}
-
-interface observe-configmaps {
-  /// ***DELIBERATELY EMPTY: THIS INTERFACE IS A CAPABILITY, NOT A CALL.***
-  ///
-  /// It had a `get(name)` for one day. The host read collapsed eight `Get*`
-  /// symbols into a single `Get` long before that (see internal/aperture/get.go),
-  /// and a second name-only route reintroduced exactly what that collapse
-  /// deleted - two ways to read one object, and a step that addressed a Secret
-  /// differently from the resume beside it.
-  ///
-  /// A Secret is read like anything else: `observe.get` with the object's path,
-  /// which the host gates per KIND against this capability. Naming the interface
-  /// in `spec.capabilities` is what confers it; there is nothing to import.
-}
-
 /// A step: one total pass. Returns its outcome as JSON — `{"o":"yield"}`,
 /// `{"o":"quiesce","resume":{...}}` or `{"o":"terminate"}`.
 ///
@@ -1119,15 +988,6 @@ interface signal {
 
 world perseid {
   import observe;
-  import observe-cluster;
-  // Offered by the world, GRANTED by spec.capabilities. Importing an interface
-  // makes it callable; `perseid:reconcile/observe-secrets@0.1.0` in the manifest
-  // is what decides whether the call is answered - see perseidrun.answerer.
-  import observe-secrets;
-  import observe-configmaps;
-  // Offered, GRANTED by spec.capabilities - like the two above. A program that
-  // never reads a peer still imports it and is never granted it.
-  import observe-perseids;
   // A program's own memory. Offered to every Perseid and imported only by the
   // ones that use it - see `interface carry` for why this is an import rather
   // than an argument to `step.run`, which would have been a hard cutover for
@@ -1270,7 +1130,6 @@ world perseid-signalling {
 /// reconcile imports left.
 world provider {
   export observe;
-  export observe-cluster;
   export status;
 }
 

@@ -36,7 +36,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { wakeable } from '@apsis-io/perseid/wake.js'
-import { get as hostGetCluster } from 'perseid:reconcile/observe-cluster@0.1.0'
 import { status as hostSet, type ConditionStatus as HostCondStatus } from 'perseid:reconcile/status@0.1.0'
 
 import {
@@ -61,7 +60,7 @@ import {
   gazerPolicy,
 } from './governance.js'
 
-const observeCluster = reconcile.observeCluster()
+const observe = reconcile.observe()
 const report = reconcile.status()
 
 // BUILT, not typed. `ClusterPath` is a different canonical kind from a
@@ -129,8 +128,8 @@ const bindingFactsOf = (o: Obs<string>): Obs<BindingFacts> => {
 }
 
 const step = defineStep(function* () {
-  const policy = policyFactsOf(yield* observeCluster(policyPath))
-  const binding = bindingFactsOf(yield* observeCluster(bindingPath))
+  const policy = policyFactsOf(yield* observe(policyPath))
+  const binding = bindingFactsOf(yield* observe(bindingPath))
 
   yield* report(asCondition(decideGovernance(gazerPolicy, policy, binding)))
 
@@ -156,7 +155,7 @@ const hostHandler: Handler<Effs> = {
   // unawaited promise yields `undefined`, which falls through to `unknown` - the
   // program observes nothing and yields forever, looking healthy.
   get: async (p) => {
-    const o = await hostGetCluster(p)
+    const o = await hostGet(String(p))
 
     return o.tag === 'known' ? known(o.val) : o.tag === 'absent' ? absent : unknown
   },

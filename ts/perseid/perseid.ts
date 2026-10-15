@@ -1816,7 +1816,6 @@ export const unsure = (reason: string, message: string): Condition => ({
  */
 export const WIT_TYPES = 'perseid:reconcile/types@0.1.0'
 export const WIT_OBSERVE = 'perseid:reconcile/observe@0.1.0'
-export const WIT_OBSERVE_CLUSTER = 'perseid:reconcile/observe-cluster@0.1.0'
 // ***`WIT_WORKLOADS` WAS REMOVED 2026-09-05 WITH THE INTERFACE.*** engi:
 // "remove workloads". `scale(path, n)` rendered the same `Ensure(path,
 // "spec.replicas", n)` that `ensure` renders, and the interface had already
@@ -1891,13 +1890,11 @@ export const WIT_NETWORK_HTTP = 'perseid:network/http@0.1.0'
  * is the bound this builder's doc carries, not a per-program Role (that
  * enforcement is documented as v1-forward).
  */
-export const WIT_OBSERVE_PERSEIDS = 'perseid:reconcile/observe-perseids@0.1.0'
 
 /** The interfaces this SDK knows. Autocompletion comes from this union. */
 export type KnownWit =
   | typeof WIT_TYPES
   | typeof WIT_OBSERVE
-  | typeof WIT_OBSERVE_CLUSTER
   | typeof WIT_STATUS
   | typeof WIT_ENSURE
   | typeof WIT_DELETE
@@ -1905,7 +1902,6 @@ export type KnownWit =
   | typeof WIT_CARRY
   | typeof WIT_WOKE
   | typeof WIT_NETWORK_HTTP
-  | typeof WIT_OBSERVE_PERSEIDS
 
 /**
  * The SHAPE of a WIT interface id: `namespace:package/interface@major.minor.patch`.
@@ -2230,43 +2226,12 @@ export interface EnsureApplied {
 }
 
 export const reconcile = {
-  /** `observe.get(path) -> obs`. The path is an apiserver path, not a field name. */
-  observe: <T = string>() => defineEffect<ApiPath, Obs<T>>()(WIT_OBSERVE, 'get'),
-
   /**
-   * `observe-cluster.get(path) -> obs`. A CLUSTER-SCOPED read.
-   *
-   * Importing this interface is the authority to read cluster-scoped objects at
-   * all; `spec.reads` names WHICH ones, by exact path. A path outside that list
-   * reports `absent` - "not in your world" is correctly indistinguishable from
-   * "not there", and `unknown` would invite a retry that can never succeed.
-   *
-   * The value is the object as JSON rather than a scalar: a cluster-scoped
-   * object has no single number a reconciler maintains, and three scalar reads
-   * would be three round trips whose results could disagree with each other.
+   * `observe.get(path) -> obs`. Reads one namespaced or cluster-scoped object
+   * by its apiserver path (confined by the grant's namespace or by `spec.reads`).
    */
-  observeCluster: <T = string>() =>
-    defineEffect<ClusterPath, Obs<T>>()(WIT_OBSERVE_CLUSTER, 'get'),
-
-  /**
-   * `observePerseids()(purePath) -> Obs<T>` - read a SIBLING program's
-   * published conclusion (`status.carry` on a Pure object). The
-   * `observe-perseids` interface is DELIBERATELY EMPTY (a capability, not a
-   * call - the same shape as observe-configmaps): the read is
-   * `observe.get(path)` and this interface is the AUTHORITY for it, conferring
-   * `CapPerseidsRead` ("reading another Perseid in the program's own
-   * namespace").
-   *
-   * ***THE SENTENCE RULE***: "you may see another program's conclusions" is a
-   * different sentence from "you may see a Deployment's replica count", and a
-   * grant should be able to say one without the other. Yielding this effect is
-   * the declaration; the derivation reads the marker.
-   *
-   * v1: the operator credential is the read credential - the sentence rule is
-   * the bound; per-program Role enforcement is documented v1-forward.
-   */
-  observePerseids: <T = string>() =>
-    defineEffect<E.ReadPathLike, Obs<T>>()(WIT_OBSERVE_PERSEIDS, 'get'),
+  observe: <T = string>() =>
+    defineEffect<ApiPath | ClusterPath | E.ReadPathLike, Obs<T>>()(WIT_OBSERVE, 'get'),
 
   /**
    * `observe.count(query) -> obs`.

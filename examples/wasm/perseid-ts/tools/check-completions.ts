@@ -46,7 +46,6 @@ const probe = join(projectDir, 'src', '__completion-probe.ts')
 const WANT = [
   'perseid:reconcile/types@0.1.0',
   'perseid:reconcile/observe@0.1.0',
-  'perseid:reconcile/observe-cluster@0.1.0',
   'perseid:reconcile/status@0.1.0',
 ]
 

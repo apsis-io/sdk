@@ -82,7 +82,6 @@ import {
   WIT_OBSERVE,
   WIT_ENSURE,
   WIT_NETWORK_HTTP,
-  WIT_OBSERVE_CLUSTER,
   WIT_STATUS,
   WIT_DELETE,
   WIT_CREATE,
@@ -528,24 +527,22 @@ export type _TheShapesOverlap = Assert<
 // confinement - a namespace grant versus a per-object `spec.reads` - so passing
 // one where the other goes routes a read around the bound chosen for it.
 export const _theTwoPathKindsCannotBeSwapped = () => {
-  const namespaced = reconcile.observe<number>()
-  const cluster = reconcile.observeCluster()
+  const obs = reconcile.observe<number>()
+  const del = reconcile.delete()
 
-  // @ts-expect-error a CLUSTER path where a namespaced one goes
-  namespaced(path.cluster('admissionregistration.k8s.io', 'v1', 'validatingadmissionpolicies', 'p'))
-  // @ts-expect-error a NAMESPACED path where a cluster one goes
-  cluster(path.ns('default').deployments('api'))
+  // @ts-expect-error a CLUSTER path cannot be passed to a namespaced write surface
+  del(path.cluster('admissionregistration.k8s.io', 'v1', 'validatingadmissionpolicies', 'p'))
   // @ts-expect-error still not a hand-written string
-  cluster('/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/p')
+  obs('/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/p')
 }
 
 export const _eachPathKindIsAcceptedByItsOwnSurface = () => {
   reconcile.observe<number>()(path.ns('default').deployments('api'))
-  reconcile.observeCluster()(
+  reconcile.observe()(
     path.cluster('admissionregistration.k8s.io', 'v1', 'validatingadmissionpolicies', 'p'),
   )
 
-  return reconcile.observeCluster()(path.clusterCore('v1', 'nodes', 'node-1'))
+  return reconcile.observe()(path.clusterCore('v1', 'nodes', 'node-1'))
 }
 
 const builtCluster = path.cluster('admissionregistration.k8s.io', 'v1', 'validatingadmissionpolicies', 'p')
@@ -839,7 +836,7 @@ const observeStep = defineStep(function* () {
   return terminate
 })
 const observeClusterStep = defineStep(function* () {
-  yield* reconcile.observeCluster<string>()(_pv)
+  yield* reconcile.observe<string>()(_pv)
   return terminate
 })
 const countStep = defineStep(function* () {
@@ -889,7 +886,7 @@ const fetchStep = defineStep(function* () {
 
 // Own id derives - all thirteen, one assertion each.
 const _c1: DerivesCapability<typeof observeStep, typeof WIT_OBSERVE> = true
-const _c2: DerivesCapability<typeof observeClusterStep, typeof WIT_OBSERVE_CLUSTER> = true
+const _c2: DerivesCapability<typeof observeClusterStep, typeof WIT_OBSERVE> = true
 const _c3: DerivesCapability<typeof countStep, typeof WIT_OBSERVE> = true
 const _c4: DerivesCapability<typeof enumerateStep, typeof WIT_OBSERVE> = true
 const _c5: DerivesCapability<typeof nowStep, typeof WIT_OBSERVE> = true

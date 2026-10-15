@@ -4,7 +4,6 @@
 
 world step-derived {
   import perseid:reconcile/ensure@0.1.0;
-  import perseid:reconcile/observe-cluster@0.1.0;
   import perseid:reconcile/observe@0.1.0;
   import perseid:reconcile/status@0.1.0;
 }

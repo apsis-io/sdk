@@ -290,7 +290,7 @@ const bindingPath = path.cluster(
   gazerPolicy.name,
 )
 
-const observeCluster = reconcile.observeCluster()
+const observe = reconcile.observe()
 
 /**
  * Parse the facts the decision needs out of the object's JSON.
@@ -342,8 +342,8 @@ const bindingFactsOf = (o: Obs<string>): Obs<BindingFacts> => {
 }
 
 export const step = defineStep(function* () {
-  const policy = policyFactsOf(yield* observeCluster(policyPath))
-  const binding = bindingFactsOf(yield* observeCluster(bindingPath))
+  const policy = policyFactsOf(yield* observe(policyPath))
+  const binding = bindingFactsOf(yield* observe(bindingPath))
 
   yield* report(asCondition(decideGovernance(gazerPolicy, policy, binding)))
 

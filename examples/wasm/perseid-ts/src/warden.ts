@@ -105,7 +105,6 @@ import { field, select } from '@apsis-io/perseid/field.js'
 // `reconcile` is it pre-applied.
 
 const observe = reconcile.observe<string>()
-const observeCluster = reconcile.observeCluster<string>()
 const enumerate = reconcile.enumerate<string>()
 const ensure = reconcile.ensure()
 const create = reconcile.create()
@@ -265,7 +264,7 @@ const step = defineStep(function* () {
   // and reordering one is a no-op. The arms cannot see each other - they are
   // dispatched together - so anything derived from one belongs below the yield.
   const { node, pods, carried } = yield* where({
-    node: observeCluster(NODE),
+    node: observe(NODE),
     pods: enumerate(PODS),
     carried: carry(),
   })
