@@ -308,6 +308,12 @@ export type ClusterPathShape = `/api${string}`
  */
 export type ClusterPath = Canonical<'cluster-path', ClusterPathShape>
 
+/** The shape of a CLUSTER-SCOPED collection path: `/api/V/RESOURCE` or `/apis/G/V/RESOURCE`. */
+export type ClusterCollectionPathShape = `/api${string}`
+
+/** A cluster-scoped collection path, canonical by construction. */
+export type ClusterCollectionPath = Canonical<'cluster-collection-path', ClusterCollectionPathShape>
+
 /** A namespace name. Real namespaces complete. */
 export type Namespace = (keyof KnownNamespaces & string) | (string & {})
 
@@ -477,6 +483,24 @@ export const path = {
     `/api/${version}/${resource}/${name}` as Canonical<
       'cluster-path',
       `/api/${V}/${R}/${N}`
+    >,
+
+  /** A cluster-scoped COLLECTION in the CORE group: `/api/VERSION/RESOURCE`. */
+  clusterCoreCollection: <V extends string, R extends string>(version: V, resource: R) =>
+    `/api/${version}/${resource}` as Canonical<
+      'cluster-collection-path',
+      `/api/${V}/${R}`
+    >,
+
+  /** A cluster-scoped COLLECTION in a named group: `/apis/GROUP/VERSION/RESOURCE`. */
+  clusterCollection: <G extends string, V extends string, R extends string>(
+    group: G,
+    version: V,
+    resource: R,
+  ) =>
+    `/apis/${group}/${version}/${resource}` as Canonical<
+      'cluster-collection-path',
+      `/apis/${G}/${V}/${R}`
     >,
 } as const
 
@@ -2250,7 +2274,15 @@ export const reconcile = {
    * Bounded by the grant's namespace and by the kind's read capability - the
    * same bound `count` already applies to the same objects.
    */
-  enumerate: <T = string>() => defineEffect<CollectionPath, Obs<T>>()(WIT_OBSERVE, 'get'),
+  enumerate: <T = string>() =>
+    defineEffect<CollectionPath | ClusterCollectionPath, Obs<T>>()(WIT_OBSERVE, 'get'),
+
+  /**
+   * `observe.list(collection) -> obs`, the objects in a namespaced or
+   * cluster-scoped collection as a JSON ARRAY.
+   */
+  list: <T = string>() =>
+    defineEffect<CollectionPath | ClusterCollectionPath, Obs<T>>()(WIT_OBSERVE, 'list'),
 
   /** `observe.now() -> u64`. EPOCH MILLISECONDS, UTC. */
   now: () => defineEffect<void, number>()(WIT_OBSERVE, 'now'),
@@ -2315,7 +2347,7 @@ export const reconcile = {
    * most in a FINALIZER, which runs on a fresh instance every attempt and so
    * must re-declare its cleanup each time with no memory of the last.
    */
-  delete: () => defineEffect<ApiPath, void>()(WIT_DELETE, 'delete'),
+  delete: () => defineEffect<ApiPath | ClusterPath, void>()(WIT_DELETE, 'delete'),
 
   /**
    * Create an object.
