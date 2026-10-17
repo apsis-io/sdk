@@ -2110,7 +2110,13 @@ export function* call<const Iface extends Wit, const Op extends string, A = Reco
  * a caller passed a value whose type came from somewhere else - which is exactly
  * how a numeric field ends up holding a string.
  */
-export type EnsureValue = string | number | boolean
+export type EnsureValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly unknown[]
+  | Record<string, unknown>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ***BARE, NOT TAGGED*** (engi, 2026-09-05: "ensure(path.nodes('worker-1'),
