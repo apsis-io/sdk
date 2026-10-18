@@ -20,6 +20,7 @@ export const GENERATED_INTERFACES = [
 export const GENERATED_FUNCTIONS = [
   'perseid:network/http@0.1.0#fetch',
   'perseid:reconcile/carry@0.1.0#carry',
+  'perseid:reconcile/carry@0.1.0#timer',
   'perseid:reconcile/create@0.1.0#create',
   'perseid:reconcile/delete@0.1.0#delete',
   'perseid:reconcile/ensure@0.1.0#ensure',
