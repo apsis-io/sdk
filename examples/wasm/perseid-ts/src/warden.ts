@@ -410,18 +410,14 @@ const step = defineStep(function* () {
   // number here is refused by the apiserver at apply, and no layer between here
   // and it knows the target's schema.
   //
-  // ⚠ ***THE WASM HOST DOES NOT KNOW THE MERGED OP YET.*** This program is on
-  // the wasm stack, whose host still dispatches `ensure-all` as its own WIT
-  // function; a warden rebuilt against the merged SDK emits `ensure` with a
-  // body, which THAT host must learn to lower before this rebuild deploys.
-  // The kinetics engine (`internal/kinetics`) already runs this shape.
+  yield* create({ path: STATE.path, body: { data: { tier: TIER } } })
   // ═══════════════════════════════════════════════════════════════════════════
   yield* create({
     path: STATE.path,
-    body: [
-      { path: 'data.tier', value: TIER },
-      { path: 'metadata.labels.managed-by', value: 'perseid' },
-    ],
+    body: {
+      data: { tier: TIER },
+      metadata: { labels: { 'managed-by': 'perseid' } },
+    },
   })
   yield* ensure({
     path: STATE.path,
@@ -491,7 +487,7 @@ const step = defineStep(function* () {
   // it is not a "name the cause" program however much the two branches above
   // look like one.
   if (woke.has(STAMP_GONE)) {
-    yield* create({ path: STATE.path, body: [{ path: 'data.tier', value: TIER }] })
+    yield* create({ path: STATE.path, body: { data: { tier: TIER } } })
   }
 
   // ***`backstop()`, NOT `deadline(Date.now() + RECHECK_MS)`.*** The host renders

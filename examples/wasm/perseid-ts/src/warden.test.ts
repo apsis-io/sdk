@@ -119,13 +119,25 @@ function drive(w: Partial<World> = {}): Run {
     held: () => world.held,
     // See simple.test.ts: a fixture may derive this, the SDK may not.
     cause: () => (world.held.length > 0 ? 'condition' : 'backstop'),
-    ensure: (a: { path: unknown; field: unknown; value: unknown }) => {
+    // ONE ENSURE, TWO SHAPES - the merged op (engi, 2026-10-06: "remove
+    // ensure-all, combine into ensure") carries either a single field or a
+    // body map of dotted keys. The trace spells both `ensure <path> k=v,...`
+    // so an assertion cannot tell the spellings apart - they are one op.
+    ensure: (a: {
+      path: unknown
+      field?: unknown
+      value?: unknown
+      body?: Record<string, unknown>
+    }) => {
+      if (a.body !== undefined) {
+        const fields = Object.keys(a.body)
+          .sort()
+          .map((k) => `${k}=${String(a.body?.[k])}`)
+          .join(',')
+        writes.push(`ensure ${String(a.path)} ${fields}`)
+        return
+      }
       writes.push(`ensure ${String(a.path)} ${String(a.field)}=${String(a.value)}`)
-    },
-    'ensure-all': (a: { path: unknown; fields: readonly { path: string; value: unknown }[] }) => {
-      writes.push(
-        `ensure-all ${String(a.path)} ${a.fields.map((f) => `${f.path}=${String(f.value)}`).join(',')}`,
-      )
     },
     create: (a: { path: unknown }) => {
       writes.push(`create ${String(a.path)}`)
@@ -288,8 +300,8 @@ export function runtimeGuards(): void {
     `a converged pass reported ${String(calm.condition.reason)}`)
   assert(calm.writes.some((w) => w === `create ${String(STATE.path)}`),
     'the stamp was not re-declared on a converged pass')
-  assert(calm.writes.some((w) => w.startsWith('ensure-all ') && w.includes('data.streak=0')),
-    `ensure-all did not carry the reset streak: ${calm.writes.join(' | ')}`)
+  assert(calm.writes.some((w) => w.startsWith(`ensure ${String(STATE.path)} `) && w.includes('data.streak=0')),
+    `ensure did not carry the reset streak: ${calm.writes.join(' | ')}`)
   assert(!calm.writes.some((w) => w.startsWith('ensure ') && w.includes('spec.replicas')),
     'a converged tier was rescaled anyway')
 
