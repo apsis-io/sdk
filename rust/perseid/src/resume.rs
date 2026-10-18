@@ -179,6 +179,14 @@ pub fn deadline(at_epoch_millis: i64) -> Resume {
     e::ge(e::now(), at_epoch_millis)
 }
 
+/// Wake when `Now() >= at_epoch_millis`, using the `After(epochMs)` predicate
+/// that pairs with idempotent named timers (`status.timers`) and schedules an
+/// exact-millisecond timer in the driver without waiting for the backstop poll.
+#[must_use]
+pub fn after(at_epoch_millis: i64) -> Resume {
+    e::new(format!("After({at_epoch_millis})"))
+}
+
 /// Wake if ANY condition holds.
 #[must_use]
 pub fn any_of(of: &[Resume]) -> Resume {

@@ -1153,20 +1153,9 @@ export const deadlineIn = (ms: number, nowEpochMillis: number | bigint): Resume 
  * the instant from an observation, which is the whole point: the anchor is DATA
  * the step observed, not a clock the resume reads.
  */
-export const after = (ms: number): Resume => {
-  throw new Error(
-    `perseid: after(${ms}) is gone — a resume carries an ABSOLUTE deadline now. ` +
-      'Use deadlineIn(ms, Number(now())), or deadline(atEpochMillis). ' +
-      // ***NAMES WHERE `now` COMES FROM, BECAUSE IT IS NOT AN SDK EXPORT.*** A
-      // reader following this advice greps this file for `now`, finds nothing,
-      // and concludes the remedy is broken — the inert-advertised-remedy defect,
-      // in the one message that only ever fires at somebody already stuck. It is
-      // a WIT import, deliberately: the clock is a capability, not a syscall.
-      "`now` is imported from the world, not from this SDK: " +
-      "import { now } from 'perseid:reconcile/observe@0.1.0'. " +
-      'A bare delay needed a parkedAt travelling beside the expression, and that side-car is ' +
-      'exactly what the expression form removes.'
-  )
+export const after = (ms: number | bigint): Resume => {
+  const t = Math.trunc(Number(ms))
+  return leaf(new E.ExprNode<'bool'>('After', [t], `After(${t})`))
 }
 
 /**
@@ -2444,6 +2433,28 @@ export const reconcile = {
   carry: () => defineEffect<void, string>()(WIT_CARRY, 'carry'),
 
   /**
+   * Idempotent named timers backed by `status.timers` (`Record<string, number>`
+   * mapping timer name -> `deadlineEpochMs`) on the Perseid CR.
+   *
+   *   - `timer.arm(name, durationMs)` arms `name` for `now() + durationMs` if
+   *     not already armed, or preserves the existing `deadlineMs` in
+   *     `status.timers[name]` and checks `now() >= deadlineMs`.
+   *   - `timer.armAt(name, epochMs)` arms `name` at an absolute timestamp.
+   *   - `timer.clear(name)` deletes `name` from `status.timers`.
+   */
+  timer: () => {
+    const run = defineEffect<TimerArgs, TimerState>()(WIT_CARRY, 'timer')
+    const clearRun = defineEffect<TimerArgs, void>()(WIT_CARRY, 'timer')
+    return {
+      arm: (name: string, durationMs: number) =>
+        run({ action: 'arm', name, durationMs: Math.trunc(Number(durationMs)) }),
+      armAt: (name: string, deadlineMs: number | bigint) =>
+        run({ action: 'arm-at', name, deadlineMs: Math.trunc(Number(deadlineMs)) }),
+      clear: (name: string) => clearRun({ action: 'clear', name }),
+    }
+  },
+
+  /**
    * `woke.held() -> list<string>`. Which operands of this program's own resume
    * were TRUE at the wake that started this pass, as their own SOURCE TEXT -
    * `list<u32>` (their positions) until 2026-09-07.
@@ -3516,43 +3527,66 @@ export function* held(): Generator<Effect<typeof WIT_WOKE, 'held', void>, Held, 
  * stated at the grouping level. A network read confers a different grant than
  * a reconcile obligation, so it does not sit under the reconcile name.
  */
+export interface TimerState {
+  readonly ready: boolean
+  readonly deadlineMs: number
+  readonly remainingMs: number
+}
+
+export interface TimerArgs {
+  readonly action: 'arm' | 'arm-at' | 'clear'
+  readonly name: string
+  readonly durationMs?: number
+  readonly deadlineMs?: number
+}
+
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+
+export interface FetchOptions {
+  readonly method?: HttpMethod
+  readonly body?: string | Record<string, unknown>
+  readonly headers?: Readonly<Record<string, string>>
+  readonly key?: string
+  readonly fresh?: boolean
+  readonly forget?: boolean
+}
+
 export const network = {
   /**
-   * `network.fetch(url, opts?) -> {status, body}`. A GET-only network read
-   * under the kernel's IDEMPOTENCY VERBS, and the idempotency is AROUND
-   * epochs, not hidden inside one: the response cache is the HOST's,
-   * program-scoped, SURVIVING passes - a wake re-drive returns the cached
-   * response, so a program cannot tell one fetch from N however many passes
-   * pass. Verbatim always: no rewriting, no header invention.
-   *
-   * The two verbs are the EXPOSED invalidation (engi: the SDK exposes it
-   * instead of the engine hiding it):
-   *
-   *   `fresh: true`   force a re-read and UPDATE the cache entry
-   *   `forget: true`  drop the entry - the next plain fetch re-dials
-   *
-   * Omit both and the idempotent default holds. The cache is LRU-bounded at
-   * 64 entries per program and survives passes; an operator restart loses it,
-   * which is a transparent re-fetch, never a wrong answer - and the result's
-   * `fromCache` says which kind you got: eviction is visible, post-hoc.
-   *
-   * ***USING THE BUILDER IS THE DECLARATION.*** The kernel confers
-   * `perseid:network/http@0.1.0` only on programs whose derived capabilities
-   * name it, and the derivation reads the yield type - so yielding this effect
-   * makes the capability flow exactly like every other effect's, and a program
-   * without it fails closed at the gate (the fail-closed arm is the kernel's; a
-   * raw-yield program that hand-spells the marker also works, but the builder
-   * is the spelling that cannot misspell).
-   *
-   * Shape: GET-only, `{status, body}` back - the body is a string, capped at
-   * 1MiB with the breach DETECTED rather than silently truncated.
+   * `network.fetch(url, opts?) -> {status, body, fromCache}`. Supports GET and
+   * POST (plus PUT/PATCH/DELETE) under the kernel's IDEMPOTENCY VERBS, with
+   * epoch-spanning memoization keyed by `opts.key` or `(method, url, body)`.
    */
-  fetch: (url: string, opts?: { fresh?: boolean; forget?: boolean }) => {
-    const args: { url: string; fresh?: boolean; forget?: boolean } = { url }
+  fetch: (url: string, opts?: FetchOptions) => {
+    const args: {
+      url: string
+      method?: HttpMethod
+      body?: string
+      headers?: Record<string, string>
+      key?: string
+      fresh?: boolean
+      forget?: boolean
+    } = { url }
+    if (opts?.method !== undefined) args.method = opts.method
+    if (opts?.body !== undefined) {
+      args.body = typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body)
+    }
+    if (opts?.headers !== undefined) args.headers = { ...opts.headers }
+    if (opts?.key !== undefined) args.key = opts.key
     if (opts?.fresh !== undefined) args.fresh = opts.fresh
     if (opts?.forget !== undefined) args.forget = opts.forget
     return defineEffect<typeof args, FetchResult>()(WIT_NETWORK_HTTP, 'fetch')(args)
   },
+
+  /**
+   * `network.post(url, body, opts?) -> {status, body, fromCache}`. Shorthand
+   * for `network.fetch(url, { ...opts, method: 'POST', body })`.
+   */
+  post: (
+    url: string,
+    body?: string | Record<string, unknown>,
+    opts?: Omit<FetchOptions, 'method' | 'body'>,
+  ) => network.fetch(url, { ...opts, method: 'POST', body }),
 }
 
 /** What `network.fetch` resolves to: the origin's status and body, verbatim. */

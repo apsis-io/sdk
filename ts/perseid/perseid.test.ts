@@ -41,6 +41,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { expect, test } from 'bun:test'
+import type { ReadPathLike } from './expr'
 import {
   type Handler,
   type Obs,
@@ -77,6 +78,9 @@ import {
   unknown,
   yieldStep,
   terminate,
+  after,
+  anyOf,
+  objectGone,
   fieldNe,
   unsafeApiPath,
   WIT_OBSERVE,
@@ -165,7 +169,7 @@ export type _HandlerEnsureArgIsNotNever = Assert<
   NotNever<EnsureArg, 'Handler<E> ensure-arg is never: Extract<E,{op:K}> matched no member'>
 >
 export type _HandlerGetArgIsTheEffectsArg = Assert<
-  Same<GetArg, ApiPath, 'Handler<E> get-arg is not the effect arg type (ApiPath)'>
+  Same<GetArg, ReadPathLike, 'Handler<E> get-arg is not the effect arg type (ReadPathLike)'>
 >
 export type _HandlerEnsureArgIsTheEffectsArg = Assert<
   Same<
@@ -192,7 +196,7 @@ export type _RunStepGetArgIsNotNever = Assert<
 export type _RunStepGetArgIsTheEffectsArg = Assert<
   Same<
     RunStepGetArg,
-    ApiPath,
+    ReadPathLike,
     'runStep handler arg is not the effect arg type: check NoInfer placement'
   >
 >
@@ -385,11 +389,11 @@ export type _StepDoesNotYieldEverything = Assert<
 
 const handlersAnnotated: Handler<YieldOf<ReturnType<typeof step>>> = {
   get: (what) => {
-    // Checked, not `any` and not `never`: assigning to string compiles, and the
+    // Checked, not `any` and not `never`: assigning to ReadPathLike compiles, and the
     // line below proves it is not `any` by rejecting a number.
-    const p: ApiPath = what
+    const p: ReadPathLike = what
 
-    return known(p.length)
+    return known(String(p).length)
   },
   ensure: (args) => {
     // The body form joined the union (2026-09-05), so the scalar form is
@@ -528,10 +532,10 @@ export type _TheShapesOverlap = Assert<
 // one where the other goes routes a read around the bound chosen for it.
 export const _theTwoPathKindsCannotBeSwapped = () => {
   const obs = reconcile.observe<number>()
-  const del = reconcile.delete()
+  const create = reconcile.create()
 
-  // @ts-expect-error a CLUSTER path cannot be passed to a namespaced write surface
-  del(path.cluster('admissionregistration.k8s.io', 'v1', 'validatingadmissionpolicies', 'p'))
+  // @ts-expect-error a CLUSTER path cannot be passed to a namespaced create surface
+  create({ path: path.cluster('admissionregistration.k8s.io', 'v1', 'validatingadmissionpolicies', 'p'), body: [] })
   // @ts-expect-error still not a hand-written string
   obs('/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/p')
 }
@@ -984,4 +988,77 @@ test('defineCall, call, and defineHandlers carry WIT capabilities and execute cl
   })
   expect(outcome.o).toBe('terminate')
 })
+
+test('after(epochMs), reconcile.timer(), and network.fetch POST / network.post execute cleanly', () => {
+  const timer = reconcile.timer()
+  const ensure = reconcile.ensure()
+
+  const canaryStep = defineStep(function* () {
+    const bake = yield* timer.arm('canary-bake', 30 * 60_000)
+    if (!bake.ready) {
+      return quiesce(anyOf(after(bake.deadlineMs), objectGone(WEB)))
+    }
+    yield* ensure({ path: WEB, field: 'spec.replicas', value: 10 })
+    yield* timer.clear('canary-bake')
+    yield* network.post(
+      'https://hooks.example.com/events',
+      { event: 'promoted', replicas: 10 },
+      { headers: { 'X-Token': 'abc' }, key: 'promote-v2' },
+    )
+    return yieldStep
+  })
+
+  const _derivesCarry: DerivesCapability<typeof canaryStep, typeof WIT_CARRY> = true
+  const _derivesEnsure: DerivesCapability<typeof canaryStep, typeof WIT_ENSURE> = true
+  const _derivesHttp: DerivesCapability<typeof canaryStep, typeof WIT_NETWORK_HTTP> = true
+  void _derivesCarry
+  void _derivesEnsure
+  void _derivesHttp
+
+  // Pass 1: timer not ready yet -> quiesces on After(deadlineMs) || !Get(...).exists
+  const pass1 = runStep(canaryStep, {
+    timer: (args) => {
+      expect(args).toEqual({ action: 'arm', name: 'canary-bake', durationMs: 1_800_000 })
+      return { ready: false, deadlineMs: 1_760_655_400_000, remainingMs: 1_800_000 }
+    },
+    ensure: () => ({ applied: true, outcome: 'applied' }),
+    fetch: () => ({ status: 200, body: 'ok', fromCache: false }),
+  })
+  expect(pass1.o).toBe('quiesce')
+  if (pass1.o === 'quiesce') {
+    expect(String(pass1.resume)).toBe(
+      '(After(1760655400000)) || (!Get("/apis/apps/v1/namespaces/default/deployments/web", "metadata.name").exists)',
+    )
+  }
+
+  // Pass 2: timer ready -> promotes canary, clears timer, sends idempotent POST
+  const timerCalls: unknown[] = []
+  const fetchCalls: unknown[] = []
+  const pass2 = runStep(canaryStep, {
+    timer: (args) => {
+      timerCalls.push(args)
+      return { ready: true, deadlineMs: 1_760_655_400_000, remainingMs: 0 }
+    },
+    ensure: () => ({ applied: true, outcome: 'applied' }),
+    fetch: (args) => {
+      fetchCalls.push(args)
+      return { status: 200, body: '{"accepted":true}', fromCache: false }
+    },
+  })
+  expect(pass2.o).toBe('yield')
+  expect(timerCalls).toEqual([
+    { action: 'arm', name: 'canary-bake', durationMs: 1_800_000 },
+    { action: 'clear', name: 'canary-bake' },
+  ])
+  expect(fetchCalls).toEqual([
+    {
+      url: 'https://hooks.example.com/events',
+      method: 'POST',
+      body: '{"event":"promoted","replicas":10}',
+      headers: { 'X-Token': 'abc' },
+      key: 'promote-v2',
+    },
+  ])
+})
+
 
