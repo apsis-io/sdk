@@ -3656,16 +3656,6 @@ export const network = {
     if (opts?.forget !== undefined) args.forget = opts.forget
     return defineEffect<typeof args, FetchResult>()(WIT_NETWORK_HTTP, 'fetch')(args)
   },
-
-  /**
-   * `network.post(url, body, opts?) -> {status, body, fromCache}`. Shorthand
-   * for `network.fetch(url, { ...opts, method: 'POST', body })`.
-   */
-  post: (
-    url: string,
-    body?: string | Record<string, unknown>,
-    opts?: Omit<FetchOptions, 'method' | 'body'>,
-  ) => network.fetch(url, { ...opts, method: 'POST', body }),
 }
 
 /** What `network.fetch` resolves to: the origin's status and body, verbatim. */

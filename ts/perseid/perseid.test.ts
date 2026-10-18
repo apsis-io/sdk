@@ -989,7 +989,7 @@ test('defineCall, call, and defineHandlers carry WIT capabilities and execute cl
   expect(outcome.o).toBe('terminate')
 })
 
-test('after(epochMs), reconcile.timer(), and network.fetch POST / network.post execute cleanly', () => {
+test('after(epochMs), reconcile.timer(), and network.fetch POST execute cleanly', () => {
   const timer = reconcile.timer()
   const ensure = reconcile.ensure()
 
@@ -1000,11 +1000,12 @@ test('after(epochMs), reconcile.timer(), and network.fetch POST / network.post e
     }
     yield* ensure({ path: WEB, field: 'spec.replicas', value: 10 })
     yield* timer.clear('canary-bake')
-    yield* network.post(
-      'https://hooks.example.com/events',
-      { event: 'promoted', replicas: 10 },
-      { headers: { 'X-Token': 'abc' }, key: 'promote-v2' },
-    )
+    yield* network.fetch('https://hooks.example.com/events', {
+      method: 'POST',
+      body: { event: 'promoted', replicas: 10 },
+      headers: { 'X-Token': 'abc' },
+      key: 'promote-v2',
+    })
     return yieldStep
   })
 
