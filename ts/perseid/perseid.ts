@@ -377,6 +377,12 @@ export type ClusterPathShape = `/api${string}`
  */
 export type ClusterPath = Canonical<'cluster-path', ClusterPathShape>
 
+/** The shape of a CLUSTER-SCOPED collection path: `/api/V/RESOURCE` or `/apis/G/V/RESOURCE`. */
+export type ClusterCollectionPathShape = `/api${string}`
+
+/** A cluster-scoped collection path, canonical by construction. */
+export type ClusterCollectionPath = Canonical<'cluster-collection-path', ClusterCollectionPathShape>
+
 /** A namespace name. Real namespaces complete. */
 export type Namespace = (keyof KnownNamespaces & string) | (string & {})
 
@@ -546,6 +552,24 @@ export const path = {
     `/api/${version}/${resource}/${name}` as Canonical<
       'cluster-path',
       `/api/${V}/${R}/${N}`
+    >,
+
+  /** A cluster-scoped COLLECTION in the CORE group: `/api/VERSION/RESOURCE`. */
+  clusterCoreCollection: <V extends string, R extends string>(version: V, resource: R) =>
+    `/api/${version}/${resource}` as Canonical<
+      'cluster-collection-path',
+      `/api/${V}/${R}`
+    >,
+
+  /** A cluster-scoped COLLECTION in a named group: `/apis/GROUP/VERSION/RESOURCE`. */
+  clusterCollection: <G extends string, V extends string, R extends string>(
+    group: G,
+    version: V,
+    resource: R,
+  ) =>
+    `/apis/${group}/${version}/${resource}` as Canonical<
+      'cluster-collection-path',
+      `/apis/${G}/${V}/${R}`
     >,
 } as const
 
@@ -2144,7 +2168,13 @@ export function* call<const Iface extends Wit, const Op extends string, A = Reco
  * a caller passed a value whose type came from somewhere else - which is exactly
  * how a numeric field ends up holding a string.
  */
-export type EnsureValue = string | number | boolean
+export type EnsureValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly unknown[]
+  | Record<string, unknown>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ***BARE, NOT TAGGED*** (engi, 2026-09-05: "ensure(path.nodes('worker-1'),
@@ -2314,7 +2344,15 @@ export const reconcile = {
    * Bounded by the grant's namespace and by the kind's read capability - the
    * same bound `count` already applies to the same objects.
    */
-  enumerate: <T = string>() => defineEffect<CollectionPath, Obs<T>>()(WIT_OBSERVE, 'get'),
+  enumerate: <T = string>() =>
+    defineEffect<CollectionPath | ClusterCollectionPath, Obs<T>>()(WIT_OBSERVE, 'get'),
+
+  /**
+   * `observe.list(collection) -> obs`, the objects in a namespaced or
+   * cluster-scoped collection as a JSON ARRAY.
+   */
+  list: <T = string>() =>
+    defineEffect<CollectionPath | ClusterCollectionPath, Obs<T>>()(WIT_OBSERVE, 'list'),
 
   /** `observe.now() -> u64`. EPOCH MILLISECONDS, UTC. */
   now: () => defineEffect<void, number>()(WIT_OBSERVE, 'now'),
@@ -2379,7 +2417,7 @@ export const reconcile = {
    * most in a FINALIZER, which runs on a fresh instance every attempt and so
    * must re-declare its cleanup each time with no memory of the last.
    */
-  delete: () => defineEffect<ApiPath, void>()(WIT_DELETE, 'delete'),
+  delete: () => defineEffect<ApiPath | ClusterPath, void>()(WIT_DELETE, 'delete'),
 
   /**
    * Create an object.
@@ -2472,12 +2510,6 @@ export const reconcile = {
   /**
    * Idempotent named timers backed by `status.timers` (`Record<string, number>`
    * mapping timer name -> `deadlineEpochMs`) on the Perseid CR.
-   *
-   *   - `timer.arm(name, durationMs)` arms `name` for `now() + durationMs` if
-   *     not already armed, or preserves the existing `deadlineMs` in
-   *     `status.timers[name]` and checks `now() >= deadlineMs`.
-   *   - `timer.armAt(name, epochMs)` arms `name` at an absolute timestamp.
-   *   - `timer.clear(name)` deletes `name` from `status.timers`.
    */
   timer: () => {
     const run = defineEffect<TimerArgs, TimerState>()(WIT_CARRY, 'timer')
