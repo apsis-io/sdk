@@ -803,7 +803,7 @@ const isPathExpr = (p: ReadPathLike): boolean => p instanceof ExprNode
  * Values are scalars, `computed(...)` expressions, or nested `StructValue`s.
  */
 export type StructShape = {
-  [k: string]: EnsureValue | StructShape | StructArray
+  [k: string]: EnsureValue | StructShape | StructArray | undefined
 }
 
 /**
@@ -933,13 +933,12 @@ const isStruct = (v: EnsureValue | StructShape): v is StructShape =>
  * already performed, forever, with nothing erroring.
  */
 const structText = (v: StructShape): string => {
-  const parts = Object.keys(v)
-    .sort()
-    .map((k) => {
-      const inner = v[k]
-
-      return `${lit(k)}: ${fieldText(inner)}`
-    })
+  const parts: string[] = []
+  for (const k of Object.keys(v).sort()) {
+    const inner = v[k]
+    if (inner === undefined) continue
+    parts.push(`${lit(k)}: ${fieldText(inner)}`)
+  }
 
   return `{${parts.join(', ')}}`
 }

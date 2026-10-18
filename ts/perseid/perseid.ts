@@ -35,14 +35,83 @@ import { ResumeNode } from './resume.js'
 
 export { ResumeNode }
 
+export type ConflictDetail<T = unknown> = {
+  readonly sources?: readonly T[]
+  readonly reason: string
+}
+
 export type Obs<T> =
   | { readonly t: 'known'; readonly v: T }
   | { readonly t: 'absent' }
-  | { readonly t: 'unknown' }
+  | { readonly t: 'unknown'; readonly reason?: string }
+  | { readonly t: 'conflict'; readonly conflict: ConflictDetail<T> }
 
 export const known = <T>(v: T): Obs<T> => ({ t: 'known', v })
 export const absent: Obs<never> = { t: 'absent' }
 export const unknown: Obs<never> = { t: 'unknown' }
+export const conflict = <T = never>(reason: string, sources?: readonly T[]): Obs<T> => ({
+  t: 'conflict',
+  conflict: sources !== undefined ? { reason, sources } : { reason },
+})
+
+/**
+ * Knowledge-lattice join (⊕_k, ADR-0117 §2.2.1): combines two observations of
+ * the same subject across multiple sources. `unknown` (⊥_k) is the identity;
+ * disagreement produces `conflict` (⊤_k).
+ */
+export function mergeObs<T>(
+  a: Obs<T>,
+  b: Obs<T>,
+  equals: (x: T, y: T) => boolean = Object.is,
+): Obs<T> {
+  if (a.t === 'conflict' && b.t === 'conflict') {
+    return conflict(`${a.conflict.reason}; ${b.conflict.reason}`, [
+      ...(a.conflict.sources ?? []),
+      ...(b.conflict.sources ?? []),
+    ])
+  }
+  if (a.t === 'conflict') return a
+  if (b.t === 'conflict') return b
+  if (a.t === 'unknown') return b
+  if (b.t === 'unknown') return a
+  if (a.t === 'absent' && b.t === 'absent') return absent
+  if (a.t === 'known' && b.t === 'known') {
+    return equals(a.v, b.v)
+      ? a
+      : conflict('conflicting known observations', [a.v, b.v])
+  }
+  return conflict(
+    'conflicting known and absent observations',
+    a.t === 'known' ? [a.v] : b.t === 'known' ? [b.v] : undefined,
+  )
+}
+
+/**
+ * Knowledge-lattice meet (⊗_k, ADR-0117 §2.2.2): returns the agreed-upon
+ * observation across two sources. `conflict` (⊤_k) is the identity;
+ * disagreement or `unknown` (⊥_k) produces `unknown`.
+ */
+export function consensusObs<T>(
+  a: Obs<T>,
+  b: Obs<T>,
+  equals: (x: T, y: T) => boolean = Object.is,
+): Obs<T> {
+  if (a.t === 'unknown') return a
+  if (b.t === 'unknown') return b
+  if (a.t === 'conflict' && b.t === 'conflict') {
+    return conflict(`${a.conflict.reason}; ${b.conflict.reason}`, [
+      ...(a.conflict.sources ?? []),
+      ...(b.conflict.sources ?? []),
+    ])
+  }
+  if (a.t === 'conflict') return b
+  if (b.t === 'conflict') return a
+  if (a.t === 'absent' && b.t === 'absent') return absent
+  if (a.t === 'known' && b.t === 'known') {
+    return equals(a.v, b.v) ? a : unknown
+  }
+  return unknown
+}
 
 // ---------------------------------------------------------------------------
 // Resume — why a quiesced step should be woken. DATA, deliberately not a
@@ -308,12 +377,6 @@ export type ClusterPathShape = `/api${string}`
  */
 export type ClusterPath = Canonical<'cluster-path', ClusterPathShape>
 
-/** The shape of a CLUSTER-SCOPED collection path: `/api/V/RESOURCE` or `/apis/G/V/RESOURCE`. */
-export type ClusterCollectionPathShape = `/api${string}`
-
-/** A cluster-scoped collection path, canonical by construction. */
-export type ClusterCollectionPath = Canonical<'cluster-collection-path', ClusterCollectionPathShape>
-
 /** A namespace name. Real namespaces complete. */
 export type Namespace = (keyof KnownNamespaces & string) | (string & {})
 
@@ -483,24 +546,6 @@ export const path = {
     `/api/${version}/${resource}/${name}` as Canonical<
       'cluster-path',
       `/api/${V}/${R}/${N}`
-    >,
-
-  /** A cluster-scoped COLLECTION in the CORE group: `/api/VERSION/RESOURCE`. */
-  clusterCoreCollection: <V extends string, R extends string>(version: V, resource: R) =>
-    `/api/${version}/${resource}` as Canonical<
-      'cluster-collection-path',
-      `/api/${V}/${R}`
-    >,
-
-  /** A cluster-scoped COLLECTION in a named group: `/apis/GROUP/VERSION/RESOURCE`. */
-  clusterCollection: <G extends string, V extends string, R extends string>(
-    group: G,
-    version: V,
-    resource: R,
-  ) =>
-    `/apis/${group}/${version}/${resource}` as Canonical<
-      'cluster-collection-path',
-      `/apis/${G}/${V}/${R}`
     >,
 } as const
 
@@ -2099,13 +2144,7 @@ export function* call<const Iface extends Wit, const Op extends string, A = Reco
  * a caller passed a value whose type came from somewhere else - which is exactly
  * how a numeric field ends up holding a string.
  */
-export type EnsureValue =
-  | string
-  | number
-  | boolean
-  | null
-  | readonly unknown[]
-  | Record<string, unknown>
+export type EnsureValue = string | number | boolean
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ***BARE, NOT TAGGED*** (engi, 2026-09-05: "ensure(path.nodes('worker-1'),
@@ -2147,7 +2186,13 @@ export type CreateField = { readonly path: string; readonly value: EnsureValue }
 
 export type CreateArgs = {
   readonly path: ApiPath
-  readonly body: readonly CreateField[]
+  // THE BODY IS THE OBJECT, not field rows. The engine marshals this value
+  // verbatim and the host's Create unmarshals it as the object it creates -
+  // a row ARRAY here would reach the apiserver as the body itself. The
+  // rows spelling (and CreateField) broke at the wire: warden's
+  // `body: [{path, value}]` calls sent the ROWS as the object. The kinded
+  // builders' `.with()/.spec()/.data()` produce exactly this shape.
+  readonly body: E.StructValue
 }
 
 export type EnsureArgs = {
@@ -2269,15 +2314,7 @@ export const reconcile = {
    * Bounded by the grant's namespace and by the kind's read capability - the
    * same bound `count` already applies to the same objects.
    */
-  enumerate: <T = string>() =>
-    defineEffect<CollectionPath | ClusterCollectionPath, Obs<T>>()(WIT_OBSERVE, 'get'),
-
-  /**
-   * `observe.list(collection) -> obs`, the objects in a namespaced or
-   * cluster-scoped collection as a JSON ARRAY.
-   */
-  list: <T = string>() =>
-    defineEffect<CollectionPath | ClusterCollectionPath, Obs<T>>()(WIT_OBSERVE, 'list'),
+  enumerate: <T = string>() => defineEffect<CollectionPath, Obs<T>>()(WIT_OBSERVE, 'get'),
 
   /** `observe.now() -> u64`. EPOCH MILLISECONDS, UTC. */
   now: () => defineEffect<void, number>()(WIT_OBSERVE, 'now'),
@@ -2342,7 +2379,7 @@ export const reconcile = {
    * most in a FINALIZER, which runs on a fresh instance every attempt and so
    * must re-declare its cleanup each time with no memory of the last.
    */
-  delete: () => defineEffect<ApiPath | ClusterPath, void>()(WIT_DELETE, 'delete'),
+  delete: () => defineEffect<ApiPath, void>()(WIT_DELETE, 'delete'),
 
   /**
    * Create an object.
@@ -2829,6 +2866,7 @@ export function reader<P, E extends AnyEffect, T = Record<string, unknown>>(
      */
     *get(path: P): Step<E, Obs<T>> {
       const seen = yield* read(path)
+      if (seen.t === 'conflict') return conflict(seen.conflict.reason)
       if (seen.t !== 'known') return seen
       const v = decode(seen.v)
 
@@ -2836,10 +2874,14 @@ export function reader<P, E extends AnyEffect, T = Record<string, unknown>>(
     },
 
     /** The read, decoded and unwrapped; short-circuits the step otherwise. */
-    *need(path: P, on: { absent?: Outcome; unknown?: Outcome } = {}): Step<E, T> {
+    *need(
+      path: P,
+      on: { absent?: Outcome; unknown?: Outcome; conflict?: Outcome } = {},
+    ): Step<E, T> {
       const seen = yield* read(path)
       if (seen.t === 'absent') return bail(on.absent ?? terminate)
       if (seen.t === 'unknown') return bail(on.unknown ?? yieldStep)
+      if (seen.t === 'conflict') return bail(on.conflict ?? yieldStep)
       const v = decode(seen.v)
 
       return v === null ? bail(on.unknown ?? yieldStep) : v
@@ -3391,6 +3433,11 @@ export type Cause =
   | 'condition'
   /** Only the folded-in deadline fired: a timed re-check. */
   | 'backstop'
+  /**
+   * An observed subject in the resume expression evaluated to Conflict (⊤_k,
+   * Belnap B, ADR-0117 §2.4) — e.g. contradictory selector matches.
+   */
+  | 'conflict'
   /**
    * The attribution could not be evaluated - something the resume reads is
    * Absent, so no comparison was performed. A broken instrument, reported as
