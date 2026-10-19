@@ -22,7 +22,7 @@
     }
   },
   "dependencies": {
-    "@apsis-io/periapsis-sdk": "link:../../../ts/periapsis",
+    "@apsis-io/periapsis-sdk": "file:../../../ts/periapsis",
     "@apsis-io/perseid": "file:../../../ts/perseid"
   }
 }
