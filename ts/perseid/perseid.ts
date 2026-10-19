@@ -1454,7 +1454,31 @@ export const terminate: Outcome = { o: 'terminate' }
 /** The host's bound on one program's memory (`MaxCarryBytes`, carry.go). */
 export const MAX_CARRY_BYTES = 4096
 
-const carryBytes = (value: string): number => new TextEncoder().encode(value).length
+export const carryBytes = (value: string): number => {
+  // THE UTF-8 BYTE COUNT, WITHOUT TextEncoder: the pure-Go qjs runtime has
+  // no Web API, and this SDK runs there FIRST - a Web-API reach made the
+  // every-remember pass crash with `TextEncoder is not defined` on the
+  // live cluster (the park never persisted, the program re-ran from the
+  // top every backstop). Exact, not approximate: a carry crossing the
+  // bound must throw HERE, with the line that grew, not at the host.
+  // Code units by range; surrogate pairs are one 4-byte code point.
+  // EXPORTED so a program can budget its carry and so the exactness test
+  // can hold the count against TextEncoder wherever TextEncoder exists.
+  let n = 0
+  for (let i = 0; i < value.length; i++) {
+    const c = value.charCodeAt(i)
+    if (c >= 0xd800 && c <= 0xdbff && i + 1 < value.length) {
+      const lo = value.charCodeAt(i + 1)
+      if (lo >= 0xdc00 && lo <= 0xdfff) {
+        n += 4
+        i++
+        continue
+      }
+    }
+    n += c <= 0x7f ? 1 : c <= 0x7ff ? 2 : 3
+  }
+  return n
+}
 
 /**
  * Remember `value` across passes, on top of any outcome.
@@ -3625,6 +3649,10 @@ export interface FetchOptions {
   readonly method?: HttpMethod
   readonly body?: string | Record<string, unknown>
   readonly headers?: Readonly<Record<string, string>>
+  /** HTTP Basic credentials, applied as the Authorization header AT THE
+   * HOST (the guest has no btoa). Folds into the default memo key, so two
+   * credentials on one URL are two memo entries. */
+  readonly auth?: { readonly username: string; readonly password: string }
   readonly key?: string
   readonly fresh?: boolean
   readonly forget?: boolean
@@ -3642,6 +3670,7 @@ export const network = {
       method?: HttpMethod
       body?: string
       headers?: Record<string, string>
+      auth?: { username: string; password: string }
       key?: string
       fresh?: boolean
       forget?: boolean
@@ -3651,6 +3680,7 @@ export const network = {
       args.body = typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body)
     }
     if (opts?.headers !== undefined) args.headers = { ...opts.headers }
+    if (opts?.auth !== undefined) args.auth = { ...opts.auth }
     if (opts?.key !== undefined) args.key = opts.key
     if (opts?.fresh !== undefined) args.fresh = opts.fresh
     if (opts?.forget !== undefined) args.forget = opts.forget

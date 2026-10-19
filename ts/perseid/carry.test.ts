@@ -3,6 +3,7 @@
 
 import { expect, test } from 'bun:test'
 import {
+  carryBytes,
   MAX_CARRY_BYTES,
   carriedBy,
   carryOf,
@@ -154,3 +155,37 @@ test('a round trip: what remember writes is what carriedBy reads', () => {
   expect(carriedBy(observed)).toBe(JSON.stringify(published))
   expect(carryOf(carriedBy(observed)!)).toEqual(published)
 })
+
+// THE BYTE COUNT IS EXACT WITHOUT TextEncoder (the qjs runtime has no Web
+// API, and this SDK runs there FIRST - a Web-API reach crashed every
+// remember pass on the live cluster with `TextEncoder is not defined`).
+// carryBytes must agree with TextEncoder's UTF-8 length on everything
+// bun can construct: ASCII, two-byte, three-byte, four-byte (surrogate
+// pairs), and the mixed corpus. Under bun this test HAS TextEncoder to
+// compare against - that is the discriminator; under qjs the same code
+// path simply works.
+if (typeof TextEncoder !== 'undefined') {
+  const te = new TextEncoder()
+  const corpus = [
+    '',
+    'plain ascii',
+    'héllo wörld',                         // two-byte
+    ' TXT set on x.test (cycle 3)',        // the example's payload shape
+    'あああああ',                              // three-byte
+    '🌍🌍🌍🌍',                                // four-byte surrogate pairs
+    'mixed 🌍 héllo あ ascii',
+    JSON.stringify({ status: { carry: 'あ'.repeat(1000) } }),
+  ]
+  for (const v of corpus) {
+    expect(carryBytes(v)).toBe(te.encode(v).length)
+  }
+
+  // THE BOUND IS THE BYTE COUNT: 1366 three-byte chars are 4098 UTF-8
+  // bytes (over the 4096 bound) but only 1366 UTF-16 units - the old
+  // Web-free guess `value.length` would have waved this through and let
+  // the host reject it with a bound message naming a number the program
+  // never saw.
+  const over = 'あ'.repeat(1366)
+  expect(over.length).toBeLessThan(4096)
+  expect(() => remember(yieldStep, { big: over })).toThrow(/4096/)
+}
