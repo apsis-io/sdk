@@ -82,6 +82,7 @@ import {
   anyOf,
   objectGone,
   fieldNe,
+  asBody,
   unsafeApiPath,
   WIT_OBSERVE,
   WIT_ENSURE,
@@ -137,6 +138,11 @@ const step = defineStep(function* () {
     case 'absent':
       return terminate
     case 'unknown':
+      return yieldStep
+    case 'conflict':
+      // The conflict variant joined `Obs` after this step was written; a
+      // missing case reads as a fall-through `undefined`, which the Step
+      // contract refuses - the switch has to stay total.
       return yieldStep
     case 'known': {
       if (have.v !== 2) {
@@ -864,7 +870,12 @@ const deleteStep = defineStep(function* () {
   return terminate
 })
 const createStep = defineStep(function* () {
-  yield* reconcile.create()({ path: _deps, body: [] })
+  // THE BODY IS THE OBJECT (see CreateArgs): the row-array form here used to
+  // typecheck and was the wire defect - it would have reached the apiserver
+  // as the body itself. A body outside the kinded builders is BRANDED by
+  // `asBody`; an unbranded literal is exactly the lie the brand exists to
+  // refuse.
+  yield* reconcile.create()({ path: _deps, body: asBody({ spec: { replicas: 2 } }) })
   return terminate
 })
 const statusStep = defineStep(function* () {

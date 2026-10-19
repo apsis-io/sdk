@@ -3166,6 +3166,12 @@ export type KindedPath<K extends string> = E.KindedPath<K>
 export type KindedBody<K extends string> = E.KindedBody<K>
 export type KindedObject<K extends string> = E.KindedObject<K>
 
+// A create body is BRANDed, and the brand cannot be written by hand - a raw
+// object literal is not a `StructValue`. The kinded builders brand internally;
+// a program assembling a body outside them brands it here, the same
+// one-import rule as the `Kinded*` types above.
+export const asBody = E.asBody
+
 /** Labels/annotations: a flat string map, which is what the apiserver accepts. */
 export type Meta = { labels?: Record<string, string>; annotations?: Record<string, string> }
 
@@ -3234,6 +3240,65 @@ export const podTemplate = (containers: Container[], m?: Meta): E.StructShape =>
   const meta = metaOf(m)
 
   return meta ? { spec, metadata: meta } : { spec }
+}
+
+/** One port of a Service. */
+export type ServicePort = {
+  /** Required by the apiserver once a Service carries more than one port. */
+  name?: string
+  /** The port the Service itself serves. A computed port has no builder here -
+   * ports are static by nature; reach for `with()` and `E.computed` explicitly
+   * if a program genuinely needs one. */
+  port: number
+  /** The port the pods listen on. Absent means the same number as `port` -
+   * the apiserver's defaulting, stated here so a reader does not guess. */
+  targetPort?: number | string
+  protocol?: 'TCP' | 'UDP' | 'SCTP'
+}
+
+/**
+ * The body of a `v1 Service`, as `service().spec()` takes it.
+ *
+ * ⚠ ***THE SELECTOR IS FLAT.*** A Service's `spec.selector` maps pod labels
+ * directly - it has no `matchLabels` wrapper, unlike a Deployment's selector,
+ * and folding one in would write a selector that matches nothing.
+ */
+export type ServiceSpec = {
+  selector?: Record<string, string>
+  ports: ServicePort[]
+  /** Absent means ClusterIP - the apiserver's defaulting, not this builder's. */
+  type?: 'ClusterIP' | 'NodePort' | 'LoadBalancer' | 'ExternalName'
+  /** `'None'` makes the Service headless. Absent means allocated. */
+  clusterIP?: string
+}
+
+// Absents STAY ABSENT: every optional field is omitted rather than written
+// null/false/zero, because Kubernetes defaults at the apiserver and a field
+// this builder invents is a value the apiserver never defaulted to (same rule
+// k8s.ts's per-field defaults exist for, on the write side).
+const serviceSpecOf = (s: ServiceSpec): E.StructShape => {
+  // The type refuses a portless Service at compile time; a program running
+  // without the compiler (bun runs TS untyped) gets the refusal here instead,
+  // with the rule named.
+  if (!s.ports || s.ports.length === 0) {
+    throw new Error('objects.service: a Service with no ports is not a Service - name at least one port.')
+  }
+
+  const ports = s.ports.map((p) => {
+    const out: E.StructShape = { port: p.port }
+    if (p.name !== undefined) out.name = p.name
+    if (p.targetPort !== undefined) out.targetPort = p.targetPort
+    if (p.protocol !== undefined) out.protocol = p.protocol
+
+    return out
+  })
+
+  const spec: E.StructShape = { ports }
+  if (s.selector) spec.selector = { ...s.selector }
+  if (s.type !== undefined) spec.type = s.type
+  if (s.clusterIP !== undefined) spec.clusterIP = s.clusterIP
+
+  return spec
 }
 
 /**
@@ -3326,14 +3391,51 @@ export const objects = {
       }),
 
       /**
+       * `v1 Service` - the core-group kind every program that supervises a
+       * workload wants. The typed `spec()` exists because a Service is
+       * exactly the object a derived write set aims at a port; see the
+       * `ServiceSpec` doc for the flat-selector warning.
+       */
+      service: (name: string) => ({
+        ...kinded<'services'>(p.core('v1', 'services', name)),
+        spec: (s: ServiceSpec, m?: Meta): KindedObject<'services'> =>
+          kinded<'services'>(p.core('v1', 'services', name)).with(
+            { spec: serviceSpecOf(s) },
+            m,
+          ),
+      }),
+
+      /**
+       * ***THE ESCAPE HATCH'S CORE TWIN.*** The grouped hatch below cannot
+       * reach a core-kind object - it renders the `/apis/GROUP/...` prefix,
+       * and the core group has no group segment to put there. `v1` is today
+       * the whole core group, but the version is spelled rather than assumed,
+       * for the same reason `path.core` spells it.
+       */
+      core: <V extends string, K extends string>(version: V, plural: K, name: string) =>
+        kinded<K>(p.core(version, plural, name)),
+
+      /**
        * ***THE ESCAPE HATCH, AND IT IS THE SAME MECHANISM.*** A CRD has no
        * static shape here - the point of the host taking paths is that a kind
        * needs no entry anywhere - so this brands the path with the plural and
        * leaves the body untyped. It still gives the FACADE (one namespace) and
        * the PAIRING (path and body from one call).
+       *
+       * ⚠ An EMPTY GROUP IS REFUSED, NOT RENDERED. `resource('', 'v1', …)`
+       * used to produce `/apis//v1/...`, a path no apiserver serves, because
+       * the core group rides the `/api/` prefix. That is what `core` above is
+       * for; the refusal names it so the fix is the next keystroke away.
        */
-      resource: <K extends string>(group: string, version: string, plural: K, name: string) =>
-        kinded<K>(p.resource(group, version, plural, name)),
+      resource: <K extends string>(group: string, version: string, plural: K, name: string) => {
+        if (group === '') {
+          throw new Error(
+            `objects.resource: an empty group renders /apis//${version}/..., which no apiserver serves - the core group rides the /api/ prefix. Use objects.ns(ns).core('${version}', plural, name) for a core-kind object.`,
+          )
+        }
+
+        return kinded<K>(p.resource(group, version, plural, name))
+      },
     }
   },
 }

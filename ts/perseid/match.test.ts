@@ -38,6 +38,7 @@ const step = defineStep(function* () {
   return yield* match(have, 't', {
     absent: () => terminate,
     unknown: () => yieldStep,
+    conflict: () => yieldStep,
     known: function* ({ v }) {
       if (v === 2) return quiesce(fieldNe(DEP, 'spec.replicas', 2))
       yield* ensure({ path: target, field: 'spec.replicas', value: 2 })
@@ -84,7 +85,7 @@ export const _aMissingArmIsRejected = () => {
     have,
     't',
     // @ts-expect-error 'unknown' is missing - exhaustiveness needs no terminal call
-    { absent: () => terminate, known: () => yieldStep },
+    { absent: () => terminate, conflict: () => yieldStep, known: () => yieldStep },
   )
 }
 
@@ -142,6 +143,7 @@ export function runtimeGuards(): void {
       return yield* match(foreign, 't', {
         absent: () => terminate,
         unknown: () => yieldStep,
+        conflict: () => yieldStep,
         known: () => yieldStep,
       })
     }), { get: () => unknown })
@@ -168,6 +170,7 @@ const guardedStep = defineStep(function* () {
   return yield* match(have, 't', {
     absent: () => terminate,
     unknown: () => yieldStep,
+    conflict: () => yieldStep,
     // ***ONE ANNOTATED CLAUSE PARAMETER SUPPLIES `In` FOR THE WHOLE CALL.***
     // It was an explicit `when<In, R>` here until the overloads landed - and
     // that form is what proved the old single-`R` design broken: it needed
