@@ -314,6 +314,15 @@ pub fn now() -> Expr<Int> {
     Expr::new("Now()".to_string())
 }
 
+/// `After(epochMs)` - the first-class timer predicate. The driver lowers it to
+/// an EXACT-millisecond timer, so a park on it wakes at the instant named
+/// rather than at the backstop poll that would carry a bare `Now() >=`
+/// comparison; it pairs with the idempotent named timers (`status.timers`).
+#[must_use]
+pub fn after(at_epoch_millis: i64) -> Expr<Bool> {
+    Expr::new(format!("After({at_epoch_millis})"))
+}
+
 // ---------------------------------------------------------------------------
 // The language version.
 

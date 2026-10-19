@@ -179,12 +179,13 @@ pub fn deadline(at_epoch_millis: i64) -> Resume {
     e::ge(e::now(), at_epoch_millis)
 }
 
-/// Wake when `Now() >= at_epoch_millis`, using the `After(epochMs)` predicate
-/// that pairs with idempotent named timers (`status.timers`) and schedules an
-/// exact-millisecond timer in the driver without waiting for the backstop poll.
+/// Wake at the absolute instant the `After(epochMs)` node names - lowered by
+/// the driver to an exact-millisecond timer, so the wake does not wait for the
+/// backstop poll the way a bare `Now() >=` comparison does. Pairs with the
+/// idempotent named timers (`status.timers`).
 #[must_use]
 pub fn after(at_epoch_millis: i64) -> Resume {
-    e::new(format!("After({at_epoch_millis})"))
+    e::after(at_epoch_millis)
 }
 
 /// Wake if ANY condition holds.
@@ -348,6 +349,10 @@ mod tests {
         assert_eq!(
             deadline(1_788_011_630_089).as_str(),
             "Now() >= 1788011630089"
+        );
+        assert_eq!(
+            after(1_788_011_630_089).as_str(),
+            "After(1788011630089)"
         );
         assert_eq!(
             count_ne_field("app=api", &d).as_str(),
