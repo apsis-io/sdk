@@ -667,7 +667,7 @@ export type Computed = { readonly [computedOf]: true; readonly text: string }
 // something to key a nominal type on) is correct for them. isStruct below
 // tests THIS one with `in`, which needs an actual value to look up - a
 // `declare const` there is not merely unused, it is a ReferenceError the
-// moment isStruct runs, thrown from inside `create`/`ensure`, on every call.
+// moment isStruct runs, thrown from inside `apply`/`ensure`, on every call.
 //
 // ***Symbol.for, NOT Symbol, AND THAT IS A CORRECTNESS FIX RATHER THAN A
 // STYLE.*** `Symbol('computed')` is unique PER MODULE INSTANCE. Load this file
@@ -804,7 +804,7 @@ const pathText = (p: ReadPathLike): string => (isPathExpr(p) ? String(p) : lit(S
 const isPathExpr = (p: ReadPathLike): boolean => p instanceof ExprNode
 
 /**
- * A structured value: an object body for {@link create}.
+ * A structured value: an object body for {@link apply}.
  *
  * Values are scalars, `computed(...)` expressions, or nested `StructValue`s.
  */
@@ -851,9 +851,9 @@ declare const bodyOf: unique symbol
  * by contract. Late and silent, which is what this SDK exists to move to the
  * compiler.
  *
- * The wire form is unchanged: the host still parses `Create(path, {...})`, and
- * it must, because that IS the obligation. What changed is that no guest writes
- * one by hand.
+ * The wire form moved with the verb (LANGUAGE_VERSION 6): the host parses
+ * `Apply(path, {...})` now, and that IS the obligation. What has not changed is
+ * that no guest writes one by hand.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 export type StructValue = StructShape & { readonly [bodyOf]: 'object-body' }
@@ -987,7 +987,12 @@ const fieldText = (v: EnsureValue | StructShape | StructArray): string => {
 }
 
 /**
- * `Create(path, body) -> effect`. Bring an object into existence.
+ * `Apply(path, body) -> effect`. CREATE OR UPDATE, keyed by the body's spec
+ * hash (engi, 2026-10-19: "remove create"). The host hashes the canonical body
+ * and stamps it as an annotation; an apply whose hash matches the live
+ * object's writes NOTHING. Where `create` refused an existing object and
+ * `ensureAll` merges fields, apply owns the whole body: absent creates it,
+ * present converges to it.
  *
  * ***THE PATH IS THE IDENTITY; THE BODY IS EVERYTHING ELSE.*** A canonical path
  * already carries group, version, resource, namespace and name, so the body
@@ -996,10 +1001,10 @@ const fieldText = (v: EnsureValue | StructShape | StructArray): string => {
  * the string `spec.writes` was checked against, and a body that could name a
  * different object would put it outside the approved address.
  */
-export const create = <K extends string>(o: {
+export const apply = <K extends string>(o: {
   readonly path: KindedPath<K>
   readonly body: KindedBody<NoInferK<K>>
-}): Expr<'effect'> => mk('Create', [o.path, o.body], `Create(${lit(o.path)}, ${structText(o.body)})`)
+}): Expr<'effect'> => mk('Apply', [o.path, o.body], `Apply(${lit(o.path)}, ${structText(o.body)})`)
 
 /**
  * `EnsureAll(path, body) -> effect`. SEVERAL fields of one object, ONE apiserver

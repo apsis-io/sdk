@@ -85,7 +85,7 @@ spec:
     # capabilities, the park lost the ability to resolve Get and this object failed
     # AFTER a completely successful pass:
     #
-    #   Applied         Create(".../pods/podmaker-proof")   the write LANDED
+    #   Applied         Apply(".../pods/podmaker-proof")     the write LANDED
     #   podmaker-proof  1/1 Running                         the pod came UP
     #   PerseidFailed   unresolved identifier: "Get"        parking FAILED
     #

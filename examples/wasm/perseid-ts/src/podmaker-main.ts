@@ -44,7 +44,7 @@ import { status as hostSet, type ConditionStatus as HostCondStatus } from 'perse
 // evaluates a resume with the program's own read capabilities. What that produced
 // on the cluster is the shape worth recognising, because every marker was green:
 //
-//	Applied         Create(".../pods/podmaker-proof")   the write LANDED
+//	Applied         Apply(".../pods/podmaker-proof")     the write LANDED
 //	podmaker-proof  1/1 Running                         the pod came UP
 //	PerseidFailed   unresolved identifier: "Get"        parking FAILED
 //

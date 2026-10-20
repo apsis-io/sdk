@@ -28,7 +28,7 @@ import {
   and,
   ensure,
   computed,
-  create,
+  apply,
   setCondition,
 } from './expr'
 import { type Resume, ResumeNode, quiesce, path, objects } from './perseid'
@@ -232,7 +232,7 @@ export function runtimeGuards(): void {
   // registry by name, with no reference to this module's binding - which is the
   // only way to write the two-instance case inside one instance.
   //
-  // ***IT GOES THROUGH `create`, NOT `ensure`, AND THE FIRST VERSION OF THIS
+  // ***IT GOES THROUGH `apply`, NOT `ensure`, AND THE FIRST VERSION OF THIS
   // TEST USED `ensure` AND THEREFORE MEASURED NOTHING.*** It passed with
   // `Symbol('computed')` put back - checked, which is the only reason this is
   // written correctly now. `ensure` renders a scalar through `valueText`, which
@@ -250,7 +250,7 @@ export function runtimeGuards(): void {
     text: now(),
   } as unknown as ReturnType<typeof computed>
   const withValue = (v: ReturnType<typeof computed>) =>
-    String(create(objects.ns('default').configMap('cfg').with({ data: { mode: v } })))
+    String(apply(objects.ns('default').configMap('cfg').with({ data: { mode: v } })))
   eq(
     withValue(foreign),
     withValue(computed(now())),
@@ -289,11 +289,11 @@ export function runtimeGuards(): void {
 // structured value").
 //
 // `StructValue` is branded, so only a kinded builder can produce one - the same
-// discipline `ApiPath` uses. The raw two-argument `create(path, {...})` let a
+// discipline `ApiPath` uses. The raw two-argument `apply(path, {...})` let a
 // caller pair a Deployment path with a ConfigMap body, misspell a field, or put
 // `data` on a workload; the host refuses some of that and the apiserver the
 // rest, at APPLY time, inside an obligation the ledger has already recorded,
-// with `create` returning nothing to the guest.
+// with `apply` returning nothing to the guest.
 //
 // These are `@ts-expect-error`, so the BUILD is the assertion: if the brand ever
 // stops refusing, tsgo fails on the unused directive rather than passing
@@ -304,16 +304,16 @@ export const _aHandWrittenBodyIsRefused = () => {
   const p = path.ns('default').deployments('api')
 
   // @ts-expect-error a bare object literal is not a StructValue - only a builder makes one
-  create({ path: p, body: { spec: { replicas: 3 } } })
+  apply({ path: p, body: { spec: { replicas: 3 } } })
 
   // @ts-expect-error and neither is an empty one
-  create({ path: p, body: {} })
+  apply({ path: p, body: {} })
 }
 
 // ...and the builder's output IS accepted, or the block above would pass for a
-// `create` that refuses everything.
+// `apply` that refuses everything.
 export const _aBuiltObjectIsAccepted = (): Expr<'effect'> =>
-  create(
+  apply(
     objects.ns('default').deployment('api').spec({
       replicas: 3,
       selector: { app: 'api' },
@@ -323,13 +323,13 @@ export const _aBuiltObjectIsAccepted = (): Expr<'effect'> =>
 
 // ⭐ ***A PATH AND A BODY OF DIFFERENT KINDS DO NOT PAIR.*** The kind is in the
 // brand, so this is a compile error rather than an apiserver rejection at apply
-// time - inside an obligation the ledger has already recorded, with `create`
+// time - inside an obligation the ledger has already recorded, with `apply`
 // returning nothing to the guest by contract.
 export const _kindsDoNotMix = () => {
   const o = objects.ns('default')
 
   // @ts-expect-error a ConfigMap body cannot go to a Deployment path
-  create({ path: o.deployment('api').path, body: o.configMap('cfg').data({ a: 'b' }).body })
+  apply({ path: o.deployment('api').path, body: o.configMap('cfg').data({ a: 'b' }).body })
 }
 
 // ⚠ ***A POD HAS NO BODY BUILDER, AND THE TYPE IS WHERE THAT SHOWS UP.*** The
@@ -349,7 +349,7 @@ export const _aPodPathIsUsableForReads = () =>
 // The untyped escape hatch still goes through the facade, so it is paired and
 // namespaced even though its body is not typed.
 export const _theEscapeHatchIsStillPaired = (): Expr<'effect'> =>
-  create(
+  apply(
     objects
       .ns('default')
       .resource('acme.example', 'v1', 'widgets', 'w1')

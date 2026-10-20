@@ -1,7 +1,7 @@
 // Copyright (C) 2025-2026 Malformed C. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Runtime guards for the TEXT `create` emits - the half `expr.test.ts`
+// Runtime guards for the TEXT `apply` emits - the half `expr.test.ts`
 // deliberately does not cover (that file is type-only, checked by tsc; see its
 // own header). These check the actual STRING content, because the defect this
 // file exists for is invisible to the type checker: an array value typechecks
@@ -9,7 +9,7 @@
 // a JSON array or a JSON object with scrambled keys.
 
 import { expect, test } from 'bun:test'
-import { create, length, listPods, minus, plus, times } from './expr'
+import { apply, length, listPods, minus, plus, times } from './expr'
 import { objects } from './perseid'
 
 // ***THE DEFECT: AN ARRAY VALUE RENDERED AS A SORTED-KEY OBJECT.*** `isStruct`
@@ -23,7 +23,7 @@ import { objects } from './perseid'
 // array-literal rule (internal/aperture/grammar.go, "order is significant")
 // cannot read back as the intended command.
 test('a container command array renders as an array literal, elements in order', () => {
-  const text = String(create(
+  const text = String(apply(
     objects.ns('default').deployment('api').spec({
       replicas: 1,
       selector: { app: 'api' },
@@ -38,7 +38,7 @@ test('a container command array renders as an array literal, elements in order',
 // lexicographic-sort defect reorders '10' and '11' ahead of '2'.
 test('an args array with more than ten elements keeps numeric order', () => {
   const args = Array.from({ length: 12 }, (_, i) => `arg${i}`)
-  const text = String(create(
+  const text = String(apply(
     objects.ns('default').deployment('api').spec({
       replicas: 1,
       selector: { app: 'api' },
@@ -58,7 +58,7 @@ test('an args array with more than ten elements keeps numeric order', () => {
 // object with SORTED keys, exactly as before - the array exclusion must not
 // have disabled struct rendering for everything else.
 test('a struct field with no arrays still renders as a sorted object', () => {
-  const text = String(create(
+  const text = String(apply(
     objects.ns('default').deployment('api').spec({
       replicas: 3,
       selector: { app: 'api' },
@@ -82,7 +82,7 @@ test('a struct field with no arrays still renders as a sorted object', () => {
 // `create` returns nothing to the guest by contract.
 test('a computed replicas count renders as bare expression text, not a quoted literal', () => {
   const count = plus(length(listPods('app=x')), 2)
-  const text = String(create(
+  const text = String(apply(
     objects.ns('default').deployment('api').spec({
       replicas: count,
       selector: { app: 'api' },
@@ -100,7 +100,7 @@ test('a computed replicas count renders as bare expression text, not a quoted li
 // CONTROL: a plain number replicas count is unaffected - it must still render
 // as a bare number, not routed through computed()/wrapped in any way.
 test('a numeric replicas count still renders as a bare number', () => {
-  const text = String(create(
+  const text = String(apply(
     objects.ns('default').deployment('api').spec({
       replicas: 3,
       selector: { app: 'api' },
