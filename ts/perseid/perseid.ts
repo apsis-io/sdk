@@ -430,6 +430,27 @@ export const path = {
         `/apis/apps/v1/namespaces/${NS}/deployments/${N}`
       >,
 
+    /** `/apis/apps/v1/namespaces/NS/daemonsets/NAME` — the per-node workload. */
+    daemonsets: <N extends string>(name: N) =>
+      `/apis/apps/v1/namespaces/${namespace}/daemonsets/${name}` as Canonical<
+        'apiserver-path',
+        `/apis/apps/v1/namespaces/${NS}/daemonsets/${N}`
+      >,
+
+    /** `/apis/apps/v1/namespaces/NS/statefulsets/NAME` — the stable-identity workload. */
+    statefulsets: <N extends string>(name: N) =>
+      `/apis/apps/v1/namespaces/${namespace}/statefulsets/${name}` as Canonical<
+        'apiserver-path',
+        `/apis/apps/v1/namespaces/${NS}/statefulsets/${N}`
+      >,
+
+    /** `/api/v1/namespaces/NS/serviceaccounts/NAME` — the pod identity. */
+    serviceaccounts: <N extends string>(name: N) =>
+      `/api/v1/namespaces/${namespace}/serviceaccounts/${name}` as Canonical<
+        'apiserver-path',
+        `/api/v1/namespaces/${NS}/serviceaccounts/${N}`
+      >,
+
     /** `/api/v1/namespaces/NS/pods/NAME` — the CORE group, so `/api` not `/apis`. */
     pods: <N extends PodName>(name: N) =>
       `/api/v1/namespaces/${namespace}/pods/${name}` as Canonical<
@@ -3324,6 +3345,21 @@ export type DeploymentSpec = {
   containers: Container[]
 }
 
+/** The per-node workload: one pod per node, no replica count to spell. */
+export type DaemonSetSpec = {
+  selector: Record<string, string>
+  containers: Container[]
+}
+
+/** Stable identity: the headless service name rides the spec, so stateful
+ * pods keep their names and their volumes across reschedules. */
+export type StatefulSetSpec = {
+  serviceName: string
+  replicas: number | E.Expr<'int'> | E.Expr<'observed-int'> | E.Expr<'value'>
+  selector: Record<string, string>
+  containers: Container[]
+}
+
 /**
  * The scoping facade: one namespace, stated once.
  *
@@ -3405,6 +3441,38 @@ export const objects = {
             m,
           ),
       }),
+
+      /** `apps/v1 DaemonSet` - the per-node workload. THE ONE THE CILIUM
+       * PURE'S CREATE-ONLY ARM WAS WAITING FOR. */
+      daemonset: <N extends string>(name: N) => ({
+        ...kinded<'daemonsets'>(p.daemonsets(name)),
+        spec: (s: DaemonSetSpec, m?: Meta): KindedObject<'daemonsets'> =>
+          kinded<'daemonsets'>(p.daemonsets(name)).with(
+            { spec: { selector: { matchLabels: { ...s.selector } }, template: podTemplate(s.containers, { labels: s.selector }) } },
+            m,
+          ),
+      }),
+
+      /** `apps/v1 StatefulSet` - stable identity, ordered rollout. */
+      statefulset: <N extends string>(name: N) => ({
+        ...kinded<'statefulsets'>(p.statefulsets(name)),
+        spec: (s: StatefulSetSpec, m?: Meta): KindedObject<'statefulsets'> =>
+          kinded<'statefulsets'>(p.statefulsets(name)).with(
+            {
+              spec: {
+                serviceName: s.serviceName,
+                replicas: typeof s.replicas === 'number' ? s.replicas : E.computed(s.replicas),
+                selector: { matchLabels: { ...s.selector } },
+                template: podTemplate(s.containers, { labels: s.selector }),
+              },
+            },
+            m,
+          ),
+      }),
+
+      /** `core/v1 ServiceAccount` - the pod identity. No typed body: an
+       * identity is its name and its secrets, both manifest-level. */
+      serviceaccount: <N extends string>(name: N) => kinded<'serviceaccounts'>(p.serviceaccounts(name)),
 
       /**
        * ***THE ESCAPE HATCH'S CORE TWIN.*** The grouped hatch below cannot
@@ -3608,6 +3676,14 @@ export type Cause =
    * because nothing timed out, and from `unknown` because nothing failed.
    */
   | 'first-pass'
+  /**
+   * The UNATTRIBUTED re-drive: the pass ran because the world moved and no
+   * nudge source named why. The horizons host's v1 default - first-pass on
+   * the first pass, re-derivation after. The level-triggered program
+   * re-derives from the world either way, so an unattributed wake makes
+   * the REPORT late, never the program wrong.
+   */
+  | 're-derivation'
 
 /**
  * What held at the wake that started this pass.

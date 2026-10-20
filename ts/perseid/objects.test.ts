@@ -91,6 +91,33 @@ export const _specIsTyped = () => {
   NS.service('x').spec({ ports: [{ port: '53' }] })
 }
 
+test('daemonset and statefulset build through the same kinded pairing', () => {
+  expect(String(NS.daemonset('cilium').path)).toBe('/apis/apps/v1/namespaces/default/daemonsets/cilium')
+  expect(String(NS.statefulset('phus').path)).toBe('/apis/apps/v1/namespaces/default/statefulsets/phus')
+  expect(String(NS.serviceaccount('radiant').path)).toBe(
+    '/api/v1/namespaces/default/serviceaccounts/radiant',
+  )
+
+  // DaemonSet: no replica count to spell - selector and template only.
+  const ds = NS.daemonset('cilium').spec({
+    selector: { app: 'cilium' },
+    containers: [{ name: 'agent', image: 'cilium:1' }],
+  })
+  expect(JSON.parse(JSON.stringify(ds.body)).spec.selector).toEqual({ matchLabels: { app: 'cilium' } })
+
+  // StatefulSet: the headless serviceName rides the spec; a bare replicas
+  // number passes through and an expression is wrapped, like the Deployment's.
+  const sts = NS.statefulset('phus').spec({
+    serviceName: 'phus-headless',
+    replicas: 3,
+    selector: { app: 'phus' },
+    containers: [{ name: 'phus', image: 'phus:1' }],
+  })
+  const stsSpec = JSON.parse(JSON.stringify(sts.body)).spec
+  expect(stsSpec.serviceName).toBe('phus-headless')
+  expect(stsSpec.replicas).toBe(3)
+})
+
 test('a portless Service is refused at runtime too - JS callers do not get the types', () => {
   expect(() => NS.service('x').spec({ ports: [] })).toThrow(/no ports is not a Service/)
   expect(() => (NS.service('x').spec as (s: unknown) => unknown)({})).toThrow(/no ports is not a Service/)
