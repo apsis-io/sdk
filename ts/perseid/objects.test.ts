@@ -67,8 +67,10 @@ test("resource('') is refused, not rendered as /apis//v1", () => {
 })
 
 // THE WIRE SHAPE: a kinded object is exactly the pair `CreateArgs` takes -
-// path and body, brand and all, no cast in either direction.
-test('a service object is a create() body with no casts', () => {
+// path and body, brand and all, no cast in either direction. The verb is
+// `apply` since create retired (engi, 2026-10-19); the args type kept its
+// name and the pair is the same wire shape either way.
+test('a service object is an apply() body with no casts', () => {
   const svc = NS.service('acme-dns').spec({
     selector: { app: 'a' },
     ports: [{ port: 53, targetPort: 'dns' }],

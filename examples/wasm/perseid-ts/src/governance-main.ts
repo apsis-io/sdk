@@ -36,6 +36,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { wakeable } from '@apsis-io/perseid/wake.js'
+import { get as hostGet } from 'perseid:reconcile/observe@0.1.0'
 import { status as hostSet, type ConditionStatus as HostCondStatus } from 'perseid:reconcile/status@0.1.0'
 
 import {
@@ -92,6 +93,10 @@ const bindingPath = path.cluster(
  * `Fail`, so its absence is a known value rather than a gap.
  */
 const policyFactsOf = (o: Obs<string>): Obs<PolicyFacts> => {
+  // A conflict's detail is typed by the read it came from; the parsed facts
+  // this function returns never existed, so the retyped conflict carries its
+  // reason and drops the unparseable sources rather than lying about them.
+  if (o.t === 'conflict') return { t: 'conflict', conflict: { reason: o.conflict.reason } }
   if (o.t !== 'known') return o
 
   try {
@@ -104,6 +109,9 @@ const policyFactsOf = (o: Obs<string>): Obs<PolicyFacts> => {
 }
 
 const bindingFactsOf = (o: Obs<string>): Obs<BindingFacts> => {
+  // Same rule as policyFactsOf's conflict arm: the reason travels, the
+  // unparseable sources do not.
+  if (o.t === 'conflict') return { t: 'conflict', conflict: { reason: o.conflict.reason } }
   if (o.t !== 'known') return o
 
   try {

@@ -30,6 +30,7 @@ import {
   unknown,
 } from '@apsis-io/perseid/perseid.js'
 import { type Effs, type FinalizeEffs, janitorStep, janitorFinalize, TARGET, MARKER, WANT } from './janitor.js'
+import { flatten } from './host-convert.js'
 
 /** A Deployment observation, as the host would return it. */
 const dep = (spec: number, ready: number): Obs<string> =>
@@ -55,14 +56,18 @@ function harness(seen: Obs<string>): { acts: string[]; h: Handler<Effs | Finaliz
         const v = typeof args.value === 'string' ? JSON.stringify(args.value) : args.value
         acts.push(`ensure(${args.path},${args.field},${v})`)
       },
-      create: ({ path, body }) => {
+      apply: ({ path, body }) => {
         // Rendered in the obligation's own shape, sorted, so a test reads like
-        // the expression the host will key its ledger on.
-        const fields = [...body]
-          .map((f) => `${f.path}=${String(f.value)}`)
+        // the expression the host will key its ledger on. The body is the
+        // OBJECT (see CreateArgs); the dotted rows are this test's spelling of
+        // it, flattened the same way the host's field list is.
+        const fields = flatten(body)
+          // The flattened value is the WIT variant (`{ tag, val }`); the test
+          // renders the CARRIER, the way the host's ledger would read it.
+          .map((f) => `${f.path}=${String((f.value as { val: unknown }).val)}`)
           .sort()
           .join(',')
-        acts.push(`create(${path},{${fields}})`)
+        acts.push(`apply(${path},{${fields}})`)
       },
       delete: (path) => {
         acts.push(`delete(${path})`)
@@ -189,14 +194,14 @@ export function runtimeGuards(): void {
   // success and the ledger dedups on the obligation's bytes.
   {
     const { acts } = driveStep(dep(WANT, WANT))
-    const created = acts.find((a) => a.startsWith(`create(${MARKER}`))
+    const created = acts.find((a) => a.startsWith(`apply(${MARKER}`))
     if (!created) {
-      throw new Error(`the converged step did not create its marker: ${JSON.stringify(acts)}`)
+      throw new Error(`the converged step did not apply its marker: ${JSON.stringify(acts)}`)
     }
     // The body must carry what the program means, not merely be non-empty.
     for (const want of ['data.owner=janitor', `data.want=${WANT}`, 'metadata.labels.managed-by=perseid']) {
       if (!created.includes(want)) {
-        throw new Error(`the create body is missing ${want}: ${created}`)
+        throw new Error(`the apply body is missing ${want}: ${created}`)
       }
     }
   }

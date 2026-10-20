@@ -89,7 +89,7 @@ import {
   WIT_NETWORK_HTTP,
   WIT_STATUS,
   WIT_DELETE,
-  WIT_CREATE,
+  WIT_APPLY,
   WIT_CARRY,
   WIT_WOKE,
   WIT_TYPES,
@@ -538,10 +538,10 @@ export type _TheShapesOverlap = Assert<
 // one where the other goes routes a read around the bound chosen for it.
 export const _theTwoPathKindsCannotBeSwapped = () => {
   const obs = reconcile.observe<number>()
-  const create = reconcile.create()
+  const apply = reconcile.apply()
 
-  // @ts-expect-error a CLUSTER path cannot be passed to a namespaced create surface
-  create({ path: path.cluster('admissionregistration.k8s.io', 'v1', 'validatingadmissionpolicies', 'p'), body: [] })
+  // @ts-expect-error a CLUSTER path cannot be passed to a namespaced apply surface
+  apply({ path: path.cluster('admissionregistration.k8s.io', 'v1', 'validatingadmissionpolicies', 'p'), body: asBody({}) })
   // @ts-expect-error still not a hand-written string
   obs('/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/p')
 }
@@ -874,8 +874,9 @@ const createStep = defineStep(function* () {
   // typecheck and was the wire defect - it would have reached the apiserver
   // as the body itself. A body outside the kinded builders is BRANDED by
   // `asBody`; an unbranded literal is exactly the lie the brand exists to
-  // refuse.
-  yield* reconcile.create()({ path: _deps, body: asBody({ spec: { replicas: 2 } }) })
+  // refuse. The verb is apply since create retired (engi, 2026-10-19) - the
+  // name createStep stays because the DerivesCapability probes key on it.
+  yield* reconcile.apply()({ path: _deps, body: asBody({ spec: { replicas: 2 } }) })
   return terminate
 })
 const statusStep = defineStep(function* () {
@@ -907,7 +908,7 @@ const _c4: DerivesCapability<typeof enumerateStep, typeof WIT_OBSERVE> = true
 const _c5: DerivesCapability<typeof nowStep, typeof WIT_OBSERVE> = true
 const _c6: DerivesCapability<typeof ensureStep, typeof WIT_ENSURE> = true
 const _c7: DerivesCapability<typeof deleteStep, typeof WIT_DELETE> = true
-const _c8: DerivesCapability<typeof createStep, typeof WIT_CREATE> = true
+const _c8: DerivesCapability<typeof createStep, typeof WIT_APPLY> = true
 const _c9: DerivesCapability<typeof statusStep, typeof WIT_STATUS> = true
 const _c10: DerivesCapability<typeof carryStep, typeof WIT_CARRY> = true
 const _c11: DerivesCapability<typeof heldStep, typeof WIT_WOKE> = true

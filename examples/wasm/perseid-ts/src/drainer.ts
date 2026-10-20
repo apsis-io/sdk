@@ -596,6 +596,19 @@ const step = defineStep(function* () {
 
     return quiesce(clusterRecheck())
   }
+  if (seen.t === 'conflict') {
+    // Duelling writers are also not a state of the node: the drain was not
+    // judged this pass, and the condition is how an operator learns that.
+    yield* report({
+      type: 'Ready',
+      status: 'False',
+      reason: 'NodeUnobservable',
+      message:
+        `reads of ${NODE} conflict; this is a read fault, not a state of the node`,
+    })
+
+    return quiesce(clusterRecheck())
+  }
   if (seen.t === 'absent') {
     // ***A MISSING NODE IS NOT A DRAINED ONE.*** Reporting success here would
     // say "everything is off that machine" about a machine this program cannot
@@ -706,7 +719,7 @@ const step = defineStep(function* () {
   // progress one workload at a time.
   for (const w of WORKLOADS) {
     const have = yield* observe(w.at)
-    if (have.t === 'unknown') return yieldStep
+    if (have.t === 'unknown' || have.t === 'conflict') return yieldStep
     if (have.t === 'absent') continue
     const parsed = workloadOf(have.v)
     if (parsed === null) continue

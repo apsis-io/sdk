@@ -7,8 +7,8 @@ export const PKG_CLUSTER = 'perseid:cluster' as const;
 
 export const GENERATED_INTERFACES = [
   'perseid:network/http@0.1.0',
+  'perseid:reconcile/apply@0.1.0',
   'perseid:reconcile/carry@0.1.0',
-  'perseid:reconcile/create@0.1.0',
   'perseid:reconcile/delete@0.1.0',
   'perseid:reconcile/ensure@0.1.0',
   'perseid:reconcile/observe@0.1.0',
@@ -19,9 +19,9 @@ export const GENERATED_INTERFACES = [
 
 export const GENERATED_FUNCTIONS = [
   'perseid:network/http@0.1.0#fetch',
+  'perseid:reconcile/apply@0.1.0#apply',
   'perseid:reconcile/carry@0.1.0#carry',
   'perseid:reconcile/carry@0.1.0#timer',
-  'perseid:reconcile/create@0.1.0#create',
   'perseid:reconcile/delete@0.1.0#delete',
   'perseid:reconcile/ensure@0.1.0#ensure',
   'perseid:reconcile/observe@0.1.0#count',

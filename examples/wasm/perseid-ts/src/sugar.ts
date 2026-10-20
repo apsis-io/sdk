@@ -126,6 +126,7 @@ const step = defineStep(function* () {
     // is the single most repeated defect in this codebase, and `Obs` is
     // three-valued to stop it.
     unknown: () => yieldStep,
+    conflict: () => yieldStep,
 
     // Clauses are tried in order, and the LAST argument is the required default
     // — so a guarded arm cannot fall through to `undefined`.

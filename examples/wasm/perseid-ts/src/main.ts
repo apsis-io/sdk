@@ -45,6 +45,7 @@ import {
   countNeField,
   untilDrift,
 } from '@apsis-io/perseid/perseid.js'
+import { lower } from './host-convert.js'
 
 // The HOST half of the three capabilities declared in wit/world.wit. Aliased
 // because the effect wrappers below already own the unprefixed names - and the
@@ -184,6 +185,7 @@ const step = defineStep(function* () {
   return yield* match(have, 't', {
     absent: () => terminate,
     unknown: () => yieldStep,
+    conflict: () => yieldStep,
 
     // One annotated clause parameter supplies the variant type for the whole
     // call; `when` cannot infer it from the arms object it is written into.
@@ -333,19 +335,6 @@ const replicasOf = (raw: string): number => {
 // binding that only exists inside a component build, and the SDK is compiled
 // against no world at all. Promoting it would drag that binding into every
 // consumer, including the ones that never write.
-const lower = (value: EnsureValue): HostValue =>
-  // ***DISPATCHES ON `typeof`, BECAUSE `EnsureValue` IS BARE.*** It used to be
-  // a tagged union mirroring the WIT variant - `{text}|{num}|{flag}` - and the
-  // tag bought nothing on this side: TypeScript already has a discriminant, and
-  // THIS function is exactly where the two representations are meant to meet.
-  // The variant's tag is load-bearing on the WIRE, which is what it is built
-  // here for.
-  typeof value === 'number'
-    ? { tag: 'num', val: BigInt(Math.trunc(value)) }
-    : typeof value === 'boolean'
-      ? { tag: 'flag', val: value }
-      : { tag: 'text', val: value }
-
 const hostHandler: Handler<Effs> = {
   // The variant crosses the boundary as `{ tag, val }` (dwarf's binding of
   // WIT's `variant obs`); the SDK's `Obs<T>` is `{ t, v }` with a TYPED value.
@@ -356,7 +345,7 @@ const hostHandler: Handler<Effs> = {
   // unawaited promise yields `undefined`, which falls through to `unknown` - the
   // program observes nothing and yields forever, looking healthy.
   get: async (path) => {
-    const o = await hostGet(path)
+    const o = await hostGet(String(path))
     if (o.tag !== 'known') return o.tag === 'absent' ? absent : unknown
 
     // ***THE HOST HANDS BACK THE WHOLE OBJECT AS JSON NOW, SO THE FIELD IS

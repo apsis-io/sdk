@@ -10,7 +10,8 @@
 // handler - the step, the match, the three-valued arms and every resume builder
 // exercised, with no host anywhere.
 
-import { type Outcome, type Handler, type EnsureValue, runStepAsync, known, absent, unknown } from '@apsis-io/perseid/perseid.js'
+import { type Outcome, type Handler, runStepAsync, known, absent, unknown } from '@apsis-io/perseid/perseid.js'
+import { lower } from './host-convert.js'
 import { type Effs, dagStep, STAGES } from './dag.js'
 
 import { wakeable } from '@apsis-io/perseid/wake.js'
@@ -21,25 +22,12 @@ import { status as hostSet, type ConditionStatus as HostCondStatus } from 'perse
 // The same three-arm lowering as `main.ts` and `janitor-main.ts`: the SDK's
 // `EnsureValue` is a discriminated record, WIT's is a tagged variant, and its
 // `num` arm is an s64 - so the BigInt is the boundary, not decoration.
-const lower = (value: EnsureValue): HostValue =>
-  // ***DISPATCHES ON `typeof`, BECAUSE `EnsureValue` IS BARE.*** It used to be
-  // a tagged union mirroring the WIT variant - `{text}|{num}|{flag}` - and the
-  // tag bought nothing on this side: TypeScript already has a discriminant, and
-  // THIS function is exactly where the two representations are meant to meet.
-  // The variant's tag is load-bearing on the WIRE, which is what it is built
-  // here for.
-  typeof value === 'number'
-    ? { tag: 'num', val: BigInt(Math.trunc(value)) }
-    : typeof value === 'boolean'
-      ? { tag: 'flag', val: value }
-      : { tag: 'text', val: value }
-
 const hostHandler: Handler<Effs> = {
   // ***AWAITED, BECAUSE THE READ IS `async func`.*** Reading `.tag` off the
   // unawaited promise yields `undefined`, which falls through to `unknown` - the
   // program observes nothing and yields forever, looking healthy.
   get: async (path) => {
-    const o = await hostGet(path)
+    const o = await hostGet(String(path))
 
     return o.tag === 'known' ? known(o.val) : o.tag === 'absent' ? absent : unknown
   },

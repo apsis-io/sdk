@@ -239,7 +239,7 @@ export const probeStep = (nowMs: () => number) =>
   defineStep(function* () {
     const seen = yield* observe(SUBJECT)
 
-    if (seen.t === 'unknown') return yieldStep
+    if (seen.t === 'unknown' || seen.t === 'conflict') return yieldStep
 
     if (seen.t === 'absent') {
       // ***THE SUBJECT IS GONE, SO THE MEASUREMENT IS RETIRED - NOT KEPT.***

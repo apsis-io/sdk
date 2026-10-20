@@ -130,7 +130,7 @@ export function decideGovernance(
   // A read that did not resolve is not an absent object. Reporting
   // "not enforced" from an apiserver blip would raise a false alarm about the
   // fleet's authorisation; reporting nothing at all would hide a real one.
-  if (policy.t === 'unknown' || binding.t === 'unknown') {
+  if (policy.t === 'unknown' || binding.t === 'unknown' || policy.t === 'conflict' || binding.t === 'conflict') {
     return {
       verdict: 'unknown',
       reason: `could not read policy ${gp.name} or its binding: the check did not run, ` +
@@ -306,6 +306,10 @@ const observe = reconcile.observe()
  * defines UNSET as `Fail`, so its absence is a known value rather than a gap.
  */
 const policyFactsOf = (o: Obs<string>): Obs<PolicyFacts> => {
+  // A conflict's detail is typed by the read it came from; the parsed facts
+  // this function returns never existed, so the retyped conflict carries its
+  // reason and drops the unparseable sources rather than lying about them.
+  if (o.t === 'conflict') return { t: 'conflict', conflict: { reason: o.conflict.reason } }
   if (o.t !== 'known') return o
 
   try {
@@ -318,6 +322,9 @@ const policyFactsOf = (o: Obs<string>): Obs<PolicyFacts> => {
 }
 
 const bindingFactsOf = (o: Obs<string>): Obs<BindingFacts> => {
+  // Same rule as policyFactsOf's conflict arm: the reason travels, the
+  // unparseable sources do not.
+  if (o.t === 'conflict') return { t: 'conflict', conflict: { reason: o.conflict.reason } }
   if (o.t !== 'known') return o
 
   try {

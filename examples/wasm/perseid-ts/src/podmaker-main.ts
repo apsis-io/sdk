@@ -12,25 +12,13 @@ import {
   type EnsureValue,
   runStepAsync,
 } from '@apsis-io/perseid/perseid.js'
+import { flatten, lower } from './host-convert.js'
 import { type Effs, podmakerStep, POD } from './podmaker.js'
-import { create as hostCreate } from 'perseid:reconcile/create@0.1.0'
-// ***`Value` COMES FROM ensure, NOT create.*** One value type serves every
-// generalized write; create declares it locally and does not re-export it.
+import { apply as hostApply } from 'perseid:reconcile/apply@0.1.0'
+// ***`Value` COMES FROM ensure, NOT apply.*** One value type serves every
+// generalized write; apply declares it locally and does not re-export it.
 import { type Value as HostValue } from 'perseid:reconcile/ensure@0.1.0'
 import { status as hostSet, type ConditionStatus as HostCondStatus } from 'perseid:reconcile/status@0.1.0'
-
-const lower = (value: EnsureValue): HostValue =>
-  // ***DISPATCHES ON `typeof`, BECAUSE `EnsureValue` IS BARE.*** It used to be
-  // a tagged union mirroring the WIT variant - `{text}|{num}|{flag}` - and the
-  // tag bought nothing on this side: TypeScript already has a discriminant, and
-  // THIS function is exactly where the two representations are meant to meet.
-  // The variant's tag is load-bearing on the WIRE, which is what it is built
-  // here for.
-  typeof value === 'number'
-    ? { tag: 'num', val: BigInt(Math.trunc(value)) }
-    : typeof value === 'boolean'
-      ? { tag: 'flag', val: value }
-      : { tag: 'text', val: value }
 
 // ***NO `get` HANDLER, AND THE TYPE SYSTEM IS WHAT SAID SO.*** The step never
 // reads: `objectGone(POD)` is a RESUME expression the HOST evaluates while the
@@ -68,8 +56,7 @@ const lower = (value: EnsureValue): HostValue =>
 // there - so refusing the read was the aperture refusing what the apiserver would
 // serve to this program's own ServiceAccount.
 const hostHandler: Handler<Effs> = {
-  create: ({ path, body }) =>
-    hostCreate(path, body.map((f) => ({ path: f.path, value: lower(f.value) }))),
+  apply: ({ path, body }) => hostApply(path, flatten(body)),
   status: (condition) =>
     hostSet({ ...condition, status: condition.status.toLowerCase() as HostCondStatus }),
 }

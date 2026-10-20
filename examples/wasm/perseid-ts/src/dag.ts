@@ -186,7 +186,7 @@ const step = defineStep(function* () {
     // ***UNKNOWN IS NOT ABSENT AND MUST NOT ADVANCE THE DAG.*** "I could not
     // read it" is a fact about the apiserver, not about the stage. Yielding
     // re-runs the step on the next tick with no park and no claim.
-    if (seen.t === 'unknown') return yieldStep
+    if (seen.t === 'unknown' || seen.t === 'conflict') return yieldStep
 
     const have = workloadOf(seen.v)
 

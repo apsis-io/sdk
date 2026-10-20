@@ -139,8 +139,8 @@ function drive(w: Partial<World> = {}): Run {
       }
       writes.push(`ensure ${String(a.path)} ${String(a.field)}=${String(a.value)}`)
     },
-    create: (a: { path: unknown }) => {
-      writes.push(`create ${String(a.path)}`)
+    apply: (a: { path: unknown }) => {
+      writes.push(`apply ${String(a.path)}`)
     },
     delete: (p: unknown) => {
       writes.push(`delete ${String(p)}`)
@@ -298,7 +298,7 @@ export function runtimeGuards(): void {
   assert(calm.outcome.o === 'quiesce', `a converged pass did not park: ${calm.outcome.o}`)
   assert(calm.condition.status === 'True' && calm.condition.reason === 'TierConverged',
     `a converged pass reported ${String(calm.condition.reason)}`)
-  assert(calm.writes.some((w) => w === `create ${String(STATE.path)}`),
+  assert(calm.writes.some((w) => w === `apply ${String(STATE.path)}`),
     'the stamp was not re-declared on a converged pass')
   assert(calm.writes.some((w) => w.startsWith(`ensure ${String(STATE.path)} `) && w.includes('data.streak=0')),
     `ensure did not carry the reset streak: ${calm.writes.join(' | ')}`)

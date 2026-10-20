@@ -3,7 +3,7 @@
 // program that would be worth deploying rather than a parade of features.
 //
 // `sugar.ts` used to be this file and is now a museum piece: it predates
-// collections, the quantifiers, `watch`, `where`, `carry`, `create`/`delete` and
+// collections, the quantifiers, `watch`, `where`, `carry`, `apply`/`delete` and
 // finalizers, so it demonstrates about a third of the surface. It still
 // typechecks, which is exactly why nobody noticed.
 //
@@ -86,6 +86,7 @@ import {
   anyFieldNe,
   objectGone,
   backstop,
+  asBody,
 } from '@apsis-io/perseid/perseid.js'
 import { match, when } from '@apsis-io/perseid/match.js'
 import {
@@ -107,7 +108,7 @@ import { field, select } from '@apsis-io/perseid/field.js'
 const observe = reconcile.observe<string>()
 const enumerate = reconcile.enumerate<string>()
 const ensure = reconcile.ensure()
-const create = reconcile.create()
+const apply = reconcile.apply()
 const del = reconcile.delete()
 const report = reconcile.status()
 const carry = reconcile.carry()
@@ -306,6 +307,18 @@ const step = defineStep(function* () {
       return false
     },
 
+    // A CONFLICT is also not a verdict: the read landed on duelling writers and
+    // the tier was not judged this pass. The honest report is the same
+    // `Ready=Unknown` the blind read gets - asserting False here would be the
+    // same defect one layer up.
+    conflict: function* () {
+      yield* report(
+        unsure('NodeUnreadable', `conflicting reads for ${NODE_NAME}; the tier was not judged this pass`),
+      )
+
+      return false
+    },
+
     known: when(function* ({ v }: { v: string }) {
       const ready = readyOfNode(v)
       if (ready === true) return true
@@ -399,7 +412,7 @@ const step = defineStep(function* () {
   const runs = drifting ? streakOf(mem) + 1 : 0
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 5. THE STAMP. `create` is re-declared EVERY pass, not once - a total step
+  // 5. THE STAMP. `apply` is re-declared EVERY pass, not once - a total step
   // has no memory, so it re-declares its conclusions and the applier treats
   // AlreadyExists as success. `ensure` with a body then sets several fields on
   // that one object in a single obligation - the merged form (engi, 2026-10-06:
@@ -410,14 +423,14 @@ const step = defineStep(function* () {
   // number here is refused by the apiserver at apply, and no layer between here
   // and it knows the target's schema.
   //
-  yield* create({ path: STATE.path, body: { data: { tier: TIER } } })
+  yield* apply({ path: STATE.path, body: asBody({ data: { tier: TIER } }) })
   // ═══════════════════════════════════════════════════════════════════════════
-  yield* create({
+  yield* apply({
     path: STATE.path,
-    body: {
+    body: asBody({
       data: { tier: TIER },
       metadata: { labels: { 'managed-by': 'perseid' } },
-    },
+    }),
   })
   yield* ensure({
     path: STATE.path,
@@ -487,7 +500,7 @@ const step = defineStep(function* () {
   // it is not a "name the cause" program however much the two branches above
   // look like one.
   if (woke.has(STAMP_GONE)) {
-    yield* create({ path: STATE.path, body: { data: { tier: TIER } } })
+    yield* apply({ path: STATE.path, body: asBody({ data: { tier: TIER } }) })
   }
 
   // ***`backstop()`, NOT `deadline(Date.now() + RECHECK_MS)`.*** The host renders

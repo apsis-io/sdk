@@ -202,6 +202,14 @@ const step = defineStep(function* () {
     return quiesce(anyOf(objectExists(SUBJECT), backstop()))
   }
 
+  if (seen.t === 'conflict') {
+    // Duelling writers are also not a verdict: the subject was not judged this
+    // pass, and `unsure` is what that establishes.
+    yield* report(unsure('ReadFailed', `conflicting reads for ${SUBJECT}`))
+
+    return quiesce(anyOf(objectExists(SUBJECT), backstop()))
+  }
+
   if (seen.t === 'absent') {
     yield* report(unready('SubjectAbsent', `${SUBJECT} does not exist`))
 

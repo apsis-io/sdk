@@ -53,9 +53,10 @@ import {
   anyOf,
   backstop,
   objectGone,
+  asBody,
 } from '@apsis-io/perseid/perseid.js'
 
-const create = reconcile.create()
+const apply = reconcile.apply()
 const report = reconcile.status()
 
 // The pod this program owns. A `const` for the reason every target path in these
@@ -74,25 +75,25 @@ const step = defineStep(function* () {
   // ***DECLARED EVERY PASS, NOT ONCE.*** A total step has no memory. It states
   // what should exist and the applier reconciles; AlreadyExists is success for
   // the same level-triggered reason NotFound is success for a delete.
-  yield* create({
+  yield* apply({
     path: POD,
-    body: [
-      // ⚠ ***BOTH ARE `text`, AND A POD'S SCHEMA IS THE AUTHOR'S TO KNOW.***
-      // janitor.ts pays for this twice - a ConfigMap's `data` is
-      // map[string]string and a Service port is an int32. No layer between here
-      // and the apiserver knows the target's schema, so a wrong variant surfaces
-      // as a logged refusal at apply that re-declares next pass.
-      { path: 'spec.containers[0].name', value: 'proof' },
-      { path: 'spec.containers[0].image', value: 'busybox:1.36' },
-      { path: 'spec.containers[0].command[0]', value: 'sleep' },
-      { path: 'spec.containers[0].command[1]', value: '3600' },
-      // ***RestartPolicy MATTERS FOR A BARE POD.*** The default is Always, which
-      // would restart the container forever after `sleep` exits. This program
-      // owns a pod nothing else manages, so it says what should happen when the
-      // process ends rather than inheriting a Deployment's assumption.
-      { path: 'spec.restartPolicy', value: 'Never' },
-      { path: 'metadata.labels.managed-by', value: 'perseid' },
-    ],
+    body: asBody({
+      spec: {
+        containers: [
+          {
+            name: 'proof',
+            image: 'busybox:1.36',
+            command: ['sleep', '3600'],
+          },
+        ],
+        // ***RestartPolicy MATTERS FOR A BARE POD.*** The default is Always, which
+        // would restart the container forever after `sleep` exits. This program
+        // owns a pod nothing else manages, so it says what should happen when the
+        // process ends rather than inheriting a Deployment's assumption.
+        restartPolicy: 'Never',
+      },
+      metadata: { labels: { 'managed-by': 'perseid' } },
+    }),
   })
 
   yield* report({

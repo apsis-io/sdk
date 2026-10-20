@@ -294,11 +294,11 @@ const unreadable = function* (name: string) {
 const step = defineStep(function* () {
   const stableSeen = yield* observe(STABLE)
   if (stableSeen.t === 'absent') return yield* missing('stable', STABLE)
-  if (stableSeen.t === 'unknown') return yieldStep
+  if (stableSeen.t === 'unknown' || stableSeen.t === 'conflict') return yieldStep
 
   const canarySeen = yield* observe(CANARY)
   if (canarySeen.t === 'absent') return yield* missing('canary', CANARY)
-  if (canarySeen.t === 'unknown') return yieldStep
+  if (canarySeen.t === 'unknown' || canarySeen.t === 'conflict') return yieldStep
 
   const stable = workloadOf(stableSeen.v)
   if (stable === null) return yield* unreadable('stable')

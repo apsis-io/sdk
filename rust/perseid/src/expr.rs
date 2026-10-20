@@ -366,6 +366,10 @@ pub fn after(at_epoch_millis: i64) -> Expr<Bool> {
 ///                place it was needed.
 ///     5  2026-10-10  `Fetch(url)` - the network read, the first symbol outside
 ///                the reconcile package. Minted fingerprint 4dccb6719572428b.
+///     6  2026-10-19  `create` retired, `apply` added (engi: "remove
+///                create") - create-or-update keyed by the body's spec hash:
+///                absent creates, present converges, and a hash that matches
+///                the live object writes nothing.
 /// ```
 ///
 /// ⚠ ***THE HOST AND THIS CONSTANT MUST MOVE TOGETHER, AND THE ORDER IS A TRAP.***
@@ -374,7 +378,7 @@ pub fn after(at_epoch_millis: i64) -> Expr<Bool> {
 /// its tree red until a tagged release carries this value, and releasing this
 /// first means a program built here declares a language the fleet's radiant
 /// refuses. Tag the release and bump the host in the same change.
-pub const LANGUAGE_VERSION: u32 = 5;
+pub const LANGUAGE_VERSION: u32 = 6;
 
 // ---------------------------------------------------------------------------
 // Properties.
@@ -915,7 +919,12 @@ impl PathArg for &Expr<Path> {
     }
 }
 
-/// `Create(path, body) -> effect`. Bring an object into existence.
+/// `Apply(path, body) -> effect`. CREATE OR UPDATE, keyed by the body's spec
+/// hash (engi, 2026-10-19: "remove create"). The host hashes the canonical
+/// body and stamps it as an annotation; an apply whose hash matches the live
+/// object's writes NOTHING. Where `create` refused an existing object and
+/// [`ensure_all`] merges fields, apply owns the whole body: absent creates
+/// it, present converges to it.
 ///
 /// **THE PATH IS THE IDENTITY; THE BODY IS EVERYTHING ELSE.** A canonical path
 /// already carries group, version, resource, namespace and name - every field
@@ -925,12 +934,14 @@ impl PathArg for &Expr<Path> {
 /// `spec.writes` was checked against, and a body that could name a different
 /// object would put it outside the address that was approved.
 ///
-/// **KEYS RENDER SORTED.** The obligation's identity IS its expression text, so
-/// two passes building the same body must produce byte-identical strings or the
-/// ledger sees a new obligation every pass and re-applies it forever.
+/// **KEYS RENDER SORTED - AND THAT IS NOW LOAD-BEARING TWICE.** The
+/// obligation's identity IS its expression text, so two passes building the
+/// same body must produce byte-identical strings or the ledger sees a new
+/// obligation every pass; and the SPEC HASH keys on the same bytes, so an
+/// ordering that varied would hash differently and never converge.
 #[must_use]
-pub fn create(path: impl PathArg, body: &Struct) -> Expr<Effect> {
-    Expr::new(format!("Create({}, {})", path.path_text(), body.render()))
+pub fn apply(path: impl PathArg, body: &Struct) -> Expr<Effect> {
+    Expr::new(format!("Apply({}, {})", path.path_text(), body.render()))
 }
 
 /// `EnsureAll(path, body) -> effect`. SEVERAL fields of one object, ONE apiserver
@@ -940,7 +951,7 @@ pub fn create(path: impl PathArg, body: &Struct) -> Expr<Effect> {
 /// **`ensure` IS ONE FIELD PER OBLIGATION AND OBLIGATIONS APPLY ONE AT A TIME.** A
 /// step writing `data.v` and a `data.t` stamp as two ensures produced a durable
 /// torn pair - 3 of 6 convergences observed with new `v` beside old `t`
-/// (overhead-bench, 2026-09-01). Same body type and renderer as [`create`], so
+/// (overhead-bench, 2026-09-01). Same body type and renderer as [`apply`], so
 /// keys are SORTED: the expression is the ledger identity.
 ///
 /// **`spec.replicas` ON AN apps KIND IS REFUSED BY THE HOST** - it goes through the
@@ -955,7 +966,7 @@ pub fn ensure_all(path: impl PathArg, body: &Struct) -> Expr<Effect> {
     ))
 }
 
-/// A structured value: an object body for [`create`].
+/// A structured value: an object body for [`apply`].
 ///
 /// **A BUILDER RATHER THAN A MAP LITERAL, SO THE RENDERING IS CANONICAL BY
 /// CONSTRUCTION.** Keys are sorted when rendered, not when inserted, so the
@@ -1164,6 +1175,14 @@ mod tests {
         );
         assert_eq!(list_pods("app=api").as_str(), r#"ListPods("app=api")"#);
         assert_eq!(now().as_str(), "Now()");
+        // Apply replaced create (LANGUAGE_VERSION 6, engi 2026-10-19): the
+        // node spells Apply, and the body renders canonical (sorted) because
+        // the spec hash keys on its bytes.
+        let body = Struct::new().set("spec.replicas", "2");
+        assert_eq!(
+            apply(&dep(), &body).as_str(),
+            r#"Apply("/apis/apps/v1/namespaces/default/deployments/api", {"spec.replicas": "2"})"#
+        );
     }
 
     /// ***THE QUANTIFIERS RENDER AS THE HOST'S MEMBER ACCESS, ON A `List`/

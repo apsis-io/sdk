@@ -147,6 +147,11 @@ export const step = defineStep(function* () {
 
     return quiesce(anyOf(INDEX_GONE, backstop()))
   }
+  if (idx.t === 'conflict') {
+    yield* report(unsure('IndexUnreadable', `conflicting reads for ${INDEX}; nothing was judged`))
+
+    return quiesce(anyOf(INDEX_GONE, backstop()))
+  }
   if (idx.t === 'absent') {
     yield* report(unready('IndexAbsent', `${INDEX} does not exist; create it to name subjects`))
 
@@ -163,6 +168,11 @@ export const step = defineStep(function* () {
     const got = yield* readDeployment.get(path.ns(NS).deployments(name))
     if (got.t === 'unknown') {
       found.push(`${name}: unreadable`)
+
+      return
+    }
+    if (got.t === 'conflict') {
+      found.push(`${name}: conflicting reads`)
 
       return
     }

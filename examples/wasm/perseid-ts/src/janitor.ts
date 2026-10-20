@@ -20,7 +20,7 @@
 // ***THE DRAIN IS THE ONLY CLEANUP A GUEST CAN EXPRESS TODAY, AND SAYING SO IS
 // PART OF THE EXAMPLE.*** The guest effect vocabulary is `observe`, `count`,
 // `now`, `scale` and `report` (perseid.ts's `reconcile` namespace) - there is no
-// delete, no ensure and no create. A finalizer therefore cannot remove a
+// delete, no ensure and no apply. A finalizer therefore cannot remove a
 // downstream object; it can scale a workload and it can report. That is a real
 // limit, it is not obvious from the host side where `Delete(...)` obligations
 // exist in the expression language, and a reader who assumes otherwise will
@@ -53,6 +53,7 @@ import {
   backstop,
   cleanupDone,
   retry,
+  asBody,
 } from '@apsis-io/perseid/perseid.js'
 
 const observe = reconcile.observe<string>()
@@ -73,7 +74,7 @@ const ensure = reconcile.ensure()
 // `ensure` these are the whole write vocabulary a guest has as of 2026-08-31;
 // before that a program could scale a workload and report a condition, and
 // nothing else.
-const create = reconcile.create()
+const apply = reconcile.apply()
 const del = reconcile.delete()
 const report = reconcile.status()
 
@@ -150,25 +151,27 @@ const step = defineStep(function* () {
   // re-declares its conclusions and the applier treats AlreadyExists as success.
   // The ledger dedups on the obligation's bytes, which is why the body's key
   // order is a contract rather than a detail.
-  yield* create({
+  yield* apply({
     path: MARKER,
-    body: [
-      { path: 'data.owner', value: 'janitor' },
-      // ⚠ ***A STRING, NOT A NUMBER, AND THE FIRST LIVE RUN PROVED WHY.*** This
-      // was `{ num: WANT }` and the apiserver refused the object: `json: cannot
-      // unmarshal number into Go struct field ConfigMap.data of type string`.
-      // A ConfigMap's `data` is `map[string]string`.
-      //
-      // Nothing upstream could have caught it: the value variant is typed, the
-      // obligation rendered correctly, the aperture parsed and bounded it, and
-      // the write boundary permitted it. The SCHEMA of the target object is
-      // knowledge none of those layers has - which is the honest limit of a
-      // generalized write, and the reason the failure surfaces as a logged
-      // refusal at apply that re-declares next pass rather than as a corrupt
-      // object.
-      { path: 'data.want', value: String(WANT) },
-      { path: 'metadata.labels.managed-by', value: 'perseid' },
-    ],
+    body: asBody({
+      data: {
+        owner: 'janitor',
+        // ⚠ ***A STRING, NOT A NUMBER, AND THE FIRST LIVE RUN PROVED WHY.*** This
+        // was `{ num: WANT }` and the apiserver refused the object: `json: cannot
+        // unmarshal number into Go struct field ConfigMap.data of type string`.
+        // A ConfigMap's `data` is `map[string]string`.
+        //
+        // Nothing upstream could have caught it: the value variant is typed, the
+        // obligation rendered correctly, the aperture parsed and bounded it, and
+        // the write boundary permitted it. The SCHEMA of the target object is
+        // knowledge none of those layers has - which is the honest limit of a
+        // generalized write, and the reason the failure surfaces as a logged
+        // refusal at apply that re-declares next pass rather than as a corrupt
+        // object.
+        want: String(WANT),
+      },
+      metadata: { labels: { 'managed-by': 'perseid' } },
+    }),
   })
 
   // ***AN INDEXED CREATE: `spec.ports[0]` LOWERS TO A NESTED ARRAY.*** The body
@@ -182,13 +185,12 @@ const step = defineStep(function* () {
   // the TARGET's schema is knowledge no layer between here and the apiserver
   // has, so it is the author's to get right, and getting it wrong surfaces as a
   // logged refusal at apply that re-declares next pass.
-  yield* create({
+  yield* apply({
     path: SVC,
-    body: [
-      { path: 'spec.ports[0].port', value: 80 },
-      { path: 'spec.ports[0].name', value: 'http' },
-      { path: 'metadata.labels.managed-by', value: 'perseid' },
-    ],
+    body: asBody({
+      spec: { ports: [{ port: 80, name: 'http' }] },
+      metadata: { labels: { 'managed-by': 'perseid' } },
+    }),
   })
 
   yield* report({
@@ -236,7 +238,7 @@ const finalize = defineFinalize(function* () {
   // could not answer, so concluding "nothing to clean up" would release the
   // object on the strength of a failed read. Retry, and let the deadline bound
   // it - a delayed delete is recoverable and a skipped drain is not.
-  if (seen.t === 'unknown') return retry('cannot read the target workload')
+  if (seen.t === 'unknown' || seen.t === 'conflict') return retry('cannot read the target workload')
 
   const have = workloadOf(seen.v)
   if (have === null) return retry('the target workload could not be parsed')

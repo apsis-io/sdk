@@ -237,8 +237,14 @@ const intText = (v: IntLike): string => (typeof v === 'number' ? String(Math.tru
  *                    kernel effect landed LIVE before the symbol existed, so
  *                    the capability was real while the language could not say
  *                    it. Minted fingerprint 4dccb6719572428b.
+ *     6  2026-10-19  `create` RETIRED, `apply` added (engi: "remove create").
+ *                    Apply is create-or-update keyed by the body's SPEC HASH:
+ *                    absent creates, present converges, and an apply whose
+ *                    hash matches the live object writes nothing - a verb that
+ *                    could only materialise forced programs into the
+ *                    create-only dance the Cilium Pure's header records.
  */
-export const LANGUAGE_VERSION = 5
+export const LANGUAGE_VERSION = 6
 
 // ---------------------------------------------------------------------------
 // Symbols. One per entry in aperture's `signatures` table.

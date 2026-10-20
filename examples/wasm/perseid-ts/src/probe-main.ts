@@ -26,7 +26,7 @@ const hostHandler: Handler<Effs> = {
   // unawaited promise yields `undefined`, which falls through to `unknown` - so
   // the program would observe nothing and yield forever, looking healthy.
   get: async (path) => {
-    const o = await hostGet(path)
+    const o = await hostGet(String(path))
 
     return o.tag === 'known' ? known(o.val) : o.tag === 'absent' ? absent : unknown
   },

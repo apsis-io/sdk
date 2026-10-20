@@ -66,11 +66,11 @@ interface ensure {
   }
 }
 
-/// Create an object the aperture allows.
-interface create {
-  use ensure.{value, field};
+/// Create-or-update, keyed by the body's spec hash (engi, 2026-10-19). The host stamps the body's hash as the `perseid.apsis/hash` annotation and writes NOTHING when the live object's hash already matches - converged. Where create refuses an existing object and ensure merges fields, apply owns the whole body: absent creates, present converges.
+interface apply {
+  use ensure.{value, field, outcome};
 
-  create: func(path: string, body: list<field>);
+  apply: func(path: string, body: list<field>) -> outcome;
 }
 
 /// Remove an object the aperture allows.
@@ -113,6 +113,7 @@ interface woke {
     conflict,
     unknown,
     first-pass,
+    re-derivation,
   }
 
   cause: func() -> wake-cause;
@@ -154,7 +155,7 @@ world perseid {
   import status;
   import ensure;
   import delete;
-  import create;
+  import apply;
   export step;
 }
 

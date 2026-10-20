@@ -12,25 +12,13 @@ import {
   absent,
   unknown,
 } from '@apsis-io/perseid/perseid.js'
+import { lower } from './host-convert.js'
 import { type Effs, drainerStep, NODE } from './drainer.js'
 import { wakeable } from '@apsis-io/perseid/wake.js'
 
 import { get as hostGet } from 'perseid:reconcile/observe@0.1.0'
 import { ensure as hostEnsure, type Value as HostValue } from 'perseid:reconcile/ensure@0.1.0'
 import { status as hostSet, type ConditionStatus as HostCondStatus } from 'perseid:reconcile/status@0.1.0'
-
-const lower = (value: EnsureValue): HostValue =>
-  // ***DISPATCHES ON `typeof`, BECAUSE `EnsureValue` IS BARE.*** It used to be
-  // a tagged union mirroring the WIT variant - `{text}|{num}|{flag}` - and the
-  // tag bought nothing on this side: TypeScript already has a discriminant, and
-  // THIS function is exactly where the two representations are meant to meet.
-  // The variant's tag is load-bearing on the WIRE, which is what it is built
-  // here for.
-  typeof value === 'number'
-    ? { tag: 'num', val: BigInt(Math.trunc(value)) }
-    : typeof value === 'boolean'
-      ? { tag: 'flag', val: value }
-      : { tag: 'text', val: value }
 
 /**
  * ⚠ ***THE DISPATCH THIS PROGRAM NEEDS AND THE OTHER EXAMPLES DO NOT.***

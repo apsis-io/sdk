@@ -14,6 +14,7 @@ import {
   absent,
   unknown,
 } from '@apsis-io/perseid/perseid.js'
+import { lower } from './host-convert.js'
 import { type Effs, canaryStep, STABLE, CANARY, PROBE, TOTAL } from './canary.js'
 import { wakeable } from '@apsis-io/perseid/wake.js'
 
@@ -21,25 +22,12 @@ import { get as hostGet, now as hostNow } from 'perseid:reconcile/observe@0.1.0'
 import { ensure as hostEnsure, type Value as HostValue } from 'perseid:reconcile/ensure@0.1.0'
 import { status as hostSet, type ConditionStatus as HostCondStatus } from 'perseid:reconcile/status@0.1.0'
 
-const lower = (value: EnsureValue): HostValue =>
-  // ***DISPATCHES ON `typeof`, BECAUSE `EnsureValue` IS BARE.*** It used to be
-  // a tagged union mirroring the WIT variant - `{text}|{num}|{flag}` - and the
-  // tag bought nothing on this side: TypeScript already has a discriminant, and
-  // THIS function is exactly where the two representations are meant to meet.
-  // The variant's tag is load-bearing on the WIRE, which is what it is built
-  // here for.
-  typeof value === 'number'
-    ? { tag: 'num', val: BigInt(Math.trunc(value)) }
-    : typeof value === 'boolean'
-      ? { tag: 'flag', val: value }
-      : { tag: 'text', val: value }
-
 const hostHandler: Handler<Effs> = {
   // ***AWAITED, BECAUSE `observe.get` IS `async func`.*** Reading `.tag` off the
   // unawaited promise yields `undefined`, which falls through to `unknown` - so
   // the program would observe nothing and yield forever, looking healthy.
   get: async (path) => {
-    const o = await hostGet(path)
+    const o = await hostGet(String(path))
     return o.tag === 'known' ? known(o.val) : o.tag === 'absent' ? absent : unknown
   },
   ensure: (args) => {

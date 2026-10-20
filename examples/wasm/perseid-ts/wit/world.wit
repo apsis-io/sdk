@@ -92,7 +92,8 @@ world perseid-ts {
 // ***THE IMPORTS WERE "IDENTICAL TO perseid-ts, DELIBERATELY" UNTIL 2026-08-31
 // AND ARE NOT ANY MORE.*** That sentence stood here and stopped being true twice
 // in one day: first when the janitor migrated from the deprecated `workloads` to
-// `ensure`, then when its step gained `create` and its finalizer `delete`.
+// `ensure`, then when its step gained `create` (since retired for `apply`) and
+// its finalizer `delete`.
 //
 // The claim it was making is still worth keeping in its accurate form: being on
 // the deletion path grants nothing extra - a finalizer declares with the same
@@ -100,7 +101,7 @@ world perseid-ts {
 // entrypoint uses, and the world is their UNION.
 // The readiness-gated canary uses the generalized write rather than the
 // deprecated workloads interface, but does not export a finalizer. A separate
-// world keeps its artifact demand exact without forcing create/delete imports or
+// world keeps its artifact demand exact without forcing apply/delete imports or
 // a mandatory finalize export onto it.
 // ***AUTHORED BY memcached-adr, COMMITTED BY coordinator IN e75c8c392 BY
 // ACCIDENT.*** That commit used `git add -A` over this directory and swept this
@@ -171,7 +172,7 @@ world perseid-ts-drainer {
 /// over time needs its previous samples handed back - which is what this import
 /// is (`internal/reconcilehost/carry.go`).
 ///
-/// It writes NOTHING: no `ensure`, no `create`, no `delete`. A probe publishes
+/// It writes NOTHING: no `ensure`, no `apply`, no `delete`. A probe publishes
 /// its measurement on its own `status.carry`, which rides on the outcome and
 /// needs no interface, and a DIFFERENT program acts on it. Keeping the measuring
 /// and the acting in separate programs is engi's shape (2026-09-05: "one perseid
@@ -210,11 +211,11 @@ world perseid-ts-finalizing {
   // its Perseid's `spec.writes`, not its capability list.
   import perseid:reconcile/ensure@0.1.0;
   // ***THE TWO ENTRYPOINTS DEMAND DIFFERENT THINGS, AND THE WORLD IS THEIR
-  // UNION.*** The step creates the object this program owns; the finalizer
+  // UNION.*** The step applies the object this program owns; the finalizer
   // deletes it. Neither demands the other's capability, so a per-entrypoint
   // world check reports each as "declared and never demanded" - which is why
   // derive-wit grew `--world-entrypoints`.
-  import perseid:reconcile/create@0.1.0;
+  import perseid:reconcile/apply@0.1.0;
   import perseid:reconcile/delete@0.1.0;
   import perseid:reconcile/status@0.1.0;
 
@@ -257,7 +258,7 @@ world perseid-ts-finalizing {
 world perseid-ts-podmaker {
   include wasi:cli/command@0.3.0;
 
-  import perseid:reconcile/create@0.1.0;
+  import perseid:reconcile/apply@0.1.0;
   import perseid:reconcile/status@0.1.0;
 
   export perseid:reconcile/step@0.1.0;
@@ -279,7 +280,7 @@ world perseid-ts-podmaker {
 /// dispatched; a world that made `woke` look load-bearing would be describing a
 /// different program.
 ///
-/// ⚠ ***IT WRITES NOTHING - NO `ensure`, NO `create`, NO `delete`.*** A sentinel
+/// ⚠ ***IT WRITES NOTHING - NO `ensure`, NO `apply`, NO `delete`.*** A sentinel
 /// that could act is a different program with a different blast radius, and an
 /// empty write set is what makes that enforceable rather than a convention. Same
 /// argument `perseid-ts-probe` makes one world up.

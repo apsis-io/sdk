@@ -90,12 +90,14 @@ declare module 'perseid:reconcile/delete@0.1.0' {
   export { del as delete }
 }
 
-declare module 'perseid:reconcile/create@0.1.0' {
+declare module 'perseid:reconcile/apply@0.1.0' {
   import type { Value } from 'perseid:reconcile/ensure@0.1.0'
   /** `record field { path: string, value: value }` - a DOTTED path. */
   export type Field = { path: string; value: Value }
-  /** `create: func(path: string, body: list<field>)` */
-  export function create(path: string, body: Field[]): void
+  /** `record outcome { applied: bool }` - the convergence verdict. */
+  export type Outcome = { applied: boolean }
+  /** `apply: func(path: string, body: list<field>) -> outcome` */
+  export function apply(path: string, body: Field[]): Outcome
 }
 
 declare module 'perseid:reconcile/status@0.1.0' {

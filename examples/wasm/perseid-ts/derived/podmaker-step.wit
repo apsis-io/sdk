@@ -3,6 +3,6 @@
 // its inferred Generator yield type. Regenerate with: bun tools/derive-wit.ts src/podmaker.ts step --write
 
 world step-derived {
-  import perseid:reconcile/create@0.1.0;
+  import perseid:reconcile/apply@0.1.0;
   import perseid:reconcile/status@0.1.0;
 }

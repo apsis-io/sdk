@@ -1918,7 +1918,7 @@ export const WIT_STATUS = 'perseid:reconcile/status@0.1.0'
 // today; `scopedEffectFields` is an empty mechanism awaiting a user.
 export const WIT_ENSURE = 'perseid:reconcile/ensure@0.1.0'
 export const WIT_DELETE = 'perseid:reconcile/delete@0.1.0'
-export const WIT_CREATE = 'perseid:reconcile/create@0.1.0'
+export const WIT_APPLY = 'perseid:reconcile/apply@0.1.0'
 // A program's OWN memory, read back. The write half is not an interface at all -
 // it rides on the outcome (see `remember`/`forget`) - and that asymmetry is the
 // design: a call could change what a program remembers and then fail, leaving it
@@ -1983,7 +1983,7 @@ export type KnownWit =
   | typeof WIT_STATUS
   | typeof WIT_ENSURE
   | typeof WIT_DELETE
-  | typeof WIT_CREATE
+  | typeof WIT_APPLY
   | typeof WIT_CARRY
   | typeof WIT_WOKE
   | typeof WIT_NETWORK_HTTP
@@ -2444,25 +2444,26 @@ export const reconcile = {
   delete: () => defineEffect<ApiPath | ClusterPath, void>()(WIT_DELETE, 'delete'),
 
   /**
-   * Create an object.
+   * `apply(kinded.with(body)) -> outcome` - CREATE OR UPDATE, keyed by the
+   * body's SPEC HASH. The host hashes the canonical body and stamps it as an
+   * annotation; an apply whose hash matches the live object's writes NOTHING
+   * (the skipped state, read the same way ensure's is). Where `create`
+   * refused an existing object and `ensure` needs the live copy to merge
+   * fields, apply owns the whole body: absent creates it, present converges
+   * to it - which is why apply REPLACED create (engi, 2026-10-19: "remove
+   * create"): a verb that can only materialise and cannot converge is the
+   * half of apply that forces programs into the create-only dance the
+   * Cilium Pure's header records.
    *
-   * ***THE BODY IS A FLAT LIST OF DOTTED PATHS, AND THAT IS A SECURITY
-   * DECISION.*** A JSON object is already valid struct-literal syntax in the
-   * host's grammar, so the tempting shape is a JSON string passed through — an
-   * injection surface: a body of `{"a":1}, Delete("/…/victim")` yields an
-   * expression that PARSES, as a three-argument Create. It is refused today only
-   * because effect symbols do not resolve in argument position, which is defence
-   * by accident. Every token is rendered by the host from typed data instead.
-   *
-   * ⚠ ***KEYS RENDER SORTED AT EVERY LEVEL.*** The ledger keys on the
-   * obligation's bytes, so a body whose order varied between passes would make
-   * an unchanged Create look new every time — applied forever, retired never.
-   *
-   * ⚠ ***NO ARRAYS: A ConfigMap OR A Secret YES, A Deployment NO.*** The
-   * grammar's `[` is postfix indexing, not an array literal. Measured; the
-   * remedy is the grammar, as it was for booleans.
+   * The body keeps every security decision create's doc carried: it is a
+   * flat structure rendered by the host from typed data - no expression text
+   * in argument position, so a body that parses as a second effect cannot be
+   * spelled - and ⚠ ***KEYS RENDER SORTED AT EVERY LEVEL***, which is now
+   * load-bearing twice: the ledger keys on the obligation's bytes, and the
+   * SPEC HASH keys on them too, so a body whose ordering varied between
+   * passes would hash differently and never converge.
    */
-  create: () => defineEffect<CreateArgs, void>()(WIT_CREATE, 'create'),
+  apply: () => defineEffect<CreateArgs, EnsureApplied>()(WIT_APPLY, 'apply'),
 
 
   /** `workloads.scale(path, replicas)`. Returns nothing on purpose — see the WIT. */

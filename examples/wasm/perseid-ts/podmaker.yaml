@@ -27,7 +27,7 @@ spec:
   # DERIVED FROM THE BUILT COMPONENT, not hand-written: this is its full
   # import closure. `include wasi:cli/command` pulls in most of it.
   imports:
-    - perseid:reconcile/create@0.1.0
+    - perseid:reconcile/apply@0.1.0
     - perseid:reconcile/ensure@0.1.0
     - perseid:reconcile/status@0.1.0
     - wasi:cli/environment@0.2.12
@@ -70,12 +70,12 @@ spec:
     - wasi:sockets/ip-name-lookup@0.3.0
     - wasi:sockets/types@0.3.0
   # ⚠ `ensure` IS GRANTED THOUGH THE PROGRAM NEVER CALLS IT. `interface
-  # create` does `use ensure.{value}` - one value type for every
+  # apply` does `use ensure.{value, field, outcome}` - one value type for every
   # generalized write rather than two variants that must agree - so
-  # importing create transitively imports ensure. The capability gate sees
+  # importing apply transitively imports ensure. The capability gate sees
   # the COMPONENT's imports, not the program's calls.
   capabilities:
-    - perseid:reconcile/create@0.1.0
+    - perseid:reconcile/apply@0.1.0
     - perseid:reconcile/status@0.1.0
     - perseid:reconcile/ensure@0.1.0
     # ⚠ ***NO `observe`, AND THERE WAS ONE HERE FOR ABOUT AN HOUR ON 2026-09-01.***
